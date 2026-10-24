@@ -70,6 +70,9 @@ try {
   await dialog.getByRole('button', { name: 'Crear empleado' }).click();
   await dialog.waitFor({ state: 'detached' });
   await page.getByRole('cell', { name: cashier.email }).waitFor();
+  await page.getByPlaceholder('Buscar por nombre, email o rol').fill('cajero');
+  await page.getByRole('cell', { name: owner.email }).waitFor({ state: 'detached' });
+  await page.getByRole('cell', { name: cashier.email }).waitFor();
   await shot('02-empleados');
   await logout();
 

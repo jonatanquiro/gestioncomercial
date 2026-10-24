@@ -154,10 +154,16 @@ export function EmployeesPage() {
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => http.get<RoleDto[]>('/roles'), enabled: allowed });
   const branches = useQuery({ queryKey: ['branches'], queryFn: () => http.get<BranchDto[]>('/branches'), enabled: allowed });
   const [dialog, setDialog] = useState<EmployeeDto | 'new' | null>(null);
+  const [search, setSearch] = useState('');
 
   if (!allowed) return <Forbidden />;
   const ready = employees.data && roles.data && branches.data;
   const branchName = (id: string) => branches.data?.find((b) => b.id === id)?.name ?? '—';
+  // La lista está acotada por el límite de usuarios del plan, así que se filtra en el navegador.
+  const term = search.trim().toLocaleLowerCase('es-AR');
+  const visible = (employees.data ?? []).filter(
+    (e) => !term || [e.name, e.email, e.roleName].some((v) => v.toLocaleLowerCase('es-AR').includes(term)),
+  );
 
   return (
     <>
@@ -170,13 +176,26 @@ export function EmployeesPage() {
           </Button>
         }
       />
+      {ready && employees.data.length > 0 && (
+        <div className="mb-4">
+          <Input
+            type="search"
+            aria-label="Buscar por nombre, email o rol"
+            placeholder="Buscar por nombre, email o rol"
+            className="sm:w-80"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      )}
       <Card>
         {!ready && !employees.error && <Spinner />}
         {employees.error && <div className="p-4"><Alert>{errorMessage(employees.error)}</Alert></div>}
         {ready && employees.data.length === 0 && <EmptyState>Todavía no hay empleados.</EmptyState>}
-        {ready && employees.data.length > 0 && (
+        {ready && employees.data.length > 0 && visible.length === 0 && <EmptyState>Ningún empleado coincide con la búsqueda.</EmptyState>}
+        {ready && visible.length > 0 && (
           <Table head={<><Th>Nombre</Th><Th>Rol</Th><Th>Sucursales</Th><Th>Estado</Th><Th className="text-right">Acciones</Th></>}>
-            {employees.data.map((e) => (
+            {visible.map((e) => (
               <tr key={e.membershipId}>
                 <Td>
                   <div className="font-medium">{e.name}</div>
