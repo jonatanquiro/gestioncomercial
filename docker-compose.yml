@@ -1,0 +1,56 @@
+# Entorno local completo: PostgreSQL, Mailpit (correo de prueba), migraciones y la aplicación.
+# Uso: cp .env.example .env  (y completar APP_ENCRYPTION_KEY)  →  docker compose up --build
+# Para desarrollar con recarga en caliente: docker compose up db mailpit  +  pnpm dev:api / pnpm dev:web
+name: gestioncomercial
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gestioncomercial"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+
+  migrate:
+    build: .
+    command: ["node", "dist/scripts/migrate.js"]
+    environment:
+      DATABASE_MIGRATION_URL: postgres://gc_owner:${GC_OWNER_PASSWORD:-gc_owner}@db:5432/gestioncomercial
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://gc_app:${GC_APP_PASSWORD:-gc_app}@db:5432/gestioncomercial
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?Definí APP_ENCRYPTION_KEY en .env (ver .env.example)}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SMTP_URL: smtp://mailpit:1025
+      MAIL_FROM: ${MAIL_FROM:-Gestión Comercial <no-responder@localhost>}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+volumes:
+  db-data:

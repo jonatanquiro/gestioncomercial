@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Solo para CI: bases efímeras de los servicios de cada job. No son credenciales reales.
+  PGPASSWORD: postgres
+
+jobs:
+  verificar:
+    name: Compilar, tipos y pruebas
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Crear roles y bases
+        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
+      - run: pnpm build
+      - run: pnpm typecheck
+      - name: Pruebas (unitarias, integración y aislamiento entre comercios)
+        run: pnpm test
+
+  e2e:
+    name: Prueba E2E en navegador
+    runs-on: ubuntu-latest
+    needs: verificar
+    env:
+      DATABASE_URL: postgres://gc_app:gc_app@localhost:5432/gestioncomercial
+      DATABASE_MIGRATION_URL: postgres://gc_owner:gc_owner@localhost:5432/gestioncomercial
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ["1025:1025", "8025:8025"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
+      - run: pnpm build
+      - name: Clave efímera
+        run: |
+          KEY=$(openssl rand -base64 32)
+          echo "::add-mask::$KEY"
+          echo "APP_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
+      - run: pnpm --filter @gc/api db:migrate:prod
+      - name: Administrador de plataforma efímero
+        working-directory: apps/api
+        run: |
+          PASS="E2e-$(openssl rand -hex 12)"
+          echo "::add-mask::$PASS"
+          OUT=$(PLATFORM_ADMIN_PASSWORD="$PASS" node dist/scripts/create-platform-admin.js admin-ci@example.com "Admin CI")
+          SECRET=$(echo "$OUT" | sed -n 's/^Clave manual: //p')
+          echo "::add-mask::$SECRET"
+          {
+            echo "E2E_PLATFORM_EMAIL=admin-ci@example.com"
+            echo "E2E_PLATFORM_PASSWORD=$PASS"
+            echo "E2E_PLATFORM_TOTP_SECRET=$SECRET"
+          } >> "$GITHUB_ENV"
+      - name: Levantar la aplicación
+        working-directory: apps/api
+        env:
+          WEB_DIST_DIR: ../web/dist
+          APP_URL: http://localhost:3000
+          SMTP_URL: smtp://localhost:1025
+          LOG_LEVEL: warn
+        run: |
+          nohup node dist/main.js > ../../api.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health && exit 0; sleep 1; done
+          cat ../../api.log; exit 1
+      - name: E2E
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          E2E_MAILPIT_URL: http://localhost:8025
+          E2E_SCREENSHOTS_DIR: e2e-screenshots
+        run: pnpm e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-evidencia
+          path: |
+            e2e-screenshots
+            api.log
+
+  imagen:
+    name: Imagen Docker
+    runs-on: ubuntu-latest
+    needs: verificar
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
