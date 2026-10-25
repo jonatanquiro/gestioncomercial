@@ -49,3 +49,22 @@ export function variationPercent(oldPrice: DecimalInput, newPrice: DecimalInput)
   if (o.isZero()) throw new Error('Precio anterior cero: la variación no está definida');
   return dec(newPrice).minus(o).div(o).times(100).toDecimalPlaces(2).toFixed(2);
 }
+
+/**
+ * Importes de una línea de venta: bruto = cantidad × precio (redondeado), descuento sobre el
+ * bruto (redondeado) y total = bruto − descuento. El total de la venta es la suma de líneas.
+ */
+export function saleLine(quantity: DecimalInput, unitPrice: DecimalInput, discountPercent: DecimalInput = '0') {
+  const gross = roundMoney(dec(quantity).times(dec(unitPrice)));
+  const discount = roundMoney(dec(gross).times(dec(discountPercent)).div(100));
+  return { gross, discount, total: roundMoney(dec(gross).minus(dec(discount))) };
+}
+
+export const lineGross = (quantity: DecimalInput, unitPrice: DecimalInput) => saleLine(quantity, unitPrice).gross;
+export const lineDiscount = (quantity: DecimalInput, unitPrice: DecimalInput, discountPercent: DecimalInput) => saleLine(quantity, unitPrice, discountPercent).discount;
+export const lineTotal = (quantity: DecimalInput, unitPrice: DecimalInput, discountPercent: DecimalInput) => saleLine(quantity, unitPrice, discountPercent).total;
+
+/** Parte proporcional de un importe al devolver una cantidad: importe × devuelta / vendida. */
+export function proportionalAmount(amount: DecimalInput, part: DecimalInput, whole: DecimalInput): string {
+  return roundMoney(dec(amount).times(dec(part)).div(dec(whole)));
+}

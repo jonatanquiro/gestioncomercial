@@ -36,6 +36,19 @@ const ACTION_LABELS: Record<string, string> = {
   'stock_count.closed': 'Cierre de inventario físico',
   'stock_count.cancelled': 'Cancelación de inventario físico',
   'prices.bulk_updated': 'Cambio masivo de precios',
+  'sale.created': 'Venta',
+  'sale.voided': 'Anulación de venta',
+  'sale.returned': 'Devolución de venta',
+  'cash.opened': 'Apertura de caja',
+  'cash.closed': 'Cierre de caja',
+  'cash.counted': 'Arqueo de caja',
+  'cash.withdrawal': 'Retiro de efectivo',
+  'cash.deposit': 'Ingreso de efectivo',
+  'register.created': 'Alta de caja',
+  'register.updated': 'Cambio de caja',
+  'payment_method.created': 'Alta de medio de pago',
+  'payment_method.updated': 'Cambio de medio de pago',
+  'membership.pin_changed': 'Cambio de PIN de autorización',
 };
 
 const ENTITY_OPTIONS = [
@@ -50,6 +63,10 @@ const ENTITY_OPTIONS = [
   ['warehouse', 'Stock'],
   ['stock_count', 'Inventario físico'],
   ['price_change_batch', 'Cambios de precios'],
+  ['sale', 'Ventas'],
+  ['cash_shift', 'Caja'],
+  ['register', 'Cajas'],
+  ['payment_method', 'Medios de pago'],
 ] as const;
 
 const PAGE_SIZE = 25;

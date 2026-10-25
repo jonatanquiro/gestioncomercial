@@ -2,22 +2,29 @@
 
 SaaS multiempresa de gestión comercial para comercios minoristas de Argentina: punto de venta, inventario, caja, compras, cuentas corrientes y factura electrónica ARCA, con venta sin conexión (PWA).
 
-El desarrollo avanza por fases. **Estado actual: Fase 3 (productos e inventario), en PHP + MySQL.** Incluye:
+El desarrollo avanza por fases. **Estado actual: Fase 4 (punto de venta y caja), en PHP + MySQL.** Incluye:
 - registro de comercios, sesiones y recuperación de contraseña;
 - sucursales, empleados, roles y permisos;
 - auditoría y aislamiento entre comercios;
 - el panel de la plataforma;
 - productos y servicios con varios códigos de barras y códigos de pack, categorías iniciales según el rubro, marcas e historial de precios y costos;
 - stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
-- cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo.
+- cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo;
+- punto de venta con lector de códigos, descuentos con tope y autorización por PIN, pagos combinados con vuelto y ticket interno de 80 mm;
+- caja por turnos: apertura con fondo, retiros e ingresos, arqueos, cierre ciego con diferencia y totales por medio de pago;
+- historial de ventas con anulación en el turno y devoluciones parciales, con movimientos inversos de stock y caja.
 
-Si ya tenías instalada una versión anterior, después de actualizar el código corré `php artisan migrate`: crea las tablas nuevas y les carga a los comercios existentes las categorías de su rubro.
+Si ya tenías instalada una versión anterior, después de actualizar el código corré `php artisan migrate` (o `iniciar.bat`): crea las tablas nuevas, les carga a los comercios existentes las categorías de su rubro y les crea "Caja 1" en cada sucursal y los medios de pago habituales.
 
 ## Requisitos
 
 - **XAMPP 8.2** (PHP 8.2 + MariaDB), o cualquier PHP 8.2+ con MySQL 8 o MariaDB 10.4+
 - **Composer 2** (https://getcomposer.org)
 - Node.js **no** hace falta para usar el sistema: la web ya viene compilada en `apps/server/public/spa`. Solo se necesita para modificar las pantallas.
+
+## Actualizar y arrancar con un doble clic (Windows)
+
+`iniciar.bat` hace todo solo: baja la última versión desde GitHub (la primera vez clona el repositorio), corre `composer install`, crea `.env` si no existe, actualiza la base con `php artisan migrate` y levanta el sistema en http://localhost:8000 abriendo el navegador. Necesita Git para Windows, Composer y MySQL iniciado en el panel de XAMPP. Se puede dejar dentro de la carpeta del repositorio o en la carpeta que lo contiene (por ejemplo `C:\xampp\htdocs`). Descarta cambios hechos a mano en el código; `.env` no se toca.
 
 ## Instalar en XAMPP (Windows)
 

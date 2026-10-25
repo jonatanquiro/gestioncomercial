@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { passwordSchema, type SessionDto } from '@gc/contracts';
+import { passwordSchema, posPinSchema, type SessionDto } from '@gc/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -65,6 +65,7 @@ export function AccountPage() {
             </Button>
           </form>
         </Card>
+        {me.tenant && <PinCard />}
         <Card>
           <h2 className="p-6 pb-2 font-semibold">Sesiones abiertas</h2>
           {sessions.isLoading && <Spinner />}
@@ -95,5 +96,39 @@ export function AccountPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+/** PIN para autorizar en la caja (anulaciones, devoluciones y descuentos) sin dar la contraseña. */
+function PinCard() {
+  const toast = useToast();
+  const [error, setError] = useState<string | null>(null);
+  const { register, handleSubmit, formState, reset } = useForm<z.input<typeof posPinSchema>>({ resolver: zodResolver(posPinSchema) });
+  const save = useMutation({
+    mutationFn: (v: z.input<typeof posPinSchema>) => http.post('/auth/pos-pin', v),
+    onSuccess: () => {
+      reset();
+      setError(null);
+      toast('PIN guardado');
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+  return (
+    <Card className="p-6">
+      <h2 className="font-semibold">PIN para autorizar en la caja</h2>
+      <p className="mt-1 text-sm text-slate-600">Con el PIN autorizás anulaciones, devoluciones o descuentos desde la caja de otra persona, si tu rol lo permite.</p>
+      <form onSubmit={handleSubmit((v) => save.mutate(v))} className="mt-4 space-y-4" noValidate>
+        {error && <Alert>{error}</Alert>}
+        <Field label="PIN nuevo" error={formState.errors.pin?.message} hint="De 4 a 6 números.">
+          {(p) => <Input {...p} type="password" inputMode="numeric" autoComplete="off" maxLength={6} {...register('pin')} />}
+        </Field>
+        <Field label="Tu contraseña" error={formState.errors.password?.message}>
+          {(p) => <Input {...p} type="password" autoComplete="current-password" {...register('password')} />}
+        </Field>
+        <Button type="submit" loading={save.isPending}>
+          Guardar PIN
+        </Button>
+      </form>
+    </Card>
   );
 }

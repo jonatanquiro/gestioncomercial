@@ -7,6 +7,8 @@ import { LoginPage } from '@/features/auth/login-page';
 import { ForgotPasswordPage, ResetPasswordPage } from '@/features/auth/password-pages';
 import { RegisterPage } from '@/features/auth/register-page';
 import { BranchesPage } from '@/features/branches/branches-page';
+import { CashPage, ShiftPage } from '@/features/cash/cash-page';
+import { CashSetupPage } from '@/features/cash/setup-page';
 import { CategoriesPage } from '@/features/catalog/categories-page';
 import { PricesPage } from '@/features/catalog/prices-page';
 import { ProductsPage } from '@/features/catalog/products-page';
@@ -19,6 +21,8 @@ import { platformMeQuery } from '@/features/platform/platform-session';
 import { PlatformPlansPage } from '@/features/platform/plans-page';
 import { PlatformTenantsPage } from '@/features/platform/tenants-page';
 import { RolesPage } from '@/features/roles/roles-page';
+import { PosPage } from '@/features/sales/pos-page';
+import { SaleDetailPage, SalesPage } from '@/features/sales/sales-page';
 import { SettingsPage } from '@/features/settings/settings-page';
 import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
 import { MovementsPage } from '@/features/stock/movements-page';
@@ -103,6 +107,12 @@ const movementsRoute = createRoute({
 });
 const countsRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios', component: CountsPage });
 const countDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios/$id', component: CountDetailPage });
+const posRoute = createRoute({ getParentRoute: () => appRoute, path: 'vender', component: PosPage });
+const salesRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas', component: SalesPage });
+const saleDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas/$id', component: SaleDetailPage });
+const cashRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja', component: CashPage });
+const shiftRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja/$id', component: ShiftPage });
+const cashSetupRoute = createRoute({ getParentRoute: () => appRoute, path: 'cajas', component: CashSetupPage });
 
 const platformLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/plataforma/login', component: PlatformLoginPage });
 
@@ -127,6 +137,12 @@ const routeTree = rootRoute.addChildren([
   resetRoute,
   appRoute.addChildren([
     appIndexRoute,
+    posRoute,
+    salesRoute,
+    saleDetailRoute,
+    cashRoute,
+    shiftRoute,
+    cashSetupRoute,
     productsRoute,
     categoriesRoute,
     pricesRoute,
