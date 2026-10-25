@@ -186,6 +186,8 @@ export function PlatformTenantsPage() {
     placeholderData: keepPreviousData,
   });
   const pages = query.data ? Math.max(1, Math.ceil(query.data.total / PAGE_SIZE)) : 1;
+  const plans = useQuery({ queryKey: ['platform-plans'], queryFn: () => http.get<PlanDto[]>('/platform/plans') });
+  const planNames = Object.fromEntries((plans.data ?? []).map((p) => [p.code, p.name]));
 
   return (
     <>
@@ -258,7 +260,7 @@ export function PlatformTenantsPage() {
                 </Td>
                 <Td>{BUSINESS_TYPE_NAMES[t.businessTypeCode] ?? t.businessTypeCode}</Td>
                 <Td>
-                  {t.planCode ?? '—'}
+                  {t.planCode ? (planNames[t.planCode] ?? t.planCode) : '—'}
                   {t.trialEndsAt && t.subscriptionStatus === 'trialing' && (
                     <div className="text-xs text-slate-500">Prueba hasta {formatDate(t.trialEndsAt)}</div>
                   )}

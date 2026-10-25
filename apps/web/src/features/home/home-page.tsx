@@ -10,15 +10,16 @@ function Usage({ label, used, limit }: { label: string; used: number; limit?: nu
   const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   return (
     <div>
-      <div className="flex justify-between text-sm">
-        <span className="text-slate-600">{label}</span>
-        <span className="font-medium">
-          {used} {limit !== undefined ? `de ${limit}` : ''}
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm text-slate-600">{label}</span>
+        <span>
+          <span className="text-2xl font-semibold">{used}</span>
+          {limit !== undefined && <span className="text-sm text-slate-500"> de {limit}</span>}
         </span>
       </div>
       {limit !== undefined && (
         <div className="mt-1 h-2 rounded-full bg-slate-100" role="progressbar" aria-valuenow={used} aria-valuemax={limit} aria-label={label}>
-          <div className={`h-2 rounded-full ${pct >= 100 ? 'bg-amber-500' : 'bg-brand-600'}`} style={{ width: `${pct}%` }} />
+          <div className={`h-2 rounded-full ${pct >= 100 ? 'bg-orange-600' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} />
         </div>
       )}
     </div>
@@ -37,22 +38,23 @@ export function HomePage() {
       {tenant.error && <Alert>{errorMessage(tenant.error)}</Alert>}
       {tenant.data && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <Card className="p-6">
-            <h2 className="font-semibold">{tenant.data.tradeName}</h2>
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl bg-slate-900 p-6 text-slate-300">
+            <div className="text-xs font-semibold tracking-wider text-brand-400 uppercase">Tu comercio</div>
+            <h2 className="mt-1 text-2xl font-semibold tracking-tight text-white">{tenant.data.tradeName}</h2>
+            <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
               <dt className="text-slate-500">Estado</dt>
-              <dd>{TENANT_STATUS_LABELS[tenant.data.status] ?? tenant.data.status}</dd>
+              <dd className="text-white">{TENANT_STATUS_LABELS[tenant.data.status] ?? tenant.data.status}</dd>
               <dt className="text-slate-500">CUIT</dt>
-              <dd>{formatCuit(tenant.data.cuit) || 'Sin cargar'}</dd>
+              <dd className="text-white">{formatCuit(tenant.data.cuit) || 'Sin cargar'}</dd>
               <dt className="text-slate-500">Tu rol</dt>
-              <dd>{me.role?.name}</dd>
+              <dd className="text-white">{me.role?.name}</dd>
             </dl>
             {can('settings.manage') && (
-              <Link to="/app/configuracion" className="mt-4 inline-block text-sm text-brand-700 hover:underline">
+              <Link to="/app/configuracion" className="mt-5 inline-block text-sm font-medium text-brand-300 hover:underline">
                 Editar datos del comercio
               </Link>
             )}
-          </Card>
+          </div>
           <Card className="p-6">
             <h2 className="font-semibold">Plan {tenant.data.plan?.name ?? '—'}</h2>
             <div className="mt-4 space-y-4">

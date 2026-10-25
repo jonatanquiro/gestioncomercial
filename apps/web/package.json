@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "5.2.5",
     "@gc/contracts": "workspace:*",
     "@gc/domain": "workspace:*",
     "@hookform/resolvers": "6.0.0",

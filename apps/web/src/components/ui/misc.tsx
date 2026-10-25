@@ -3,14 +3,14 @@ import type { ReactNode } from 'react';
 import { cn } from './cn';
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('rounded-xl border border-slate-200 bg-white shadow-xs', className)}>{children}</div>;
+  return <div className={cn('rounded-xl border border-slate-200 bg-white', className)}>{children}</div>;
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{title}</h1>
         {description && <p className="mt-1 text-sm text-slate-600">{description}</p>}
       </div>
       {actions && <div className="flex gap-2">{actions}</div>}
@@ -37,11 +37,11 @@ export function Badge({ tone = 'slate', children }: { tone?: 'slate' | 'green' |
   const tones = {
     slate: 'bg-slate-100 text-slate-700',
     green: 'bg-emerald-100 text-emerald-800',
-    amber: 'bg-amber-100 text-amber-800',
+    amber: 'bg-orange-100 text-orange-800',
     red: 'bg-red-100 text-red-800',
     brand: 'bg-brand-100 text-brand-800',
   };
-  return <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', tones[tone])}>{children}</span>;
+  return <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold', tones[tone])}>{children}</span>;
 }
 
 export function Spinner({ label = 'Cargando…' }: { label?: string }) {
@@ -62,10 +62,10 @@ export function Table({ head, children }: { head: ReactNode; children: ReactNode
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
-        <thead className="border-b border-slate-200 bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <thead className="border-b border-slate-200 bg-slate-100/70 text-xs font-semibold uppercase tracking-wider text-slate-500">
           <tr>{head}</tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">{children}</tbody>
+        <tbody className="divide-y divide-slate-100 [&>tr:hover]:bg-brand-50/50">{children}</tbody>
       </table>
     </div>
   );
