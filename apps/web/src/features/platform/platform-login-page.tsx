@@ -42,9 +42,6 @@ export function PlatformLoginPage() {
         <Field label="Contraseña" error={formState.errors.password?.message}>
           {(p) => <Input {...p} type="password" autoComplete="current-password" {...register('password')} />}
         </Field>
-        <Field label="Código de verificación" error={formState.errors.totp?.message} hint="Los 6 dígitos de tu app de autenticación.">
-          {(p) => <Input {...p} inputMode="numeric" autoComplete="one-time-code" maxLength={6} {...register('totp')} />}
-        </Field>
         <Button type="submit" className="w-full" loading={formState.isSubmitting}>
           Ingresar
         </Button>

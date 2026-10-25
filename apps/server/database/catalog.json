@@ -1,0 +1,819 @@
+{
+  "permissions": [
+    {
+      "code": "products.read",
+      "module": "Productos",
+      "label": "Consultar productos"
+    },
+    {
+      "code": "products.create",
+      "module": "Productos",
+      "label": "Crear productos"
+    },
+    {
+      "code": "products.update",
+      "module": "Productos",
+      "label": "Modificar productos"
+    },
+    {
+      "code": "products.deactivate",
+      "module": "Productos",
+      "label": "Desactivar productos"
+    },
+    {
+      "code": "products.import",
+      "module": "Productos",
+      "label": "Importar productos"
+    },
+    {
+      "code": "products.export",
+      "module": "Productos",
+      "label": "Exportar productos"
+    },
+    {
+      "code": "costs.read",
+      "module": "Costos y precios",
+      "label": "Consultar costos"
+    },
+    {
+      "code": "costs.update",
+      "module": "Costos y precios",
+      "label": "Modificar costos"
+    },
+    {
+      "code": "prices.update",
+      "module": "Costos y precios",
+      "label": "Modificar precios"
+    },
+    {
+      "code": "prices.bulk_update",
+      "module": "Costos y precios",
+      "label": "Modificar precios masivamente"
+    },
+    {
+      "code": "promotions.manage",
+      "module": "Costos y precios",
+      "label": "Administrar promociones"
+    },
+    {
+      "code": "stock.read",
+      "module": "Inventario",
+      "label": "Consultar stock"
+    },
+    {
+      "code": "stock.adjust",
+      "module": "Inventario",
+      "label": "Ajustar stock"
+    },
+    {
+      "code": "stock.count",
+      "module": "Inventario",
+      "label": "Realizar inventarios físicos"
+    },
+    {
+      "code": "stock.transfer",
+      "module": "Inventario",
+      "label": "Transferir entre sucursales"
+    },
+    {
+      "code": "stock.waste",
+      "module": "Inventario",
+      "label": "Registrar mermas y vencidos"
+    },
+    {
+      "code": "sales.create",
+      "module": "Ventas",
+      "label": "Realizar ventas"
+    },
+    {
+      "code": "sales.discount",
+      "module": "Ventas",
+      "label": "Aplicar descuentos hasta el límite"
+    },
+    {
+      "code": "sales.discount_unlimited",
+      "module": "Ventas",
+      "label": "Aplicar descuentos sin límite"
+    },
+    {
+      "code": "sales.read_own",
+      "module": "Ventas",
+      "label": "Consultar ventas propias"
+    },
+    {
+      "code": "sales.read_all",
+      "module": "Ventas",
+      "label": "Consultar todas las ventas"
+    },
+    {
+      "code": "sales.void",
+      "module": "Ventas",
+      "label": "Anular ventas"
+    },
+    {
+      "code": "sales.return",
+      "module": "Ventas",
+      "label": "Autorizar devoluciones"
+    },
+    {
+      "code": "sales.offline",
+      "module": "Ventas",
+      "label": "Vender sin conexión"
+    },
+    {
+      "code": "cash.open",
+      "module": "Caja",
+      "label": "Abrir caja"
+    },
+    {
+      "code": "cash.close",
+      "module": "Caja",
+      "label": "Cerrar caja"
+    },
+    {
+      "code": "cash.withdraw",
+      "module": "Caja",
+      "label": "Retirar efectivo"
+    },
+    {
+      "code": "cash.deposit",
+      "module": "Caja",
+      "label": "Ingresar efectivo"
+    },
+    {
+      "code": "cash.count",
+      "module": "Caja",
+      "label": "Realizar arqueos"
+    },
+    {
+      "code": "cash.correct_closed",
+      "module": "Caja",
+      "label": "Corregir cierres de caja"
+    },
+    {
+      "code": "cash.read_all",
+      "module": "Caja",
+      "label": "Consultar todas las cajas"
+    },
+    {
+      "code": "suppliers.manage",
+      "module": "Compras",
+      "label": "Administrar proveedores"
+    },
+    {
+      "code": "purchases.create",
+      "module": "Compras",
+      "label": "Registrar compras"
+    },
+    {
+      "code": "purchases.receive",
+      "module": "Compras",
+      "label": "Recibir mercadería"
+    },
+    {
+      "code": "purchases.pay",
+      "module": "Compras",
+      "label": "Pagar a proveedores"
+    },
+    {
+      "code": "customers.manage",
+      "module": "Clientes",
+      "label": "Administrar clientes"
+    },
+    {
+      "code": "accounts.grant_credit",
+      "module": "Clientes",
+      "label": "Otorgar crédito en cuenta corriente"
+    },
+    {
+      "code": "accounts.collect",
+      "module": "Clientes",
+      "label": "Registrar cobros"
+    },
+    {
+      "code": "expenses.create",
+      "module": "Gastos",
+      "label": "Registrar gastos"
+    },
+    {
+      "code": "expenses.read",
+      "module": "Gastos",
+      "label": "Consultar gastos"
+    },
+    {
+      "code": "reports.sales",
+      "module": "Reportes",
+      "label": "Consultar reportes de ventas"
+    },
+    {
+      "code": "reports.profit",
+      "module": "Reportes",
+      "label": "Consultar ganancias y márgenes"
+    },
+    {
+      "code": "reports.cash",
+      "module": "Reportes",
+      "label": "Consultar reportes de caja"
+    },
+    {
+      "code": "reports.export",
+      "module": "Reportes",
+      "label": "Exportar reportes"
+    },
+    {
+      "code": "users.manage",
+      "module": "Administración",
+      "label": "Administrar empleados"
+    },
+    {
+      "code": "roles.manage",
+      "module": "Administración",
+      "label": "Administrar roles y permisos"
+    },
+    {
+      "code": "settings.manage",
+      "module": "Administración",
+      "label": "Configurar el comercio"
+    },
+    {
+      "code": "branches.manage",
+      "module": "Administración",
+      "label": "Administrar sucursales"
+    },
+    {
+      "code": "fiscal.manage",
+      "module": "Administración",
+      "label": "Administrar datos fiscales"
+    },
+    {
+      "code": "subscription.manage",
+      "module": "Administración",
+      "label": "Gestionar la suscripción"
+    },
+    {
+      "code": "audit.read",
+      "module": "Administración",
+      "label": "Consultar auditoría"
+    },
+    {
+      "code": "support.grant",
+      "module": "Administración",
+      "label": "Autorizar acceso de soporte"
+    }
+  ],
+  "roleTemplates": [
+    {
+      "code": "owner",
+      "name": "Propietario",
+      "permissions": [
+        "products.read",
+        "products.create",
+        "products.update",
+        "products.deactivate",
+        "products.import",
+        "products.export",
+        "costs.read",
+        "costs.update",
+        "prices.update",
+        "prices.bulk_update",
+        "promotions.manage",
+        "stock.read",
+        "stock.adjust",
+        "stock.count",
+        "stock.transfer",
+        "stock.waste",
+        "sales.create",
+        "sales.discount",
+        "sales.discount_unlimited",
+        "sales.read_own",
+        "sales.read_all",
+        "sales.void",
+        "sales.return",
+        "sales.offline",
+        "cash.open",
+        "cash.close",
+        "cash.withdraw",
+        "cash.deposit",
+        "cash.count",
+        "cash.correct_closed",
+        "cash.read_all",
+        "suppliers.manage",
+        "purchases.create",
+        "purchases.receive",
+        "purchases.pay",
+        "customers.manage",
+        "accounts.grant_credit",
+        "accounts.collect",
+        "expenses.create",
+        "expenses.read",
+        "reports.sales",
+        "reports.profit",
+        "reports.cash",
+        "reports.export",
+        "users.manage",
+        "roles.manage",
+        "settings.manage",
+        "branches.manage",
+        "fiscal.manage",
+        "subscription.manage",
+        "audit.read",
+        "support.grant"
+      ]
+    },
+    {
+      "code": "admin",
+      "name": "Administrador",
+      "permissions": [
+        "products.read",
+        "products.create",
+        "products.update",
+        "products.deactivate",
+        "products.import",
+        "products.export",
+        "costs.read",
+        "costs.update",
+        "prices.update",
+        "prices.bulk_update",
+        "promotions.manage",
+        "stock.read",
+        "stock.adjust",
+        "stock.count",
+        "stock.transfer",
+        "stock.waste",
+        "sales.create",
+        "sales.discount",
+        "sales.discount_unlimited",
+        "sales.read_own",
+        "sales.read_all",
+        "sales.void",
+        "sales.return",
+        "sales.offline",
+        "cash.open",
+        "cash.close",
+        "cash.withdraw",
+        "cash.deposit",
+        "cash.count",
+        "cash.correct_closed",
+        "cash.read_all",
+        "suppliers.manage",
+        "purchases.create",
+        "purchases.receive",
+        "purchases.pay",
+        "customers.manage",
+        "accounts.grant_credit",
+        "accounts.collect",
+        "expenses.create",
+        "expenses.read",
+        "reports.sales",
+        "reports.profit",
+        "reports.cash",
+        "reports.export",
+        "users.manage",
+        "roles.manage",
+        "settings.manage",
+        "branches.manage",
+        "fiscal.manage",
+        "audit.read",
+        "support.grant"
+      ]
+    },
+    {
+      "code": "manager",
+      "name": "Encargado",
+      "permissions": [
+        "products.read",
+        "products.create",
+        "products.update",
+        "products.deactivate",
+        "products.export",
+        "prices.update",
+        "stock.read",
+        "stock.adjust",
+        "stock.count",
+        "stock.transfer",
+        "stock.waste",
+        "sales.create",
+        "sales.discount",
+        "sales.read_all",
+        "sales.void",
+        "sales.return",
+        "sales.offline",
+        "cash.open",
+        "cash.close",
+        "cash.withdraw",
+        "cash.deposit",
+        "cash.count",
+        "cash.read_all",
+        "purchases.create",
+        "purchases.receive",
+        "suppliers.manage",
+        "customers.manage",
+        "accounts.collect",
+        "expenses.create",
+        "expenses.read",
+        "reports.sales",
+        "reports.cash"
+      ]
+    },
+    {
+      "code": "cashier",
+      "name": "Cajero",
+      "permissions": [
+        "products.read",
+        "stock.read",
+        "sales.create",
+        "sales.discount",
+        "sales.read_own",
+        "sales.offline",
+        "cash.open",
+        "cash.close",
+        "cash.count",
+        "customers.manage",
+        "accounts.collect"
+      ]
+    },
+    {
+      "code": "stocker",
+      "name": "Repositor",
+      "permissions": [
+        "products.read",
+        "products.create",
+        "products.update",
+        "stock.read",
+        "stock.adjust",
+        "stock.count",
+        "stock.waste",
+        "purchases.receive"
+      ]
+    },
+    {
+      "code": "seller",
+      "name": "Vendedor",
+      "permissions": [
+        "products.read",
+        "stock.read",
+        "sales.create",
+        "sales.discount",
+        "sales.read_own",
+        "customers.manage"
+      ]
+    },
+    {
+      "code": "purchasing",
+      "name": "Responsable de compras",
+      "permissions": [
+        "products.read",
+        "products.create",
+        "products.update",
+        "costs.read",
+        "costs.update",
+        "stock.read",
+        "suppliers.manage",
+        "purchases.create",
+        "purchases.receive",
+        "purchases.pay",
+        "expenses.create",
+        "expenses.read"
+      ]
+    },
+    {
+      "code": "accountant",
+      "name": "Contador",
+      "permissions": [
+        "products.read",
+        "costs.read",
+        "stock.read",
+        "sales.read_all",
+        "cash.read_all",
+        "expenses.read",
+        "reports.sales",
+        "reports.profit",
+        "reports.cash",
+        "reports.export",
+        "audit.read"
+      ]
+    }
+  ],
+  "businessTypes": [
+    {
+      "code": "kiosco",
+      "name": "Kiosco",
+      "defaultCategories": [
+        "Golosinas",
+        "Bebidas",
+        "Cigarrillos",
+        "Almacén",
+        "Varios"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "quick_keys",
+        "pack_barcodes"
+      ]
+    },
+    {
+      "code": "almacen",
+      "name": "Almacén o despensa",
+      "defaultCategories": [
+        "Almacén",
+        "Lácteos",
+        "Fiambrería",
+        "Bebidas",
+        "Limpieza",
+        "Perfumería"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit",
+          "weight"
+        ]
+      },
+      "recommendedFeatures": [
+        "weight_sale",
+        "customer_accounts"
+      ]
+    },
+    {
+      "code": "minimercado",
+      "name": "Minimercado",
+      "defaultCategories": [
+        "Almacén",
+        "Lácteos",
+        "Carnes",
+        "Verdulería",
+        "Bebidas",
+        "Limpieza",
+        "Perfumería"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit",
+          "weight"
+        ]
+      },
+      "recommendedFeatures": [
+        "multiple_registers",
+        "promotions",
+        "expirations"
+      ]
+    },
+    {
+      "code": "supermercado",
+      "name": "Supermercado pequeño",
+      "defaultCategories": [
+        "Almacén",
+        "Lácteos",
+        "Carnes",
+        "Verdulería",
+        "Bebidas",
+        "Limpieza",
+        "Perfumería",
+        "Congelados"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit",
+          "weight"
+        ]
+      },
+      "recommendedFeatures": [
+        "multiple_registers",
+        "promotions",
+        "expirations",
+        "supplier_price_lists"
+      ]
+    },
+    {
+      "code": "dietetica",
+      "name": "Dietética",
+      "defaultCategories": [
+        "Granos y semillas",
+        "Frutos secos",
+        "Harinas",
+        "Suplementos",
+        "Sin TACC"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit",
+          "weight"
+        ]
+      },
+      "recommendedFeatures": [
+        "weight_sale",
+        "lots",
+        "unit_conversions"
+      ]
+    },
+    {
+      "code": "ferreteria",
+      "name": "Ferretería",
+      "defaultCategories": [
+        "Herramientas",
+        "Electricidad",
+        "Plomería",
+        "Bulonería",
+        "Pinturería"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": false,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit",
+          "length"
+        ]
+      },
+      "recommendedFeatures": [
+        "unit_conversions",
+        "supplier_price_lists"
+      ]
+    },
+    {
+      "code": "libreria",
+      "name": "Librería y papelería",
+      "defaultCategories": [
+        "Escolar",
+        "Oficina",
+        "Libros",
+        "Regalería"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "variants",
+        "kits"
+      ]
+    },
+    {
+      "code": "ropa",
+      "name": "Tienda de ropa",
+      "defaultCategories": [
+        "Remeras",
+        "Pantalones",
+        "Abrigos",
+        "Accesorios"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": false,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "variants"
+      ]
+    },
+    {
+      "code": "calzado",
+      "name": "Calzado",
+      "defaultCategories": [
+        "Zapatillas",
+        "Zapatos",
+        "Botas",
+        "Sandalias"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": false,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "variants"
+      ]
+    },
+    {
+      "code": "perfumeria",
+      "name": "Perfumería",
+      "defaultCategories": [
+        "Fragancias",
+        "Cosmética",
+        "Higiene"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "variants",
+        "expirations",
+        "promotions"
+      ]
+    },
+    {
+      "code": "regaleria",
+      "name": "Regalería",
+      "defaultCategories": [
+        "Regalos",
+        "Decoración",
+        "Juguetería"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "kits"
+      ]
+    },
+    {
+      "code": "hogar",
+      "name": "Artículos para el hogar",
+      "defaultCategories": [
+        "Bazar",
+        "Decoración",
+        "Textil",
+        "Electrodomésticos"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "kits"
+      ]
+    },
+    {
+      "code": "tecnologia",
+      "name": "Comercio de tecnología",
+      "defaultCategories": [
+        "Celulares",
+        "Accesorios",
+        "Informática",
+        "Audio"
+      ],
+      "defaultSettings": {
+        "allowNegativeStock": false,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": [
+        "serial_numbers"
+      ]
+    },
+    {
+      "code": "otro",
+      "name": "Otro comercio minorista",
+      "defaultCategories": [],
+      "defaultSettings": {
+        "allowNegativeStock": true,
+        "priceRoundingStep": 10,
+        "saleModes": [
+          "unit"
+        ]
+      },
+      "recommendedFeatures": []
+    }
+  ],
+  "taxConditions": [
+    "responsable_inscripto",
+    "monotributo",
+    "exento"
+  ],
+  "planLimitKeys": [
+    "max_branches",
+    "max_users",
+    "max_products",
+    "max_registers"
+  ],
+  "planFeatures": [
+    "multi_branch",
+    "fiscal_arca",
+    "advanced_reports",
+    "offline_pos",
+    "promotions",
+    "variants"
+  ]
+}
