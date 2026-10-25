@@ -1,16 +1,28 @@
-// Prueba de punta a punta del núcleo (Fase 2) contra una instancia real (API + web + PostgreSQL).
-// Uso: E2E_BASE_URL=http://localhost:3000 E2E_PLATFORM_EMAIL=... E2E_PLATFORM_PASSWORD=... E2E_PLATFORM_TOTP_SECRET=... node e2e/nucleo.e2e.mjs
+// Prueba de punta a punta del núcleo (Fase 2) contra una instancia real (Laravel + web compilada + MySQL).
+// Uso: E2E_BASE_URL=http://localhost:8000 E2E_PLATFORM_EMAIL=... E2E_PLATFORM_PASSWORD=... E2E_PLATFORM_TOTP_SECRET=... node e2e/nucleo.e2e.mjs
+// El secreto TOTP es la "Clave manual" que imprime php artisan platform:create-admin.
 // Sin las variables E2E_PLATFORM_* se omite la parte del panel de plataforma; sin E2E_MAILPIT_URL, la recuperación de contraseña.
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
-const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
-const { authenticator } = require('otplib');
+/** Código TOTP (RFC 6238: SHA-1, 6 dígitos, 30 s) a partir de un secreto en base32. */
+function totp(secret, now = Date.now()) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of secret.replace(/=+$/, '').toUpperCase()) bits += alphabet.indexOf(c).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(now / 30000)));
+  const hmac = createHmac('sha1', key).update(counter).digest();
+  const offset = hmac[hmac.length - 1] & 0xf;
+  return String((hmac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
 // Se resuelve como CommonJS: toma la dependencia del repositorio o, si no está, una instalación global vía NODE_PATH.
 const { chromium } = createRequire(import.meta.url)('playwright');
 
-const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:8000';
 const SHOTS = process.env.E2E_SCREENSHOTS_DIR;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const stamp = Date.now();
@@ -126,7 +138,7 @@ try {
     await page.goto(`${BASE}/plataforma/login`);
     await page.getByLabel('Email').fill(pEmail);
     await page.getByLabel('Contraseña').fill(pPassword);
-    await page.getByLabel('Código de verificación').fill(authenticator.generate(pSecret));
+    await page.getByLabel('Código de verificación').fill(totp(pSecret));
     await page.getByRole('button', { name: 'Ingresar' }).click();
     await page.waitForURL(`${BASE}/plataforma`);
     await page.getByPlaceholder('Buscar por nombre o CUIT').fill(tradeName);

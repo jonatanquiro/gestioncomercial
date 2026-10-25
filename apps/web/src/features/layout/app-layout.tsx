@@ -60,7 +60,7 @@ export function AppLayout() {
         aria-label="Navegación principal"
       >
         <div className="flex h-16 items-center gap-2 border-b border-slate-200 px-5">
-          <img src="/icon.svg" alt="" className="size-8" />
+          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-8" />
           <span className="font-semibold">Gestión Comercial</span>
         </div>
         <nav className="space-y-1 p-3">
