@@ -52,7 +52,7 @@ jobs:
           python3 - <<'PY'
           import os, xml.etree.ElementTree as ET
           def esc(t): return t.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          if not os.path.exists("junit.xml"):
+          if not os.path.exists("junit.xml") or os.path.getsize("junit.xml") == 0:
               print("::error title=PHPUnit::No se generó junit.xml (falló antes de correr las pruebas)")
           else:
               for case in ET.parse("junit.xml").iter("testcase"):
