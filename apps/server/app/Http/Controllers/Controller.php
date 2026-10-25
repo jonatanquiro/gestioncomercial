@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Auth\Actor;
 use App\Auth\PlatformActor;
 use App\Support\AppError;
+use App\Support\Input;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -42,7 +43,7 @@ abstract class Controller
     /** @return array{page: int, pageSize: int} */
     protected function pagination(Request $request): array
     {
-        $q = \App\Support\Input::validate($request->query(), [
+        $q = Input::validate($request->query(), [
             'page' => ['nullable', 'integer', 'min:1'],
             'pageSize' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);

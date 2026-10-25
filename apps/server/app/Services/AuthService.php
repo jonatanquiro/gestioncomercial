@@ -14,6 +14,7 @@ use App\Support\AppError;
 use App\Support\Dates;
 use App\Support\Throttle;
 use App\Support\Tokens;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -300,7 +301,7 @@ class AuthService
      * Membresías del propio usuario en comercios no dados de baja. Es el único lugar fuera
      * del panel de plataforma que consulta sin filtro de comercio, y siempre por user_id.
      */
-    private function userMemberships(string $userId): \Illuminate\Database\Eloquent\Builder
+    private function userMemberships(string $userId): Builder
     {
         return Membership::withoutGlobalScope('tenant')
             ->join('tenants', 'tenants.id', '=', 'memberships.tenant_id')

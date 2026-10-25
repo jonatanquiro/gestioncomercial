@@ -7,6 +7,7 @@ use App\Http\Middleware\AuthenticateUser;
 use App\Http\Middleware\RequirePermission;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\VerifyDoubleSubmitCsrf;
+use App\Support\AppError;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -43,5 +44,5 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return null;
         });
-        $exceptions->dontReport([\App\Support\AppError::class]);
+        $exceptions->dontReport([AppError::class]);
     })->create();

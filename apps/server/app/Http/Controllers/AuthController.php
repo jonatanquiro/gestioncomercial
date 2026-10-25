@@ -7,6 +7,7 @@ use App\Auth\Cookies;
 use App\Services\AuthService;
 use App\Support\Catalog;
 use App\Support\Input;
+use App\Support\Tokens;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -127,6 +128,6 @@ class AuthController extends Controller
     {
         return $response
             ->withCookie(Cookies::session(Cookies::SESSION, $token, Cookies::SESSION_MAX_SECONDS))
-            ->withCookie(Cookies::csrf(\App\Support\Tokens::random()));
+            ->withCookie(Cookies::csrf(Tokens::random()));
     }
 }

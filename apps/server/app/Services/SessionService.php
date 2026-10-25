@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\UserSession;
 use App\Support\Tokens;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /** Sesiones de usuarios de comercios: opacas, guardadas como hash y revocables. */
 class SessionService
@@ -72,7 +73,7 @@ class SessionService
             ->update(['revoked_at' => Carbon::now()]);
     }
 
-    /** @return \Illuminate\Support\Collection<int, UserSession> */
+    /** @return Collection<int, UserSession> */
     public function listActive(string $userId)
     {
         $now = Carbon::now();

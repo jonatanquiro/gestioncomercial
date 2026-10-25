@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Auth\Client;
 use App\Models\Branch;
 use App\Models\BusinessType;
 use App\Models\Membership;
@@ -34,7 +35,7 @@ class ProvisioningService
     ) {}
 
     /** @param  array<string, mixed>  $input  datos validados del registro */
-    public function create(string $ownerUserId, string $ownerName, array $input, \App\Auth\Client $client): string
+    public function create(string $ownerUserId, string $ownerName, array $input, Client $client): string
     {
         $businessType = BusinessType::find($input['businessTypeCode']);
         if (! $businessType) {

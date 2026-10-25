@@ -2,11 +2,13 @@
 
 namespace Tests\Support;
 
+use Symfony\Component\HttpFoundation\Cookie;
+
 final class ApiResponse
 {
     /**
      * @param  array<string, list<string|null>>  $headers
-     * @param  list<\Symfony\Component\HttpFoundation\Cookie>  $cookies
+     * @param  list<Cookie>  $cookies
      */
     public function __construct(
         public readonly int $status,

@@ -9,22 +9,47 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # Solo para CI: bases efímeras de los servicios de cada job. No son credenciales reales.
-  PGPASSWORD: postgres
+# MariaDB 10.4 y PHP 8.2 son las versiones que trae XAMPP 8.2: si pasa acá, corre en XAMPP.
+# Las contraseñas de abajo son de bases efímeras de CI, no credenciales reales.
 
 jobs:
-  verificar:
-    name: Compilar, tipos y pruebas
+  php:
+    name: PHP · pruebas contra MariaDB
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:17-alpine
+      mariadb:
+        image: mariadb:10.4
         env:
-          POSTGRES_PASSWORD: postgres
-        ports: ["5432:5432"]
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: gestioncomercial_test
+        ports: ["3306:3306"]
         options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+          --health-cmd "mysqladmin ping -proot" --health-interval 5s --health-timeout 3s --health-retries 30
+    defaults:
+      run:
+        working-directory: apps/server
+    env:
+      DB_HOST: 127.0.0.1
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      DB_TEST_DATABASE: gestioncomercial_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo_mysql, mbstring, intl
+          coverage: none
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - run: cp .env.example .env && php artisan key:generate
+      - name: Estilo (Pint)
+        run: vendor/bin/pint --test
+      - name: Pruebas (registro, aislamiento entre comercios, permisos por ruta, reglas, plataforma)
+        run: php artisan test
+
+  web:
+    name: Web · tipos, pruebas y archivos generados al día
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,33 +58,52 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Crear roles y bases
-        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
-      - run: pnpm build
       - run: pnpm typecheck
-      - name: Pruebas (unitarias, integración y aislamiento entre comercios)
-        run: pnpm test
+      - run: pnpm test
+      - name: El catálogo de Laravel coincide con packages/contracts
+        run: |
+          pnpm catalog
+          git diff --exit-code apps/server/database/catalog.json || (echo "Corré 'pnpm catalog' y commiteá el resultado" && exit 1)
+      - name: La web compilada está al día (XAMPP la usa sin Node)
+        run: |
+          pnpm build
+          if [ -n "$(git status --porcelain apps/server/public/spa)" ]; then
+            git status --porcelain apps/server/public/spa
+            echo "Corré 'pnpm build' y commiteá apps/server/public/spa"; exit 1
+          fi
 
   e2e:
     name: Prueba E2E en navegador
     runs-on: ubuntu-latest
-    needs: verificar
-    env:
-      DATABASE_URL: postgres://gc_app:gc_app@localhost:5432/gestioncomercial
-      DATABASE_MIGRATION_URL: postgres://gc_owner:gc_owner@localhost:5432/gestioncomercial
+    needs: [php, web]
     services:
-      postgres:
-        image: postgres:17-alpine
+      mariadb:
+        image: mariadb:10.4
         env:
-          POSTGRES_PASSWORD: postgres
-        ports: ["5432:5432"]
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: gestioncomercial
+        ports: ["3306:3306"]
         options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 20
+          --health-cmd "mysqladmin ping -proot" --health-interval 5s --health-timeout 3s --health-retries 30
       mailpit:
         image: axllent/mailpit:v1.27
         ports: ["1025:1025", "8025:8025"]
+    env:
+      DB_HOST: 127.0.0.1
+      DB_USERNAME: root
+      DB_PASSWORD: root
+      DB_DATABASE: gestioncomercial
+      MAIL_MAILER: smtp
+      MAIL_HOST: 127.0.0.1
+      MAIL_PORT: "1025"
+      APP_URL: http://localhost:8000
     steps:
       - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo_mysql, mbstring, intl
+          coverage: none
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
@@ -67,21 +111,19 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f infra/postgres/init.sql
-      - run: pnpm build
-      - name: Clave efímera
+      - name: Preparar Laravel
+        working-directory: apps/server
         run: |
-          KEY=$(openssl rand -base64 32)
-          echo "::add-mask::$KEY"
-          echo "APP_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
-      - run: pnpm --filter @gc/api db:migrate:prod
-      - name: Administrador de plataforma efímero
-        working-directory: apps/api
+          composer install --no-interaction --no-progress --prefer-dist
+          cp .env.example .env && php artisan key:generate
+          php artisan migrate --force
+      - name: Operador de plataforma efímero
+        working-directory: apps/server
         run: |
           PASS="E2e-$(openssl rand -hex 12)"
           echo "::add-mask::$PASS"
-          OUT=$(PLATFORM_ADMIN_PASSWORD="$PASS" node dist/scripts/create-platform-admin.js admin-ci@example.com "Admin CI")
-          SECRET=$(echo "$OUT" | sed -n 's/^Clave manual: //p')
+          OUT=$(PLATFORM_ADMIN_PASSWORD="$PASS" php artisan platform:create-admin admin-ci@example.com "Admin CI")
+          SECRET=$(echo "$OUT" | sed -n 's/^ *Clave manual: //p')
           echo "::add-mask::$SECRET"
           {
             echo "E2E_PLATFORM_EMAIL=admin-ci@example.com"
@@ -89,19 +131,14 @@ jobs:
             echo "E2E_PLATFORM_TOTP_SECRET=$SECRET"
           } >> "$GITHUB_ENV"
       - name: Levantar la aplicación
-        working-directory: apps/api
-        env:
-          WEB_DIST_DIR: ../web/dist
-          APP_URL: http://localhost:3000
-          SMTP_URL: smtp://localhost:1025
-          LOG_LEVEL: warn
+        working-directory: apps/server
         run: |
-          nohup node dist/main.js > ../../api.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf http://localhost:3000/api/v1/health && exit 0; sleep 1; done
-          cat ../../api.log; exit 1
+          nohup php artisan serve --port=8000 > ../../server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:8000/api/v1/health && exit 0; sleep 1; done
+          cat ../../server.log; exit 1
       - name: E2E
         env:
-          E2E_BASE_URL: http://localhost:3000
+          E2E_BASE_URL: http://localhost:8000
           E2E_MAILPIT_URL: http://localhost:8025
           E2E_SCREENSHOTS_DIR: e2e-screenshots
         run: pnpm e2e
@@ -111,18 +148,5 @@ jobs:
           name: e2e-evidencia
           path: |
             e2e-screenshots
-            api.log
-
-  imagen:
-    name: Imagen Docker
-    runs-on: ubuntu-latest
-    needs: verificar
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            server.log
+            apps/server/storage/logs

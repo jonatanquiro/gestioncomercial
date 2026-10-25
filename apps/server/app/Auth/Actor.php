@@ -2,6 +2,8 @@
 
 namespace App\Auth;
 
+use App\Support\AppError;
+
 /** Usuario autenticado de un comercio, resuelto en cada request desde su sesión. */
 final class Actor
 {
@@ -47,7 +49,7 @@ final class Actor
             }
         }
         if ($missing !== []) {
-            throw \App\Support\AppError::badRequest('CANNOT_GRANT', 'No podés otorgar permisos que no tenés: '.implode(', ', $missing));
+            throw AppError::badRequest('CANNOT_GRANT', 'No podés otorgar permisos que no tenés: '.implode(', ', $missing));
         }
     }
 }

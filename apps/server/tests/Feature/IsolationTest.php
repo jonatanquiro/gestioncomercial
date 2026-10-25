@@ -192,8 +192,8 @@ class IsolationTest extends TestCase
             if (! $hasId) {
                 continue;
             }
-            $unique = DB::select("SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols FROM information_schema.STATISTICS
-                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND NON_UNIQUE = 0 GROUP BY INDEX_NAME", [$table]);
+            $unique = DB::select('SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND NON_UNIQUE = 0 GROUP BY INDEX_NAME', [$table]);
             $this->assertContains('tenant_id,id', array_column($unique, 'cols'), "{$table} no tiene UNIQUE (tenant_id, id)");
         }
     }
