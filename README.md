@@ -29,6 +29,7 @@ El desarrollo avanza por fases. **Estado actual: Fase 2 (infraestructura y núcl
    ```
 
    `.env.example` ya trae la configuración de XAMPP: usuario `root` sin contraseña. `migrate` crea las tablas y carga permisos, rubros y planes.
+   Si tu MySQL tiene contraseña para `root` (el error dice `Access denied for user 'root'@'localhost' (using password: NO)`), ponela en `DB_PASSWORD` dentro de `.env` y volvé a correr `migrate`. Si ya estaba andando `php artisan serve`, reinicialo.
 
 4. Levantar el sistema:
 
