@@ -49,14 +49,19 @@ jobs:
       - name: Fallas como anotaciones del PR
         if: failure()
         run: |
-          php -r '
-            if (! is_file("junit.xml")) { exit; }
-            $xml = simplexml_load_file("junit.xml");
-            foreach ($xml->xpath("//testcase[failure or error]") as $case) {
-              $node = $case->failure ?: $case->error;
-              $msg = substr(trim((string) $node), 0, 1500);
-              echo "::error title=".$case["class"]."::".$case["name"].": ".str_replace(["%", "\r", "\n"], ["%25", "%0D", "%0A"], $msg)."\n";
-            }'
+          python3 - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          def esc(t): return t.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          if not os.path.exists("junit.xml"):
+              print("::error title=PHPUnit::No se generó junit.xml (falló antes de correr las pruebas)")
+          else:
+              for case in ET.parse("junit.xml").iter("testcase"):
+                  for tag in ("failure", "error"):
+                      node = case.find(tag)
+                      if node is not None:
+                          print(f"::error title={case.get('class')}::{case.get('name')}: {esc((node.text or '').strip()[:1500])}")
+          PY
+          tail -c 3000 storage/logs/laravel.log 2>/dev/null | python3 -c "import sys; t=sys.stdin.read(); print('::error title=laravel.log::' + t.replace('%','%25').replace('\r','%0D').replace('\n','%0A')) if t else None"
 
   web:
     name: Web · tipos, pruebas y archivos generados al día
