@@ -5,6 +5,7 @@ namespace Tests;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Tests\Support\ApiClient;
 
 /**
@@ -96,6 +97,59 @@ abstract class TestCase extends BaseTestCase
             }
         }
         $this->fail("No existe el rol plantilla {$template}");
+    }
+
+    /** Cuerpo válido de alta de producto, con un código de barras único. */
+    protected static function productInput(array $overrides = []): array
+    {
+        self::$seq++;
+
+        return array_merge([
+            'kind' => 'good',
+            'name' => 'Producto '.self::$seq.' '.random_int(0, 999999),
+            'description' => null,
+            'categoryId' => null,
+            'brandId' => null,
+            'saleMode' => 'unit',
+            'vatRate' => '21',
+            'trackStock' => true,
+            'minStock' => null,
+            'blockNegativeStock' => false,
+            'sku' => null,
+            'price' => '1000',
+            'cost' => '600',
+            'barcodes' => [['code' => '779'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT), 'quantityFactor' => '1']],
+            'initialStock' => null,
+        ], $overrides);
+    }
+
+    /** Crea un producto y devuelve su DTO. */
+    protected function createProduct(ApiClient $client, array $overrides = []): array
+    {
+        $res = $client->post('/products', self::productInput($overrides));
+        $this->assertSame(201, $res->status, 'Alta de producto falló: '.json_encode($res->body));
+
+        return $res->body;
+    }
+
+    /** Cuerpo de edición a partir del DTO actual. */
+    protected static function productUpdate(array $dto, array $overrides = []): array
+    {
+        $keys = ['kind', 'name', 'description', 'categoryId', 'brandId', 'saleMode', 'vatRate', 'trackStock', 'minStock', 'blockNegativeStock', 'sku', 'price', 'cost', 'barcodes', 'version'];
+
+        return array_merge(array_intersect_key($dto, array_flip($keys)), $overrides);
+    }
+
+    protected function defaultWarehouse(ApiClient $client): string
+    {
+        $warehouses = $client->get('/warehouses')->body;
+
+        return collect($warehouses)->firstWhere('isDefault', true)['id'];
+    }
+
+    protected static function uuid(): string
+    {
+        return (string) Str::uuid7();
     }
 
     /** CUIT válido aleatorio (prefijo 30) para no chocar entre pruebas. */

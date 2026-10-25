@@ -47,7 +47,14 @@ class IsolationTest extends TestCase
         $this->b = $this->registerTenant(['tradeName' => 'Comercio B']);
         $cashier = $this->roleByTemplate($this->b['client'], 'cashier');
         $emp = $this->addEmployee($this->b['client'], $cashier['id'], $this->b['me']['branchIds']);
-        $this->bIds = ['branch' => $this->b['me']['branchIds'][0], 'role' => $cashier['id'], 'membership' => $emp['membershipId']];
+        $product = $this->createProduct($this->b['client'], ['initialStock' => '10']);
+        $warehouse = $this->defaultWarehouse($this->b['client']);
+        $count = $this->b['client']->post('/stock-counts', ['warehouseId' => $warehouse, 'scope' => 'partial', 'notes' => null]);
+        $this->bIds = [
+            'branch' => $this->b['me']['branchIds'][0], 'role' => $cashier['id'], 'membership' => $emp['membershipId'],
+            'category' => $this->b['client']->get('/categories')->body[0]['id'], 'product' => $product['id'], 'variant' => $product['variantId'],
+            'warehouse' => $warehouse, 'count' => $count->body['id'], 'barcode' => $product['barcodes'][0]['code'],
+        ];
     }
 
     public function test_a_no_ve_datos_de_b_en_los_listados(): void
@@ -57,6 +64,14 @@ class IsolationTest extends TestCase
         $this->assertNotContains($this->bIds['role'], array_column($a->get('/roles')->body, 'id'));
         $this->assertNotContains($this->bIds['membership'], array_column($a->get('/employees')->body, 'membershipId'));
         $this->assertNotContains($this->b['tenantId'], array_column($a->get('/audit?pageSize=100')->body['items'], 'entityId'));
+        $this->assertNotContains($this->bIds['category'], array_column($a->get('/categories')->body, 'id'));
+        $this->assertNotContains($this->bIds['product'], array_column($a->get('/products?status=all&pageSize=100')->body['items'], 'id'));
+        $this->assertNotContains($this->bIds['warehouse'], array_column($a->get('/warehouses')->body, 'id'));
+        $this->assertNotContains($this->bIds['product'], array_column($a->get('/stock?pageSize=100')->body['items'], 'productId'));
+        $this->assertNotContains($this->bIds['variant'], array_column($a->get('/stock/movements?pageSize=100')->body['items'], 'variantId'));
+        $this->assertNotContains($this->bIds['count'], array_column($a->get('/stock-counts')->body, 'id'));
+        $this->assertSame(404, $a->get('/products/lookup?code='.$this->bIds['barcode'])->status);
+        $this->assertSame(404, $a->get('/stock?warehouseId='.$this->bIds['warehouse'])->status);
     }
 
     public function test_cada_ruta_con_identificador_responde_404_ante_un_id_de_otro_comercio(): void
@@ -65,11 +80,20 @@ class IsolationTest extends TestCase
             '/branches/{id}' => ['name' => 'Hackeada', 'address' => null, 'status' => 'active'],
             '/roles/{id}' => ['name' => 'Hackeado', 'permissions' => []],
             '/employees/{membershipId}' => ['roleId' => $this->bIds['role'], 'branchIds' => [$this->bIds['branch']], 'status' => 'inactive'],
+            '/categories/{id}' => ['name' => 'Hackeada', 'status' => 'inactive'],
+            '/products/{id}' => self::productUpdate($this->b['client']->get('/products/'.$this->bIds['product'])->body, ['name' => 'Hackeado']),
+            '/products/{id}/status' => ['status' => 'inactive'],
+            '/stock-counts/{id}/lines' => ['lines' => [['variantId' => $this->bIds['variant'], 'counted' => '0']]],
+            '/stock-counts/{id}/close' => [],
+            '/stock-counts/{id}/cancel' => [],
         ];
         $idFor = fn (string $path) => match (true) {
             str_starts_with($path, '/branches') => $this->bIds['branch'],
             str_starts_with($path, '/roles') => $this->bIds['role'],
             str_starts_with($path, '/employees') => $this->bIds['membership'],
+            str_starts_with($path, '/categories') => $this->bIds['category'],
+            str_starts_with($path, '/products') => $this->bIds['product'],
+            str_starts_with($path, '/stock-counts') => $this->bIds['count'],
             default => null,
         };
         $checked = [];
@@ -89,7 +113,11 @@ class IsolationTest extends TestCase
             $this->assertSame(404, $res->status, "{$r['method']} {$r['path']}: ".json_encode($res->body));
             $checked[] = "{$r['method']} {$r['path']}";
         }
-        foreach (['PUT /branches/{id}', 'PUT /roles/{id}', 'DELETE /roles/{id}', 'PUT /employees/{membershipId}'] as $expected) {
+        foreach ([
+            'PUT /branches/{id}', 'PUT /roles/{id}', 'DELETE /roles/{id}', 'PUT /employees/{membershipId}', 'PUT /categories/{id}',
+            'GET /products/{id}', 'GET /products/{id}/history', 'PUT /products/{id}', 'POST /products/{id}/status',
+            'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
+        ] as $expected) {
             $this->assertContains($expected, $checked);
         }
         // Una ruta nueva con identificador tiene que sumarse acá (las sesiones se prueban abajo).
@@ -97,6 +125,39 @@ class IsolationTest extends TestCase
 
         $branchesB = collect($this->b['client']->get('/branches')->body);
         $this->assertSame('Casa central', $branchesB->firstWhere('id', $this->bIds['branch'])['name']);
+        $productB = $this->b['client']->get('/products/'.$this->bIds['product'])->body;
+        $this->assertSame('active', $productB['status']);
+        $this->assertSame('10.000', $productB['stock']);
+        $this->assertSame('open', $this->b['client']->get('/stock-counts/'.$this->bIds['count'])->body['status']);
+    }
+
+    public function test_no_permite_usar_productos_depositos_ni_categorias_de_otro_comercio(): void
+    {
+        $a = $this->a['client'];
+        $warehouseA = $this->defaultWarehouse($a);
+        $this->assertSame(404, $a->post('/products', self::productInput(['categoryId' => $this->bIds['category']]))->status);
+        $adjust = fn (string $warehouse, string $variant) => $a->post('/stock/adjustments', [
+            'clientUuid' => self::uuid(), 'warehouseId' => $warehouse, 'reason' => 'Cruzado', 'lines' => [['variantId' => $variant, 'mode' => 'delta', 'quantity' => '-5']],
+        ]);
+        $productA = $this->createProduct($a);
+        $this->assertSame(404, $adjust($warehouseA, $this->bIds['variant'])->status);
+        $this->assertSame(404, $adjust($this->bIds['warehouse'], $productA['variantId'])->status);
+        $this->assertSame(404, $a->post('/stock/waste', [
+            'clientUuid' => self::uuid(), 'warehouseId' => $warehouseA, 'reason' => 'Cruzado', 'type' => 'waste', 'lines' => [['variantId' => $this->bIds['variant'], 'quantity' => '1']],
+        ])->status);
+        $this->assertSame(404, $a->post('/stock-counts', ['warehouseId' => $this->bIds['warehouse'], 'scope' => 'partial', 'notes' => null])->status);
+        $count = $a->post('/stock-counts', ['warehouseId' => $warehouseA, 'scope' => 'partial', 'notes' => null])->body;
+        $this->assertSame(404, $a->put("/stock-counts/{$count['id']}/lines", ['lines' => [['variantId' => $this->bIds['variant'], 'counted' => '0']]])->status);
+        $preview = $a->post('/prices/bulk/preview', ['scope' => ['categoryId' => null, 'brandId' => null, 'productIds' => [$this->bIds['product']]], 'rule' => ['kind' => 'percent', 'value' => '50'], 'roundingStep' => 0]);
+        $this->assertSame(200, $preview->status);
+        $this->assertSame([], $preview->body['rows']);
+        $this->assertSame('10.000', $this->b['client']->get('/products/'.$this->bIds['product'])->body['stock']);
+    }
+
+    public function test_el_mismo_codigo_de_barras_puede_existir_en_dos_comercios(): void
+    {
+        $this->createProduct($this->a['client'], ['barcodes' => [['code' => $this->bIds['barcode'], 'quantityFactor' => '1']]]);
+        $this->assertSame(200, $this->a['client']->get('/products/lookup?code='.$this->bIds['barcode'])->status);
     }
 
     public function test_no_permite_referenciar_recursos_de_otro_comercio_dentro_de_un_cuerpo(): void
@@ -137,6 +198,7 @@ class IsolationTest extends TestCase
 
     public function test_sin_contexto_de_comercio_la_consulta_falla_en_lugar_de_devolver_todo(): void
     {
+        $this->app->forgetScopedInstances(); // como al empezar un request nuevo
         $this->expectException(MissingTenantContext::class);
         Branch::count();
     }

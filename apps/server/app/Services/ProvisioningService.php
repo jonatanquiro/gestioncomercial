@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Auth\Client;
 use App\Models\Branch;
 use App\Models\BusinessType;
+use App\Models\Category;
 use App\Models\Membership;
 use App\Models\MembershipBranch;
 use App\Models\Plan;
@@ -71,6 +72,11 @@ class ProvisioningService
 
             $branch = Branch::create(['name' => 'Casa central']);
             Warehouse::create(['branch_id' => $branch->id, 'name' => 'Depósito principal', 'is_default' => true]);
+
+            // Categorías iniciales del rubro (sección 11 del diseño); el comercio las edita después.
+            foreach ($businessType->default_categories as $name) {
+                Category::create(['name' => $name]);
+            }
 
             $ownerRoleId = null;
             $links = [];

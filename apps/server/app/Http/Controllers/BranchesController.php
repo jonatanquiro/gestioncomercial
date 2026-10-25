@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\Warehouse;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
+use App\Services\StockService;
 use App\Support\AppError;
 use App\Support\Dates;
 use App\Support\Input;
@@ -18,6 +19,7 @@ class BranchesController extends Controller
     public function __construct(
         private readonly EntitlementsService $entitlements,
         private readonly AuditService $audit,
+        private readonly StockService $stock,
     ) {}
 
     public function index(): JsonResponse
@@ -38,7 +40,8 @@ class BranchesController extends Controller
             $this->entitlements->lockTenant($actor->tenantId);
             $this->entitlements->assertBelowLimit('max_branches', Branch::where('status', 'active')->count());
             $branch = Branch::create($input);
-            Warehouse::create(['branch_id' => $branch->id, 'name' => 'Depósito principal', 'is_default' => true]);
+            $warehouse = Warehouse::create(['branch_id' => $branch->id, 'name' => 'Depósito principal', 'is_default' => true]);
+            $this->stock->initWarehouse($warehouse->id);
             $this->audit->record([
                 'tenantId' => $actor->tenantId,
                 'actorType' => 'user',

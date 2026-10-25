@@ -3,10 +3,15 @@
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BranchesController;
+use App\Http\Controllers\CategoriesController;
 use App\Http\Controllers\EmployeesController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\PlatformController;
+use App\Http\Controllers\PricesController;
+use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\RolesController;
+use App\Http\Controllers\StockController;
+use App\Http\Controllers\StockCountsController;
 use App\Http\Controllers\TenantController;
 use Illuminate\Support\Facades\Route;
 
@@ -63,6 +68,40 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     });
 
     Route::get('audit', [AuditController::class, 'index'])->middleware('perm:audit.read');
+
+    // Catálogo
+    Route::get('categories', [CategoriesController::class, 'index'])->middleware('perm:products.read');
+    Route::post('categories', [CategoriesController::class, 'store'])->middleware('perm:products.update');
+    Route::put('categories/{id}', [CategoriesController::class, 'update'])->middleware('perm:products.update');
+    Route::get('brands', [CategoriesController::class, 'brands'])->middleware('perm:products.read');
+    Route::post('brands', [CategoriesController::class, 'storeBrand'])->middleware('perm:products.create,products.update');
+
+    Route::get('products', [ProductsController::class, 'index'])->middleware('perm:products.read');
+    Route::get('products/lookup', [ProductsController::class, 'lookup'])->middleware('perm:products.read');
+    Route::post('products', [ProductsController::class, 'store'])->middleware('perm:products.create');
+    Route::get('products/{id}', [ProductsController::class, 'show'])->middleware('perm:products.read');
+    Route::get('products/{id}/history', [ProductsController::class, 'history'])->middleware('perm:products.read');
+    Route::put('products/{id}', [ProductsController::class, 'update'])->middleware('perm:products.update');
+    Route::post('products/{id}/status', [ProductsController::class, 'setStatus'])->middleware('perm:products.deactivate');
+
+    Route::post('prices/bulk/preview', [PricesController::class, 'preview'])->middleware('perm:prices.bulk_update');
+    Route::post('prices/bulk/apply', [PricesController::class, 'apply'])->middleware('perm:prices.bulk_update');
+
+    // Inventario
+    Route::get('warehouses', [StockController::class, 'warehouses'])->middleware('perm:stock.read');
+    Route::get('stock', [StockController::class, 'index'])->middleware('perm:stock.read');
+    Route::get('stock/movements', [StockController::class, 'movements'])->middleware('perm:stock.read');
+    Route::post('stock/adjustments', [StockController::class, 'adjust'])->middleware('perm:stock.adjust');
+    Route::post('stock/waste', [StockController::class, 'waste'])->middleware('perm:stock.waste');
+
+    Route::middleware('perm:stock.count')->group(function () {
+        Route::get('stock-counts', [StockCountsController::class, 'index']);
+        Route::post('stock-counts', [StockCountsController::class, 'store']);
+        Route::get('stock-counts/{id}', [StockCountsController::class, 'show']);
+        Route::put('stock-counts/{id}/lines', [StockCountsController::class, 'lines']);
+        Route::post('stock-counts/{id}/close', [StockCountsController::class, 'close']);
+        Route::post('stock-counts/{id}/cancel', [StockCountsController::class, 'cancel']);
+    });
 });
 
 // ---------------------------------------------------------------- Panel de plataforma
