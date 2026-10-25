@@ -138,6 +138,19 @@ export const setTenantStatusSchema = z.object({
   reason: trimmed(300),
 });
 
+/** Alta manual de un comercio desde la plataforma. El dueño recibe una invitación para elegir su contraseña. */
+export const platformCreateTenantSchema = z.object({
+  tradeName: trimmed(120),
+  legalName: optionalText(160),
+  cuit: cuitSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  taxCondition: taxConditionSchema,
+  businessTypeCode: trimmed(40),
+  planCode: trimmed(40),
+  ownerName: trimmed(120),
+  ownerEmail: emailSchema,
+});
+export type PlatformCreateTenantInput = z.infer<typeof platformCreateTenantSchema>;
+
 export const PLAN_LIMIT_KEYS = ['max_branches', 'max_users', 'max_products', 'max_registers'] as const;
 export const PLAN_FEATURES = ['multi_branch', 'fiscal_arca', 'advanced_reports', 'offline_pos', 'promotions', 'variants'] as const;
 

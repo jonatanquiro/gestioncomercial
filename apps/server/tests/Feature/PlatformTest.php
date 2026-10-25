@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Mail\OwnerInvitationMail;
 use App\Models\PlatformUser;
 use App\Services\PasswordService;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Mail;
 use PragmaRX\Google2FA\Google2FA;
 use Tests\Support\ApiClient;
 use Tests\TestCase;
@@ -134,5 +136,83 @@ class PlatformTest extends TestCase
         preg_match('/Clave manual: ([A-Z2-7]{32})/', $output, $m);
         $res = $this->client()->post('/platform/auth/login', ['email' => $email, 'password' => 'otra-clave-de-operador', 'totp' => (new Google2FA)->getCurrentOtp($m[1])]);
         $this->assertSame(200, $res->status);
+    }
+
+    /** @return array<string, mixed> */
+    private function newTenantInput(array $overrides = []): array
+    {
+        return array_merge([
+            'tradeName' => 'Kiosco dado de alta '.random_int(0, 999999),
+            'taxCondition' => 'monotributo',
+            'businessTypeCode' => 'kiosco',
+            'planCode' => 'profesional',
+            'ownerName' => 'Dueño Invitado',
+            'ownerEmail' => self::uniqueEmail('invitado'),
+        ], $overrides);
+    }
+
+    public function test_da_de_alta_un_comercio_y_el_dueno_entra_con_la_invitacion(): void
+    {
+        $admin = $this->platformLogin();
+        $input = $this->newTenantInput();
+        $res = $admin->post('/platform/tenants', $input);
+        $this->assertSame(201, $res->status, json_encode($res->body));
+        $this->assertTrue($res->body['ownerInvited']);
+        $this->assertTrue($res->body['invitationSent']);
+        $tenantId = $res->body['id'];
+
+        $link = null;
+        Mail::assertSent(OwnerInvitationMail::class, function (OwnerInvitationMail $m) use ($input, &$link) {
+            $link = $m->link;
+
+            return $m->hasTo($input['ownerEmail']) && $m->tradeName === $input['tradeName'];
+        });
+        parse_str((string) parse_url((string) $link, PHP_URL_QUERY), $query);
+
+        // Antes de aceptar la invitación no hay contraseña que sirva.
+        $owner = $this->client();
+        $this->assertSame(401, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $owner->post('/auth/reset-password', ['token' => $query['token'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
+
+        $me = $owner->get('/auth/me')->body;
+        $this->assertSame($tenantId, $me['tenant']['id']);
+        $this->assertSame('Propietario', $me['role']['name']);
+        $this->assertSame(200, $owner->get('/branches')->status);
+
+        $row = collect($admin->get('/platform/tenants?pageSize=100&q='.rawurlencode($input['tradeName']))->body['items'])->firstWhere('id', $tenantId);
+        $this->assertSame('profesional', $row['planCode']);
+        $created = collect($owner->get('/audit?entityType=tenant')->body['items'])->firstWhere('action', 'tenant.created');
+        $this->assertSame('Plataforma: Admin Plataforma', $created['actorName']);
+        $this->assertContains('tenant.created', array_column($admin->get('/platform/audit')->body['items'], 'action'));
+    }
+
+    public function test_si_el_dueno_ya_tiene_cuenta_suma_el_comercio_sin_invitacion(): void
+    {
+        ['client' => $owner, 'input' => $existing] = $this->registerTenant();
+        $admin = $this->platformLogin();
+        $res = $admin->post('/platform/tenants', $this->newTenantInput(['ownerEmail' => strtoupper($existing['email'])]));
+        $this->assertSame(201, $res->status, json_encode($res->body));
+        $this->assertFalse($res->body['ownerInvited']);
+        Mail::assertNotSent(OwnerInvitationMail::class);
+
+        $tenantIds = array_column($owner->get('/auth/me')->body['memberships'], 'tenantId');
+        $this->assertContains($res->body['id'], $tenantIds);
+        $this->assertCount(2, $tenantIds);
+    }
+
+    public function test_valida_el_alta_manual(): void
+    {
+        $admin = $this->platformLogin();
+        $res = $admin->post('/platform/tenants', $this->newTenantInput(['planCode' => 'no-existe', 'ownerEmail' => 'sin-arroba', 'tradeName' => '']));
+        $this->assertSame(400, $res->status);
+        $this->assertEqualsCanonicalizing(['planCode', 'ownerEmail', 'tradeName'], array_column($res->body['details'], 'path'));
+
+        $rubro = $admin->post('/platform/tenants', $this->newTenantInput(['businessTypeCode' => 'nave-espacial']));
+        $this->assertSame('businessTypeCode', $rubro->body['details'][0]['path']);
+
+        // Un usuario de comercio no puede usar la ruta de plataforma.
+        ['client' => $owner] = $this->registerTenant();
+        $this->assertSame(401, $owner->post('/platform/tenants', $this->newTenantInput())->status);
     }
 }

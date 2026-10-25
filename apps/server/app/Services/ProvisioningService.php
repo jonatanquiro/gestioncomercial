@@ -34,15 +34,20 @@ class ProvisioningService
         private readonly AuditService $audit,
     ) {}
 
-    /** @param  array<string, mixed>  $input  datos validados del registro */
-    public function create(string $ownerUserId, string $ownerName, array $input, Client $client): string
+    /**
+     * @param  array<string, mixed>  $input  datos validados del registro (planCode opcional)
+     * @param  array{actorType: string, actorId: string, actorName: string}|null  $by  quién da el alta (por defecto, el propio dueño)
+     */
+    public function create(string $ownerUserId, string $ownerName, array $input, Client $client, ?array $by = null): string
     {
         $businessType = BusinessType::find($input['businessTypeCode']);
         if (! $businessType) {
             throw AppError::validation([['path' => 'businessTypeCode', 'message' => 'Rubro inexistente']]);
         }
-        $plan = Plan::where('code', self::DEFAULT_PLAN_CODE)->first()
-            ?? throw new RuntimeException('No existe el plan '.self::DEFAULT_PLAN_CODE.'; corré las migraciones');
+        $planCode = $input['planCode'] ?? self::DEFAULT_PLAN_CODE;
+        $plan = Plan::where('code', $planCode)->first()
+            ?? throw new RuntimeException("No existe el plan {$planCode}; corré las migraciones");
+        $by ??= ['actorType' => 'user', 'actorId' => $ownerUserId, 'actorName' => $ownerName];
 
         $tenant = Tenant::create([
             'trade_name' => $input['tradeName'],
@@ -57,7 +62,7 @@ class ProvisioningService
             ],
         ]);
 
-        $this->context->run($tenant->id, function () use ($tenant, $plan, $ownerUserId, $ownerName, $businessType, $input, $client) {
+        $this->context->run($tenant->id, function () use ($tenant, $plan, $ownerUserId, $businessType, $input, $client, $by) {
             Subscription::create([
                 'plan_id' => $plan->id,
                 'status' => 'trialing',
@@ -90,9 +95,9 @@ class ProvisioningService
 
             $this->audit->record([
                 'tenantId' => $tenant->id,
-                'actorType' => 'user',
-                'actorId' => $ownerUserId,
-                'actorName' => $ownerName,
+                'actorType' => $by['actorType'],
+                'actorId' => $by['actorId'],
+                'actorName' => $by['actorName'],
                 'action' => 'tenant.created',
                 'entityType' => 'tenant',
                 'entityId' => $tenant->id,

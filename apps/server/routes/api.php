@@ -70,6 +70,7 @@ Route::prefix('platform')->middleware(['csrf.double', 'auth.platform'])->group(f
     Route::post('auth/logout', [PlatformController::class, 'logout']);
     Route::get('auth/me', [PlatformController::class, 'me']);
     Route::get('tenants', [PlatformController::class, 'tenants']);
+    Route::post('tenants', [PlatformController::class, 'createTenant']);
     Route::post('tenants/{id}/status', [PlatformController::class, 'setTenantStatus']);
     Route::get('plans', [PlatformController::class, 'plans']);
     Route::put('plans/{id}', [PlatformController::class, 'updatePlan']);

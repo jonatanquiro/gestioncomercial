@@ -4,18 +4,22 @@ namespace App\Http\Controllers;
 
 use App\Auth\Client;
 use App\Auth\Cookies;
+use App\Mail\OwnerInvitationMail;
 use App\Models\AuditEntry;
 use App\Models\Branch;
 use App\Models\Membership;
+use App\Models\PasswordResetToken;
 use App\Models\Plan;
 use App\Models\PlanFeature;
 use App\Models\PlanLimit;
 use App\Models\PlatformUser;
 use App\Models\Subscription;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PasswordService;
 use App\Services\PlatformSessionService;
+use App\Services\ProvisioningService;
 use App\Support\AppError;
 use App\Support\Catalog;
 use App\Support\Dates;
@@ -25,8 +29,11 @@ use App\Support\Tokens;
 use App\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use PragmaRX\Google2FA\Google2FA;
 use Throwable;
@@ -37,11 +44,15 @@ use Throwable;
  */
 class PlatformController extends Controller
 {
+    /** Días para que el dueño invitado elija su contraseña. */
+    private const INVITATION_DAYS = 7;
+
     public function __construct(
         private readonly PasswordService $passwords,
         private readonly PlatformSessionService $sessions,
         private readonly AuditService $audit,
         private readonly TenantContext $context,
+        private readonly ProvisioningService $provisioning,
     ) {}
 
     /** Login con contraseña y TOTP obligatorio. */
@@ -162,6 +173,75 @@ class PlatformController extends Controller
                 'pageSize' => $pageSize,
             ];
         }));
+    }
+
+    /**
+     * Alta manual de un comercio (mismas reglas que platformCreateTenantSchema). Si el email del
+     * dueño no tiene cuenta, se crea una sin contraseña utilizable y se le envía una invitación
+     * para elegirla; si ya tiene cuenta, el comercio se suma a los suyos.
+     */
+    public function createTenant(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $data = $this->body($request);
+        $data['ownerEmail'] = Input::email($data['ownerEmail'] ?? null);
+        $input = Input::validate($data, [
+            'tradeName' => ['required', 'string', 'max:120'],
+            'legalName' => ['nullable', 'string', 'max:160'],
+            'cuit' => ['nullable', 'string', Input::cuitRule()],
+            'taxCondition' => ['required', 'string', Rule::in(Catalog::taxConditions())],
+            'businessTypeCode' => ['required', 'string', 'max:40'],
+            'planCode' => ['required', 'string', 'max:40', Rule::exists('plans', 'code')->where('active', true)],
+            'ownerName' => ['required', 'string', 'max:120'],
+            'ownerEmail' => ['required', 'string', 'email', 'max:254'],
+        ], ['planCode.exists' => 'Plan inexistente o inactivo']);
+        $input['legalName'] = $input['legalName'] ?? null;
+        $input['cuit'] = Input::optionalCuit($input['cuit'] ?? null);
+        $client = Client::from($request);
+        $token = Tokens::random();
+
+        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token) {
+            $owner = User::where('email', $input['ownerEmail'])->lockForUpdate()->first();
+            if ($owner && $owner->status !== 'active') {
+                throw AppError::conflict('USER_INACTIVE', 'Ese email pertenece a un usuario desactivado');
+            }
+            $invited = $owner === null;
+            $owner ??= User::create([
+                'email' => $input['ownerEmail'],
+                'name' => $input['ownerName'],
+                // Nadie conoce esta contraseña: el dueño elige la suya con la invitación.
+                'password_hash' => $this->passwords->hash(Tokens::random()),
+                'password_changed_at' => Carbon::now(),
+            ]);
+            $tenantId = $this->provisioning->create($owner->id, $owner->name, $input, $client, [
+                'actorType' => 'platform',
+                'actorId' => $actor->platformUserId,
+                'actorName' => "Plataforma: {$actor->name}",
+            ]);
+            if ($invited) {
+                PasswordResetToken::create([
+                    'user_id' => $owner->id,
+                    'token_hash' => Tokens::hash($token),
+                    'expires_at' => Carbon::now()->addDays(self::INVITATION_DAYS),
+                ]);
+            }
+
+            return [$tenantId, $owner, $invited];
+        });
+
+        // El comercio ya quedó creado: si el correo falla, se avisa y el dueño puede usar "¿Olvidaste tu contraseña?".
+        $sent = false;
+        if ($invited) {
+            $link = rtrim((string) config('app.url'), '/').'/restablecer?token='.rawurlencode($token);
+            try {
+                Mail::to($owner->email)->send(new OwnerInvitationMail($owner->name, $input['tradeName'], $link, self::INVITATION_DAYS));
+                $sent = true;
+            } catch (Throwable $e) {
+                Log::error("No se pudo enviar la invitación del comercio {$tenantId}: ".$e->getMessage());
+            }
+        }
+
+        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent], 201);
     }
 
     public function setTenantStatus(Request $request, string $id): JsonResponse

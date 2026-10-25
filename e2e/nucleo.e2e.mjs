@@ -29,6 +29,7 @@ const stamp = Date.now();
 const owner = { name: 'Dueña Prueba', email: `duena.${stamp}@example.com`, password: 'Kiosco-Prueba-2026' };
 const cashier = { name: 'Cajero Prueba', email: `cajero.${stamp}@example.com`, password: 'Cajero-Prueba-2026' };
 const tradeName = `Kiosco E2E ${stamp}`;
+const invited = { name: 'Dueño Invitado', email: `invitado.${stamp}@example.com`, password: 'Almacen-Prueba-2026', tradeName: `Almacén E2E ${stamp}` };
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -43,6 +44,26 @@ async function login(user) {
   await page.getByLabel('Contraseña').fill(user.password);
   await page.getByRole('button', { name: 'Ingresar' }).click();
   await page.waitForURL(`${BASE}/app`);
+}
+
+/** Texto del último correo recibido por `to` en Mailpit (espera hasta 10 s). */
+async function mailText(mailpit, to) {
+  for (let i = 0; i < 20; i++) {
+    const found = await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`to:${to}`)}`)).json();
+    if (found.messages?.length) return (await (await fetch(`${mailpit}/api/v1/message/${found.messages[0].ID}`)).json()).Text;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return '';
+}
+
+async function choosePassword(text, password) {
+  const token = /restablecer\?token=([^\s]+)/.exec(text)?.[1];
+  assert.ok(token, 'el correo debe traer el enlace para elegir la contraseña');
+  await page.goto(`${BASE}/restablecer?token=${token}`);
+  await page.getByLabel('Contraseña nueva').fill(password);
+  await page.getByLabel('Repetir contraseña').fill(password);
+  await page.getByRole('button', { name: 'Guardar contraseña' }).click();
+  await page.waitForURL(`${BASE}/login`);
 }
 
 async function logout() {
@@ -112,20 +133,8 @@ try {
     await page.getByLabel('Email').fill(owner.email);
     await page.getByRole('button', { name: 'Enviar enlace' }).click();
     await page.getByRole('alert').or(page.getByRole('status')).first().waitFor();
-    let text = '';
-    for (let i = 0; i < 20 && !text; i++) {
-      const found = await (await fetch(`${mailpit}/api/v1/search?query=${encodeURIComponent(`to:${owner.email}`)}`)).json();
-      if (found.messages?.length) text = (await (await fetch(`${mailpit}/api/v1/message/${found.messages[0].ID}`)).json()).Text;
-      else await new Promise((r) => setTimeout(r, 500));
-    }
-    const token = /restablecer\?token=([^\s]+)/.exec(text)?.[1];
-    assert.ok(token, 'el correo debe traer el enlace de restablecimiento');
-    await page.goto(`${BASE}/restablecer?token=${token}`);
     owner.password = 'Kiosco-Nueva-2026';
-    await page.getByLabel('Contraseña nueva').fill(owner.password);
-    await page.getByLabel('Repetir contraseña').fill(owner.password);
-    await page.getByRole('button', { name: 'Guardar contraseña' }).click();
-    await page.waitForURL(`${BASE}/login`);
+    await choosePassword(await mailText(mailpit, owner.email), owner.password);
     await login(owner);
     await logout();
   } else {
@@ -149,6 +158,18 @@ try {
     await row.getByText('Suspendido').waitFor();
     await shot('05-plataforma');
 
+    step('La plataforma da de alta un comercio a mano');
+    await page.getByRole('button', { name: 'Nuevo comercio' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Nombre del comercio').fill(invited.tradeName);
+    await dialog.getByLabel('Rubro').selectOption('almacen');
+    await dialog.getByLabel('Nombre del dueño').fill(invited.name);
+    await dialog.getByLabel('Email del dueño').fill(invited.email);
+    await dialog.getByRole('button', { name: 'Crear comercio' }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await page.getByPlaceholder('Buscar por nombre o CUIT').fill(invited.tradeName);
+    await page.getByRole('row').filter({ hasText: invited.tradeName }).waitFor();
+
     step('El comercio suspendido no puede operar');
     await page.context().clearCookies();
     await login(owner);
@@ -156,6 +177,15 @@ try {
     const blocked = await page.evaluate(async () => (await fetch('/api/v1/branches')).status);
     assert.equal(blocked, 403);
     await shot('06-suspendido');
+
+    if (mailpit) {
+      step('El dueño del comercio dado de alta elige su contraseña con la invitación y entra');
+      await page.context().clearCookies();
+      await choosePassword(await mailText(mailpit, invited.email), invited.password);
+      await login(invited);
+      await page.getByText(invited.tradeName).first().waitFor();
+      await shot('07-invitado');
+    }
   } else {
     step('Panel de plataforma omitido (faltan variables E2E_PLATFORM_*)');
   }

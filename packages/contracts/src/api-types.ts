@@ -104,6 +104,13 @@ export interface SessionDto {
   current: boolean;
 }
 
+export interface PlatformCreateTenantResult {
+  id: string;
+  /** false si el email ya tenía cuenta: entra con su contraseña de siempre. */
+  ownerInvited: boolean;
+  invitationSent: boolean;
+}
+
 export interface PlatformTenantDto {
   id: string;
   tradeName: string;
