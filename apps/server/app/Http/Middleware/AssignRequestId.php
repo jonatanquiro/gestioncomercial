@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Tenancy\TenantContext;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -15,6 +16,8 @@ class AssignRequestId
         $incoming = $request->headers->get('x-request-id');
         $id = is_string($incoming) && preg_match('/^[\w-]{8,64}$/', $incoming) ? $incoming : (string) Str::uuid();
         $request->attributes->set('requestId', $id);
+        // Ningún request hereda el comercio de otro (importa en procesos que atienden varios).
+        app(TenantContext::class)->reset();
 
         $response = $next($request);
         $response->headers->set('x-request-id', $id);

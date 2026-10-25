@@ -49,7 +49,10 @@ return [
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
-            'database' => env('DB_DATABASE', 'gestioncomercial'),
+            // Las pruebas usan siempre su propia base, para no borrar nunca la de trabajo.
+            'database' => env('APP_ENV') === 'testing'
+                ? env('DB_TEST_DATABASE', 'gestioncomercial_test')
+                : env('DB_DATABASE', 'gestioncomercial'),
             'username' => env('DB_USERNAME', 'root'),
             'password' => env('DB_PASSWORD', ''),
             'unix_socket' => env('DB_SOCKET', ''),

@@ -19,6 +19,13 @@ class TenantContext
         $this->tenantId = $tenantId;
     }
 
+    /** Vuelve al estado inicial (sin comercio y sin bypass). Se llama al empezar cada request. */
+    public function reset(): void
+    {
+        $this->tenantId = null;
+        $this->bypass = false;
+    }
+
     public function id(): ?string
     {
         return $this->tenantId;
