@@ -45,7 +45,18 @@ jobs:
       - name: Estilo (Pint)
         run: vendor/bin/pint --test
       - name: Pruebas (registro, aislamiento entre comercios, permisos por ruta, reglas, plataforma)
-        run: php artisan test
+        run: vendor/bin/phpunit --log-junit junit.xml
+      - name: Fallas como anotaciones del PR
+        if: failure()
+        run: |
+          php -r '
+            if (! is_file("junit.xml")) { exit; }
+            $xml = simplexml_load_file("junit.xml");
+            foreach ($xml->xpath("//testcase[failure or error]") as $case) {
+              $node = $case->failure ?: $case->error;
+              $msg = substr(trim((string) $node), 0, 1500);
+              echo "::error title=".$case["class"]."::".$case["name"].": ".str_replace(["%", "\r", "\n"], ["%25", "%0D", "%0A"], $msg)."\n";
+            }'
 
   web:
     name: Web · tipos, pruebas y archivos generados al día

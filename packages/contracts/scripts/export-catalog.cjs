@@ -1,5 +1,5 @@
 // Exporta los catálogos de @gc/contracts (fuente única) a JSON para el servidor PHP.
-// Uso: pnpm --filter @gc/contracts build && pnpm --filter @gc/contracts export-catalog
+// Uso: pnpm catalog (desde la raíz: compila el paquete y exporta)
 // El CI vuelve a generarlo y falla si el archivo commiteado quedó desactualizado.
 const { writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');

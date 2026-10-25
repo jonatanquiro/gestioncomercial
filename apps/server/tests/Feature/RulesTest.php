@@ -42,15 +42,17 @@ class RulesTest extends TestCase
 
         $server = new LiveServer(workers: 8);
         try {
-            $codes = $server->parallel(array_map(
+            $results = $server->parallel(array_map(
                 fn ($i) => ['method' => 'POST', 'path' => '/branches', 'body' => ['name' => "Paralela {$i}"]],
                 range(1, 12),
             ), $owner->cookies);
+            $diagnostic = json_encode($results, JSON_UNESCAPED_UNICODE)."\n".$server->output();
         } finally {
             $server->stop();
         }
+        $codes = array_column($results, 'status');
         sort($codes);
-        $this->assertSame([201, 201, ...array_fill(0, 10, 402)], $codes);
+        $this->assertSame([201, 201, ...array_fill(0, 10, 402)], $codes, $diagnostic);
         $this->assertCount(3, $owner->get('/branches')->body);
     }
 
@@ -219,6 +221,8 @@ class RulesTest extends TestCase
         $this->assertSame([['path' => 'name', 'message' => 'Obligatorio']], $res->body['details']);
         $this->assertIsString($res->body['message']);
         $this->assertSame($res->header('x-request-id'), $res->body['requestId']);
+
+        $this->assertNull($res->header('access-control-allow-origin'), 'la API no habilita CORS');
 
         $missing = $this->client()->get('/no-existe');
         $this->assertSame(404, $missing->status);
