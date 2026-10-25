@@ -10,9 +10,10 @@ rem  3. Actualiza la base de datos (php artisan migrate).
 rem  4. Levanta el servidor y abre el navegador.
 rem
 rem  Antes de correrlo: iniciar MySQL desde el panel de XAMPP.
-rem  Se puede dejar dentro de la carpeta del sistema o en la carpeta que la contiene
-rem  (por ejemplo C:\xampp\htdocs). Ojo: descarta cambios hechos a mano en el codigo;
-rem  el archivo .env (con la configuracion de la base) no se toca.
+rem  Va dentro de la carpeta del sistema (al lado de README.md), aunque se haya instalado
+rem  desde un ZIP. Tambien sirve en la carpeta que la contiene (por ejemplo C:\xampp\htdocs).
+rem  Ojo: descarta cambios hechos a mano en el codigo. El archivo .env (con la configuracion
+rem  de la base: usuario, contrasena, puerto) no se toca nunca.
 rem ------------------------------------------------------------------
 
 set "REPO_URL=https://github.com/jonatanquiro/gestioncomercial.git"
@@ -20,12 +21,14 @@ rem Rama con la version mas nueva para probar (cambia cuando se aprueban los PR)
 set "BRANCH=claude/project-thread-e4hh0n"
 set "PORT=8000"
 
-rem --- Carpeta del sistema
-if exist "%~dp0.git" (
-    set "ROOT=%~dp0"
-) else (
-    set "ROOT=%~dp0gestioncomercial\"
+rem --- Carpeta del sistema: la de este archivo, una subcarpeta gestioncomercial* (por ejemplo
+rem     la que deja el ZIP de GitHub) o, si no hay ninguna, se clona en .\gestioncomercial
+set "ROOT="
+if exist "%~dp0apps\server\artisan" set "ROOT=%~dp0"
+if not defined ROOT for /d %%D in ("%~dp0gestioncomercial*") do (
+    if not defined ROOT if exist "%%~fD\apps\server\artisan" set "ROOT=%%~fD\"
 )
+if not defined ROOT set "ROOT=%~dp0gestioncomercial\"
 
 rem --- Programas necesarios
 where git >nul 2>nul || (
@@ -44,11 +47,17 @@ where composer >nul 2>nul || (
 )
 
 rem --- 1. Codigo
-if not exist "%ROOT%.git" (
+if not exist "%ROOT%apps\server\artisan" (
     echo == Descargando el sistema por primera vez en %ROOT%
     git clone "%REPO_URL%" "%ROOT%" || goto :error
 )
 cd /d "%ROOT%" || goto :error
+if not exist ".git" (
+    rem Instalado desde un ZIP: se conecta la carpeta con GitHub sin moverla.
+    echo == Conectando la carpeta con GitHub
+    git init -q || goto :error
+    git remote add origin "%REPO_URL%" || goto :error
+)
 echo == Bajando la ultima version (%BRANCH%)
 git fetch origin "%BRANCH%" || goto :error
 git checkout -f -B "%BRANCH%" "origin/%BRANCH%" || goto :error
