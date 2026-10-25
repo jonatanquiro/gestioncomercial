@@ -19,6 +19,10 @@ Si ya tenías instalada una versión anterior, después de actualizar el código
 - **Composer 2** (https://getcomposer.org)
 - Node.js **no** hace falta para usar el sistema: la web ya viene compilada en `apps/server/public/spa`. Solo se necesita para modificar las pantallas.
 
+## Actualizar y arrancar con un doble clic (Windows)
+
+`iniciar.bat` hace todo solo: baja la última versión desde GitHub (la primera vez clona el repositorio), corre `composer install`, crea `.env` si no existe, actualiza la base con `php artisan migrate` y levanta el sistema en http://localhost:8000 abriendo el navegador. Necesita Git para Windows, Composer y MySQL iniciado en el panel de XAMPP. Se puede dejar dentro de la carpeta del repositorio o en la carpeta que lo contiene (por ejemplo `C:\xampp\htdocs`). Descarta cambios hechos a mano en el código; `.env` no se toca.
+
 ## Instalar en XAMPP (Windows)
 
 1. Iniciar **Apache** y **MySQL** desde el panel de XAMPP.
