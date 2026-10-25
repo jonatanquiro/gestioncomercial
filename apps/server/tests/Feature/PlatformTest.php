@@ -6,9 +6,7 @@ use App\Mail\OwnerInvitationMail;
 use App\Models\PlatformUser;
 use App\Services\PasswordService;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Mail;
-use PragmaRX\Google2FA\Google2FA;
 use Tests\Support\ApiClient;
 use Tests\TestCase;
 
@@ -16,40 +14,33 @@ class PlatformTest extends TestCase
 {
     private const ADMIN_PASSWORD = 'clave-de-plataforma-segura';
 
-    private string $secret;
-
     private string $email;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->secret = (new Google2FA)->generateSecretKey(32);
         $this->email = self::uniqueEmail('admin');
         PlatformUser::create([
             'email' => $this->email,
             'name' => 'Admin Plataforma',
             'password_hash' => app(PasswordService::class)->hash(self::ADMIN_PASSWORD),
-            'totp_secret_enc' => Crypt::encryptString($this->secret),
         ]);
     }
 
     private function platformLogin(): ApiClient
     {
         $c = $this->client();
-        $res = $c->post('/platform/auth/login', ['email' => $this->email, 'password' => self::ADMIN_PASSWORD, 'totp' => (new Google2FA)->getCurrentOtp($this->secret)]);
+        $res = $c->post('/platform/auth/login', ['email' => $this->email, 'password' => self::ADMIN_PASSWORD]);
         $this->assertSame(200, $res->status, json_encode($res->body));
 
         return $c;
     }
 
-    public function test_exige_contrasena_y_codigo_totp(): void
+    public function test_entra_con_email_y_contrasena(): void
     {
         $c = $this->client();
-        $current = (new Google2FA)->getCurrentOtp($this->secret);
-        $wrongCode = str_pad((string) (((int) $current + 500000) % 1000000), 6, '0', STR_PAD_LEFT);
-        $this->assertSame(401, $c->post('/platform/auth/login', ['email' => $this->email, 'password' => self::ADMIN_PASSWORD, 'totp' => $wrongCode])->status);
-        $this->assertSame(401, $c->post('/platform/auth/login', ['email' => $this->email, 'password' => 'incorrecta-123', 'totp' => $current])->status);
-        $this->assertSame(400, $c->post('/platform/auth/login', ['email' => $this->email, 'password' => self::ADMIN_PASSWORD, 'totp' => '12ab56'])->status);
+        $this->assertSame(401, $c->post('/platform/auth/login', ['email' => $this->email, 'password' => 'incorrecta-123'])->status);
+        $this->assertSame(401, $c->post('/platform/auth/login', ['email' => self::uniqueEmail('nadie'), 'password' => self::ADMIN_PASSWORD])->status);
 
         $ok = $this->platformLogin();
         $this->assertSame('Admin Plataforma', $ok->get('/platform/auth/me')->body['name']);
@@ -121,20 +112,17 @@ class PlatformTest extends TestCase
         $this->assertSame('limits.max_naves', $unknown->body['details'][0]['path']);
     }
 
-    public function test_el_comando_crea_un_operador_con_secreto_totp(): void
+    public function test_el_comando_crea_un_operador_que_puede_entrar(): void
     {
         $email = self::uniqueEmail('op');
         putenv('PLATFORM_ADMIN_PASSWORD=otra-clave-de-operador');
         try {
             $this->assertSame(0, Artisan::call('platform:create-admin', ['email' => $email, 'name' => 'Operadora']));
+            $this->assertSame(1, Artisan::call('platform:create-admin', ['email' => $email, 'name' => 'Repetida']));
         } finally {
             putenv('PLATFORM_ADMIN_PASSWORD');
         }
-        $output = Artisan::output();
-        $this->assertMatchesRegularExpression('/Clave manual: ([A-Z2-7]{32})/', $output);
-        $this->assertStringContainsString('otpauth://totp/', $output);
-        preg_match('/Clave manual: ([A-Z2-7]{32})/', $output, $m);
-        $res = $this->client()->post('/platform/auth/login', ['email' => $email, 'password' => 'otra-clave-de-operador', 'totp' => (new Google2FA)->getCurrentOtp($m[1])]);
+        $res = $this->client()->post('/platform/auth/login', ['email' => $email, 'password' => 'otra-clave-de-operador']);
         $this->assertSame(200, $res->status);
     }
 

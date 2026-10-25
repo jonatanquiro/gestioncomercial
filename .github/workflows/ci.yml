@@ -138,13 +138,10 @@ jobs:
         run: |
           PASS="E2e-$(openssl rand -hex 12)"
           echo "::add-mask::$PASS"
-          OUT=$(PLATFORM_ADMIN_PASSWORD="$PASS" php artisan platform:create-admin admin-ci@example.com "Admin CI")
-          SECRET=$(echo "$OUT" | sed -n 's/^ *Clave manual: //p')
-          echo "::add-mask::$SECRET"
+          PLATFORM_ADMIN_PASSWORD="$PASS" php artisan platform:create-admin admin-ci@example.com "Admin CI"
           {
             echo "E2E_PLATFORM_EMAIL=admin-ci@example.com"
             echo "E2E_PLATFORM_PASSWORD=$PASS"
-            echo "E2E_PLATFORM_TOTP_SECRET=$SECRET"
           } >> "$GITHUB_ENV"
       - name: Levantar la aplicación
         working-directory: apps/server

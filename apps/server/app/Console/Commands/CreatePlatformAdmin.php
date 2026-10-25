@@ -6,18 +6,16 @@ use App\Models\PlatformUser;
 use App\Services\PasswordService;
 use App\Support\AppError;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Crypt;
-use PragmaRX\Google2FA\Google2FA;
 
 /**
  * Alta de un operador del panel de plataforma. La contraseña se lee de PLATFORM_ADMIN_PASSWORD
- * (o se pide por consola) para que no quede en el historial. Imprime el secreto TOTP una sola vez.
+ * (o se pide por consola) para que no quede en el historial.
  */
 class CreatePlatformAdmin extends Command
 {
     protected $signature = 'platform:create-admin {email} {name}';
 
-    protected $description = 'Crea un operador del panel de plataforma con TOTP';
+    protected $description = 'Crea un operador del panel de plataforma';
 
     public function handle(PasswordService $passwords): int
     {
@@ -45,19 +43,13 @@ class CreatePlatformAdmin extends Command
 
             return self::FAILURE;
         }
-        $google2fa = new Google2FA;
-        $secret = $google2fa->generateSecretKey(32);
         PlatformUser::create([
             'email' => $email,
             'name' => trim((string) $this->argument('name')),
             'password_hash' => $hash,
-            'totp_secret_enc' => Crypt::encryptString($secret),
         ]);
 
-        $this->info("Operador creado: {$email}");
-        $this->line('Cargá este secreto en tu app de autenticación (se muestra una sola vez):');
-        $this->line("  Clave manual: {$secret}");
-        $this->line('  URI: '.$google2fa->getQRCodeUrl('Gestión Comercial', $email, $secret));
+        $this->info("Operador creado: {$email}. Entrá en /plataforma/login con ese email y la contraseña.");
 
         return self::SUCCESS;
     }

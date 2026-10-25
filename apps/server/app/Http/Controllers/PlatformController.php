@@ -30,12 +30,10 @@ use App\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
-use PragmaRX\Google2FA\Google2FA;
 use Throwable;
 
 /**
@@ -55,7 +53,7 @@ class PlatformController extends Controller
         private readonly ProvisioningService $provisioning,
     ) {}
 
-    /** Login con contraseña y TOTP obligatorio. */
+    /** Login con email y contraseña, con límite de intentos por IP. */
     public function login(Request $request): JsonResponse
     {
         $data = $this->body($request);
@@ -63,15 +61,13 @@ class PlatformController extends Controller
         $input = Input::validate($data, [
             'email' => ['required', 'string', 'email', 'max:254'],
             'password' => ['required', 'string', 'max:128'],
-            'totp' => ['required', 'string', 'regex:/^\d{6}$/'],
-        ], ['totp.regex' => 'Código de 6 dígitos']);
+        ]);
         $client = Client::from($request);
         Throttle::consume("platform-login:{$client->ip}", 10, 15 * 60);
 
         $user = PlatformUser::where('email', $input['email'])->where('status', 'active')->first();
         $passwordOk = $this->passwords->verify($user?->password_hash, $input['password']);
-        $totpOk = $user !== null && $this->verifyTotp($user->totp_secret_enc, $input['totp']);
-        if (! $user || ! $passwordOk || ! $totpOk) {
+        if (! $user || ! $passwordOk) {
             $this->audit->record([
                 'tenantId' => null,
                 'actorType' => 'platform',
@@ -371,14 +367,5 @@ class PlatformController extends Controller
             'limits' => (object) $p->limitMap(),
             'features' => $p->featureList(),
         ];
-    }
-
-    private function verifyTotp(string $encrypted, string $code): bool
-    {
-        try {
-            return (bool) (new Google2FA)->verifyKey(Crypt::decryptString($encrypted), $code, 1);
-        } catch (Throwable) {
-            return false;
-        }
     }
 }

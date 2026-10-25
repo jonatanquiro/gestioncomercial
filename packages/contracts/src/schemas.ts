@@ -130,7 +130,6 @@ export type RoleInput = z.infer<typeof roleSchema>;
 export const platformLoginSchema = z.object({
   email: emailSchema,
   password: z.string().min(1).max(128),
-  totp: z.string().trim().regex(/^\d{6}$/, 'Código de 6 dígitos'),
 });
 
 export const setTenantStatusSchema = z.object({

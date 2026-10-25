@@ -64,14 +64,14 @@ Con `MAIL_MAILER=log`, los correos (por ejemplo, el de recuperación de contrase
 
 ### Crear un operador del panel de plataforma
 
-El panel está en `/plataforma`. Exige contraseña y código TOTP de una app de autenticación (Google Authenticator, Authy, etc.).
+El panel está en `/plataforma`. Se entra con el email y la contraseña del operador.
 
 ```bash
 cd apps/server
 php artisan platform:create-admin vos@dominio.com "Tu nombre"
 ```
 
-El comando pide la contraseña y muestra una sola vez la clave para cargar en la app de autenticación.
+El comando pide la contraseña (mínimo 10 caracteres).
 
 Desde el panel se pueden dar de alta comercios a mano (botón **Nuevo comercio**): se elige rubro y plan, y el dueño recibe un correo con un enlace para elegir su contraseña (vence en 7 días). Si ese email ya tenía cuenta, el comercio se suma a los suyos y entra con su contraseña de siempre.
 

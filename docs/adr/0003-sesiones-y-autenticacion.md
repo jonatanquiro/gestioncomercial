@@ -10,7 +10,7 @@
 - **CSRF de doble envío.** Toda mutación exige que el encabezado `x-csrf-token` coincida con la cookie `gc_csrf`.
 - **Contraseñas** con Argon2id (parámetros OWASP), un mínimo de 10 caracteres y una lista de contraseñas comunes.
 - **Bloqueo por intentos fallidos** por IP y por email.
-- **Administradores de plataforma** con TOTP obligatorio. El secreto se guarda cifrado con `Crypt` de Laravel (AES-256-CBC + HMAC) usando `APP_KEY`. Si se pierde o cambia `APP_KEY`, hay que volver a dar de alta a los operadores.
+- **Administradores de plataforma** con email y contraseña. El TOTP obligatorio se quitó a pedido de Jona (ver `0007-plataforma-sin-totp.md`).
 - **Recuperación de contraseña** con un token de un solo uso que vence en 30 minutos. Al usarlo se cierran todas las sesiones. La respuesta es la misma exista o no el email.
 
 ## Pendiente
