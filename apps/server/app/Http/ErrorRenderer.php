@@ -73,6 +73,10 @@ final class ErrorRenderer
 
                 return [404, self::body('NOT_FOUND', 'Recurso no encontrado', null, $requestId)];
             }
+            if ($driverCode === 1205 || $driverCode === 1213) {
+                // Espera de bloqueo vencida o interbloqueo: la operación no se aplicó y se puede reintentar.
+                return [503, self::body('BUSY', 'El sistema está ocupado. Probá de nuevo en unos segundos.', null, $requestId)];
+            }
             if ($sqlState === '45000') {
                 return [403, self::body('FORBIDDEN', 'Operación no permitida', null, $requestId)];
             }
