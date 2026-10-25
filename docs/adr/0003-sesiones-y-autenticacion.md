@@ -1,6 +1,6 @@
 # ADR 0003 · Sesiones con cookie y autenticación
 
-**Estado:** aceptada (Fase 2).
+**Estado:** aceptada (Fase 2) · **Actualizada** el 2026-10-25 para Laravel ([0005](0005-php-mysql-xampp.md)): mismas decisiones, otra implementación.
 
 ## Decisión
 
@@ -10,10 +10,11 @@
 - **CSRF de doble envío.** Toda mutación exige que el encabezado `x-csrf-token` coincida con la cookie `gc_csrf`.
 - **Contraseñas** con Argon2id (parámetros OWASP), un mínimo de 10 caracteres y una lista de contraseñas comunes.
 - **Bloqueo por intentos fallidos** por IP y por email.
-- **Administradores de plataforma** con TOTP obligatorio. El secreto se guarda cifrado con AES-256-GCM usando `APP_ENCRYPTION_KEY`.
+- **Administradores de plataforma** con TOTP obligatorio. El secreto se guarda cifrado con `Crypt` de Laravel (AES-256-CBC + HMAC) usando `APP_KEY`. Si se pierde o cambia `APP_KEY`, hay que volver a dar de alta a los operadores.
 - **Recuperación de contraseña** con un token de un solo uso que vence en 30 minutos. Al usarlo se cierran todas las sesiones. La respuesta es la misma exista o no el email.
 
 ## Pendiente
 
 - MFA opcional para dueños de comercio.
-- El limitador de intentos vive en memoria del proceso. Sirve mientras haya una sola instancia. Antes de escalar horizontalmente hay que moverlo a PostgreSQL o Redis.
+- ~~El limitador de intentos vive en memoria del proceso.~~ Resuelto en Laravel: usa la caché en la base (`CACHE_STORE=database`), así funciona con varias instancias.
+- La sesión web de Laravel no se usa (`SESSION_DRIVER=array`): las sesiones son las propias, en `user_sessions` y `platform_sessions`.

@@ -1,6 +1,6 @@
 # ADR 0001 · Stack y estructura del repositorio
 
-**Estado:** aceptada (Fase 2) · **Origen:** diseño de la Fase 1, aprobado por Jona.
+**Estado:** reemplazada por [0005](0005-php-mysql-xampp.md) el 2026-10-25. Jona necesita que el sistema corra en PHP + MySQL (XAMPP); este stack nunca fue un requisito suyo.
 
 ## Decisión
 
