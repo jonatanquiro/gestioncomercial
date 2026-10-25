@@ -2,11 +2,16 @@
 
 SaaS multiempresa de gestión comercial para comercios minoristas de Argentina: punto de venta, inventario, caja, compras, cuentas corrientes y factura electrónica ARCA, con venta sin conexión (PWA).
 
-El desarrollo avanza por fases. **Estado actual: Fase 2 (infraestructura y núcleo), en PHP + MySQL.** Incluye:
+El desarrollo avanza por fases. **Estado actual: Fase 3 (productos e inventario), en PHP + MySQL.** Incluye:
 - registro de comercios, sesiones y recuperación de contraseña;
 - sucursales, empleados, roles y permisos;
 - auditoría y aislamiento entre comercios;
-- el panel de la plataforma.
+- el panel de la plataforma;
+- productos y servicios con varios códigos de barras y códigos de pack, categorías iniciales según el rubro, marcas e historial de precios y costos;
+- stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
+- cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo.
+
+Si ya tenías instalada una versión anterior, después de actualizar el código corré `php artisan migrate`: crea las tablas nuevas y les carga a los comercios existentes las categorías de su rubro.
 
 ## Requisitos
 

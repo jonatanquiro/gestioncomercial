@@ -1,5 +1,5 @@
 import type { PermissionCode } from './permissions';
-import type { TaxCondition, TenantSettings } from './schemas';
+import type { SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
 
 /** Formato único de error de la API. */
 export interface ApiError {
@@ -135,4 +135,161 @@ export interface PlanDto {
   active: boolean;
   limits: Record<string, number>;
   features: string[];
+}
+
+// ---------- Catálogo e inventario ----------
+
+export interface CategoryDto {
+  id: string;
+  name: string;
+  status: 'active' | 'inactive';
+  productCount: number;
+}
+
+export interface BrandDto {
+  id: string;
+  name: string;
+}
+
+export interface BarcodeDto {
+  code: string;
+  quantityFactor: string;
+}
+
+export interface ProductDto {
+  id: string;
+  variantId: string;
+  kind: 'good' | 'service';
+  name: string;
+  description: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  brandId: string | null;
+  brandName: string | null;
+  saleMode: SaleMode;
+  vatRate: VatRate;
+  trackStock: boolean;
+  minStock: string | null;
+  blockNegativeStock: boolean;
+  sku: string | null;
+  price: string;
+  /** null si no hay costo cargado o si el usuario no tiene permiso para ver costos. */
+  cost: string | null;
+  barcodes: BarcodeDto[];
+  /** Suma de todos los depósitos; null si no controla stock o el usuario no puede verlo. */
+  stock: string | null;
+  status: 'active' | 'inactive';
+  version: number;
+  updatedAt: string;
+}
+
+export interface ProductHistoryDto {
+  prices: Array<{ price: string; validFrom: string; validTo: string | null; changedBy: string | null; batchId: string | null }>;
+  /** Vacío si el usuario no puede ver costos. */
+  costs: Array<{ cost: string; source: string; at: string; changedBy: string | null }>;
+  changes: Array<{ at: string; actorName: string | null; action: string; before: unknown; after: unknown }>;
+}
+
+export interface ProductLookupDto {
+  product: ProductDto;
+  /** Unidades que representa el código leído (12 si es el código del pack). */
+  quantityFactor: string;
+}
+
+export interface WarehouseDto {
+  id: string;
+  name: string;
+  branchId: string;
+  branchName: string;
+  isDefault: boolean;
+}
+
+export interface StockRowDto {
+  productId: string;
+  variantId: string;
+  name: string;
+  sku: string | null;
+  categoryName: string | null;
+  saleMode: SaleMode;
+  onHand: string;
+  minStock: string | null;
+  low: boolean;
+  /** Solo con permiso para ver costos. */
+  cost: string | null;
+}
+
+export type StockMovementType =
+  | 'adjust' | 'waste' | 'expired' | 'count_adjust' | 'purchase_in' | 'sale_out' | 'return_in' | 'transfer_out' | 'transfer_in';
+
+export interface StockMovementDto {
+  id: string;
+  occurredAt: string;
+  type: StockMovementType;
+  productId: string;
+  variantId: string;
+  productName: string;
+  warehouseName: string;
+  quantity: string;
+  balanceAfter: string;
+  unitCost: string | null;
+  reason: string | null;
+  userName: string | null;
+  sourceType: string;
+  sourceId: string | null;
+}
+
+export interface StockOperationResult {
+  /** false si el pedido ya se había procesado (reintento con el mismo clientUuid). */
+  created: boolean;
+  movements: number;
+}
+
+export interface StockCountDto {
+  id: string;
+  warehouseId: string;
+  warehouseName: string;
+  scope: 'total' | 'partial';
+  status: 'open' | 'closed' | 'cancelled';
+  notes: string | null;
+  createdAt: string;
+  createdByName: string | null;
+  closedAt: string | null;
+  lineCount: number;
+}
+
+export interface StockCountLineDto {
+  variantId: string;
+  productId: string;
+  name: string;
+  sku: string | null;
+  saleMode: SaleMode;
+  expected: string;
+  counted: string;
+  difference: string;
+  countedAt: string;
+}
+
+export interface StockCountDetailDto extends StockCountDto {
+  lines: StockCountLineDto[];
+}
+
+export interface BulkPriceRowDto {
+  productId: string;
+  variantId: string;
+  name: string;
+  oldPrice: string;
+  newPrice: string;
+  /** Variación porcentual del precio. */
+  variation: string | null;
+  /** Solo con permiso para ver costos. */
+  cost: string | null;
+  markup: string | null;
+  margin: string | null;
+}
+
+export interface BulkPricePreviewDto {
+  rows: BulkPriceRowDto[];
+  skipped: Array<{ productId: string; name: string; reason: string }>;
+  /** Huella de la vista previa: aplicar exige la misma, así se aplica exactamente lo que se vio. */
+  fingerprint: string;
 }

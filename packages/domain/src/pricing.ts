@@ -32,3 +32,20 @@ export function roundPriceUp(price: DecimalInput, step: number): string {
   const s = dec(step);
   return roundMoney(dec(price).div(s).ceil().times(s));
 }
+
+/** Precio aumentado (o bajado, con signo negativo) un porcentaje: P × (1 + p). */
+export function priceFromPercent(price: DecimalInput, percent: DecimalInput): string {
+  return roundMoney(dec(price).times(dec(1).plus(dec(percent).div(100))));
+}
+
+/** Precio más (o menos) un monto fijo. */
+export function priceFromFixed(price: DecimalInput, amount: DecimalInput): string {
+  return roundMoney(dec(price).plus(dec(amount)));
+}
+
+/** Variación porcentual entre dos precios: (nuevo − anterior) / anterior. */
+export function variationPercent(oldPrice: DecimalInput, newPrice: DecimalInput): string {
+  const o = dec(oldPrice);
+  if (o.isZero()) throw new Error('Precio anterior cero: la variación no está definida');
+  return dec(newPrice).minus(o).div(o).times(100).toDecimalPlaces(2).toFixed(2);
+}

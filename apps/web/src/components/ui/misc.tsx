@@ -78,3 +78,24 @@ export const Th = ({ children, className }: { children?: ReactNode; className?: 
 export const Td = ({ children, className }: { children?: ReactNode; className?: string }) => (
   <td className={cn('px-4 py-3 align-top', className)}>{children}</td>
 );
+
+/** Paginación de listados del servidor. */
+export function Pager({ page, pageSize, total, onPage }: { page: number; pageSize: number; total: number; onPage: (page: number) => void }) {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total <= pageSize) return null;
+  return (
+    <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
+      <span className="text-slate-600">
+        Página {page} de {pages} · {total} registros
+      </span>
+      <div className="flex gap-2">
+        <button className="h-8 rounded-lg border border-slate-300 bg-white px-3 font-semibold disabled:text-slate-400" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          Anterior
+        </button>
+        <button className="h-8 rounded-lg border border-slate-300 bg-white px-3 font-semibold disabled:text-slate-400" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+          Siguiente
+        </button>
+      </div>
+    </div>
+  );
+}

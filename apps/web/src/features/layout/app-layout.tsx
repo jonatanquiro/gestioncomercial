@@ -1,7 +1,7 @@
 import type { PermissionCode } from '@gc/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
-import { Building2, History, Home, KeyRound, LogOut, Menu, Settings, ShieldCheck, Store, Users } from 'lucide-react';
+import { Boxes, Building2, ClipboardList, History, Home, KeyRound, LogOut, Menu, Package, Percent, Settings, ShieldCheck, Store, Tags, Users } from 'lucide-react';
 import { type ComponentType, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -19,6 +19,11 @@ interface NavItem {
 /** Solo se muestran módulos implementados; cada fase agrega los suyos. */
 const NAV: NavItem[] = [
   { to: '/app', label: 'Inicio', icon: Home },
+  { to: '/app/productos', label: 'Productos', icon: Package, anyOf: ['products.read'] },
+  { to: '/app/categorias', label: 'Categorías y marcas', icon: Tags, anyOf: ['products.read'] },
+  { to: '/app/precios', label: 'Cambio de precios', icon: Percent, anyOf: ['prices.bulk_update'] },
+  { to: '/app/stock', label: 'Stock', icon: Boxes, anyOf: ['stock.read'] },
+  { to: '/app/inventarios', label: 'Inventario físico', icon: ClipboardList, anyOf: ['stock.count'] },
   { to: '/app/sucursales', label: 'Sucursales', icon: Building2 },
   { to: '/app/empleados', label: 'Empleados', icon: Users, anyOf: ['users.manage'] },
   { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },

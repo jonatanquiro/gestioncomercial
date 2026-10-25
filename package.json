@@ -12,7 +12,7 @@
     "test": "pnpm -r test",
     "dev:web": "pnpm --filter @gc/web dev",
     "catalog": "pnpm --filter @gc/contracts build && pnpm --filter @gc/contracts export-catalog",
-    "e2e": "node e2e/nucleo.e2e.mjs"
+    "e2e": "node e2e/nucleo.e2e.mjs && node e2e/inventario.e2e.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3",

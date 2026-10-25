@@ -1,0 +1,29 @@
+{
+  "_comment": "Casos compartidos: los corren las pruebas de packages/domain (TypeScript) y tests/Feature/PricingTest.php (PHP). Si un cálculo cambia, cambia acá y en los dos lados.",
+  "cases": [
+    { "fn": "priceFromMarkup", "args": ["1000", "30"], "expected": "1300.00" },
+    { "fn": "marginPercentOf", "args": ["1000", "1300"], "expected": "23.08" },
+    { "fn": "markupPercentOf", "args": ["1000", "1300"], "expected": "30.00" },
+    { "fn": "priceFromMargin", "args": ["1000", "30"], "expected": "1428.57" },
+    { "fn": "markupPercentOf", "args": ["1000", "1428.57"], "expected": "42.86" },
+    { "fn": "marginPercentOf", "args": ["1000", "1428.57"], "expected": "30.00" },
+    { "fn": "priceFromMarkup", "args": ["333.3333", "15"], "expected": "383.33" },
+    { "fn": "priceFromMargin", "args": ["0.005", "0"], "expected": "0.01" },
+    { "fn": "priceFromPercent", "args": ["1250", "12.5"], "expected": "1406.25" },
+    { "fn": "priceFromPercent", "args": ["1000", "-10"], "expected": "900.00" },
+    { "fn": "priceFromPercent", "args": ["0.15", "10"], "expected": "0.17" },
+    { "fn": "priceFromFixed", "args": ["1000", "150.5"], "expected": "1150.50" },
+    { "fn": "priceFromFixed", "args": ["1000", "-1000"], "expected": "0.00" },
+    { "fn": "variationPercent", "args": ["1000", "1430"], "expected": "43.00" },
+    { "fn": "variationPercent", "args": ["3", "2"], "expected": "-33.33" },
+    { "fn": "roundPriceUp", "args": ["1428.57", 10], "expected": "1430.00" },
+    { "fn": "roundPriceUp", "args": ["1300", 50], "expected": "1300.00" },
+    { "fn": "roundPriceUp", "args": ["1301", 50], "expected": "1350.00" },
+    { "fn": "roundPriceUp", "args": ["99.99", 0], "expected": "99.99" },
+    { "fn": "roundPriceUp", "args": ["99.01", 1], "expected": "100.00" },
+    { "fn": "roundPriceUp", "args": ["1000.004", 5], "expected": "1005.00" },
+    { "fn": "roundMoney", "args": ["1.005"], "expected": "1.01" },
+    { "fn": "roundMoney", "args": ["2.675"], "expected": "2.68" },
+    { "fn": "roundMoney", "args": ["-1.005"], "expected": "-1.01" }
+  ]
+}

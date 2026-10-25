@@ -105,4 +105,25 @@ class Input
             }
         };
     }
+
+    // Mismas expresiones que moneySchema, costSchema, quantitySchema y percentSchema de packages/contracts.
+    public const MONEY = '/^\d{1,12}(\.\d{1,2})?$/';
+
+    public const COST = '/^\d{1,10}(\.\d{1,4})?$/';
+
+    public const QUANTITY = '/^\d{1,11}(\.\d{1,3})?$/';
+
+    public const SIGNED_QUANTITY = '/^-?\d{1,11}(\.\d{1,3})?$/';
+
+    public const RULE_VALUE = '/^-?\d{1,10}(\.\d{1,2})?$/';
+
+    /** Texto decimal (los importes nunca viajan como number). */
+    public static function decimal(string $pattern, string $message): array
+    {
+        return ['string', function (string $attribute, mixed $value, \Closure $fail) use ($pattern, $message) {
+            if ($value !== null && (! is_string($value) || ! preg_match($pattern, $value))) {
+                $fail($message);
+            }
+        }];
+    }
 }
