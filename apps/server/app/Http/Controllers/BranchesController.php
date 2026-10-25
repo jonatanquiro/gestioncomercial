@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\Warehouse;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
+use App\Services\SalesSetup;
 use App\Services\StockService;
 use App\Support\AppError;
 use App\Support\Dates;
@@ -20,6 +21,7 @@ class BranchesController extends Controller
         private readonly EntitlementsService $entitlements,
         private readonly AuditService $audit,
         private readonly StockService $stock,
+        private readonly SalesSetup $sales,
     ) {}
 
     public function index(): JsonResponse
@@ -42,6 +44,7 @@ class BranchesController extends Controller
             $branch = Branch::create($input);
             $warehouse = Warehouse::create(['branch_id' => $branch->id, 'name' => 'Depósito principal', 'is_default' => true]);
             $this->stock->initWarehouse($warehouse->id);
+            $this->sales->forBranch($branch->id);
             $this->audit->record([
                 'tenantId' => $actor->tenantId,
                 'actorType' => 'user',

@@ -3,13 +3,17 @@
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BranchesController;
+use App\Http\Controllers\CashController;
 use App\Http\Controllers\CategoriesController;
 use App\Http\Controllers\EmployeesController;
 use App\Http\Controllers\HealthController;
+use App\Http\Controllers\PaymentMethodsController;
 use App\Http\Controllers\PlatformController;
+use App\Http\Controllers\PosController;
 use App\Http\Controllers\PricesController;
 use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\RolesController;
+use App\Http\Controllers\SalesController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\StockCountsController;
 use App\Http\Controllers\TenantController;
@@ -102,6 +106,31 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
         Route::post('stock-counts/{id}/close', [StockCountsController::class, 'close']);
         Route::post('stock-counts/{id}/cancel', [StockCountsController::class, 'cancel']);
     });
+
+    // Cajas, medios de pago y turnos
+    Route::get('registers', [CashController::class, 'registers'])->middleware('perm:sales.create,cash.open,cash.read_all,branches.manage');
+    Route::post('registers', [CashController::class, 'storeRegister'])->middleware('perm:branches.manage');
+    Route::put('registers/{id}', [CashController::class, 'updateRegister'])->middleware('perm:branches.manage');
+
+    Route::get('payment-methods', [PaymentMethodsController::class, 'index'])->middleware('perm:sales.create,settings.manage,cash.read_all');
+    Route::post('payment-methods', [PaymentMethodsController::class, 'store'])->middleware('perm:settings.manage');
+    Route::put('payment-methods/{id}', [PaymentMethodsController::class, 'update'])->middleware('perm:settings.manage');
+
+    Route::get('shifts', [CashController::class, 'shifts'])->middleware('perm:cash.open,cash.close,cash.count,cash.read_all');
+    Route::post('shifts', [CashController::class, 'openShift'])->middleware('perm:cash.open');
+    Route::get('shifts/{id}', [CashController::class, 'showShift'])->middleware('perm:cash.open,cash.close,cash.count,cash.read_all');
+    Route::post('shifts/{id}/movements', [CashController::class, 'movement'])->middleware('perm:cash.withdraw,cash.deposit');
+    Route::post('shifts/{id}/counts', [CashController::class, 'count'])->middleware('perm:cash.count');
+    Route::post('shifts/{id}/close', [CashController::class, 'close'])->middleware('perm:cash.close');
+
+    // Ventas. Anular y devolver llegan también a quien vende: sin el permiso, piden el PIN de un encargado.
+    Route::post('sales', [SalesController::class, 'store'])->middleware('perm:sales.create');
+    Route::get('sales', [SalesController::class, 'index'])->middleware('perm:sales.read_own,sales.read_all');
+    Route::get('sales/{id}', [SalesController::class, 'show'])->middleware('perm:sales.read_own,sales.read_all');
+    Route::post('sales/{id}/void', [SalesController::class, 'void'])->middleware('perm:sales.create,sales.void');
+    Route::post('sales/{id}/returns', [SalesController::class, 'storeReturn'])->middleware('perm:sales.create,sales.return');
+    Route::get('pos/authorizers', [PosController::class, 'authorizers'])->middleware('perm:sales.create');
+    Route::post('auth/pos-pin', [PosController::class, 'setPin']);
 });
 
 // ---------------------------------------------------------------- Panel de plataforma

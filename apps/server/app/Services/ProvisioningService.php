@@ -33,6 +33,7 @@ class ProvisioningService
     public function __construct(
         private readonly TenantContext $context,
         private readonly AuditService $audit,
+        private readonly SalesSetup $sales,
     ) {}
 
     /**
@@ -60,6 +61,7 @@ class ProvisioningService
             'settings' => [
                 'allowNegativeStock' => (bool) $businessType->default_settings['allowNegativeStock'],
                 'priceRoundingStep' => (int) $businessType->default_settings['priceRoundingStep'],
+                'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
             ],
         ]);
 
@@ -72,6 +74,9 @@ class ProvisioningService
 
             $branch = Branch::create(['name' => 'Casa central']);
             Warehouse::create(['branch_id' => $branch->id, 'name' => 'Depósito principal', 'is_default' => true]);
+
+            $this->sales->forTenant();
+            $this->sales->forBranch($branch->id);
 
             // Categorías iniciales del rubro (sección 11 del diseño); el comercio las edita después.
             foreach ($businessType->default_categories as $name) {

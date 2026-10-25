@@ -117,6 +117,9 @@ class Input
 
     public const RULE_VALUE = '/^-?\d{1,10}(\.\d{1,2})?$/';
 
+    /** Porcentaje de descuento: 0 a 100 con hasta 2 decimales (el tope se valida aparte). */
+    public const PERCENT = '/^\d{1,3}(\.\d{1,2})?$/';
+
     /** Texto decimal (los importes nunca viajan como number). */
     public static function decimal(string $pattern, string $message): array
     {

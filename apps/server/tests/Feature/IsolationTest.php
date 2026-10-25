@@ -50,10 +50,19 @@ class IsolationTest extends TestCase
         $product = $this->createProduct($this->b['client'], ['initialStock' => '10']);
         $warehouse = $this->defaultWarehouse($this->b['client']);
         $count = $this->b['client']->post('/stock-counts', ['warehouseId' => $warehouse, 'scope' => 'partial', 'notes' => null]);
+        $register = $this->b['client']->get('/registers')->body[0];
+        $shift = $this->b['client']->post('/shifts', ['registerId' => $register['id'], 'openingFloat' => '100']);
+        $cash = collect($this->b['client']->get('/payment-methods')->body)->firstWhere('kind', 'cash');
+        $sale = $this->b['client']->post('/sales', [
+            'clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $product['variantId'], 'quantity' => '1']],
+            'payments' => [['paymentMethodId' => $cash['id'], 'amount' => '1000']], 'expectedTotal' => '1000.00',
+        ]);
         $this->bIds = [
             'branch' => $this->b['me']['branchIds'][0], 'role' => $cashier['id'], 'membership' => $emp['membershipId'],
             'category' => $this->b['client']->get('/categories')->body[0]['id'], 'product' => $product['id'], 'variant' => $product['variantId'],
             'warehouse' => $warehouse, 'count' => $count->body['id'], 'barcode' => $product['barcodes'][0]['code'],
+            'register' => $register['id'], 'shift' => $shift->body['id'], 'paymentMethod' => $cash['id'], 'sale' => $sale->body['id'],
+            'saleLine' => $sale->body['lines'][0]['id'],
         ];
     }
 
@@ -70,6 +79,17 @@ class IsolationTest extends TestCase
         $this->assertNotContains($this->bIds['product'], array_column($a->get('/stock?pageSize=100')->body['items'], 'productId'));
         $this->assertNotContains($this->bIds['variant'], array_column($a->get('/stock/movements?pageSize=100')->body['items'], 'variantId'));
         $this->assertNotContains($this->bIds['count'], array_column($a->get('/stock-counts')->body, 'id'));
+        $this->assertNotContains($this->bIds['register'], array_column($a->get('/registers')->body, 'id'));
+        $this->assertNotContains($this->bIds['paymentMethod'], array_column($a->get('/payment-methods')->body, 'id'));
+        $this->assertNotContains($this->bIds['shift'], array_column($a->get('/shifts')->body['items'], 'id'));
+        $this->assertNotContains($this->bIds['sale'], array_column($a->get('/sales')->body['items'], 'id'));
+        // Una venta de A no puede usar la caja ni los artículos de B.
+        $cashA = collect($a->get('/payment-methods')->body)->firstWhere('kind', 'cash');
+        $foreign = $a->post('/sales', [
+            'clientUuid' => self::uuid(), 'registerId' => $this->bIds['register'], 'lines' => [['variantId' => $this->bIds['variant'], 'quantity' => '1']],
+            'payments' => [['paymentMethodId' => $cashA['id'], 'amount' => '1000']], 'expectedTotal' => '1000.00',
+        ]);
+        $this->assertSame(404, $foreign->status);
         $this->assertSame(404, $a->get('/products/lookup?code='.$this->bIds['barcode'])->status);
         $this->assertSame(404, $a->get('/stock?warehouseId='.$this->bIds['warehouse'])->status);
     }
@@ -86,6 +106,16 @@ class IsolationTest extends TestCase
             '/stock-counts/{id}/lines' => ['lines' => [['variantId' => $this->bIds['variant'], 'counted' => '0']]],
             '/stock-counts/{id}/close' => [],
             '/stock-counts/{id}/cancel' => [],
+            '/registers/{id}' => ['name' => 'Hackeada', 'status' => 'inactive'],
+            '/payment-methods/{id}' => ['name' => 'Hackeado', 'kind' => 'cash', 'requiresReference' => false, 'active' => false, 'sortOrder' => 1],
+            '/shifts/{id}/movements' => ['type' => 'withdrawal', 'amount' => '50', 'reason' => 'Hackeo'],
+            '/shifts/{id}/counts' => ['counted' => '0'],
+            '/shifts/{id}/close' => ['counted' => '0'],
+            '/sales/{id}/void' => ['reason' => 'Hackeo'],
+            '/sales/{id}/returns' => [
+                'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
+                'paymentMethodId' => $this->bIds['paymentMethod'], 'lines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
+            ],
         ];
         $idFor = fn (string $path) => match (true) {
             str_starts_with($path, '/branches') => $this->bIds['branch'],
@@ -94,6 +124,10 @@ class IsolationTest extends TestCase
             str_starts_with($path, '/categories') => $this->bIds['category'],
             str_starts_with($path, '/products') => $this->bIds['product'],
             str_starts_with($path, '/stock-counts') => $this->bIds['count'],
+            str_starts_with($path, '/registers') => $this->bIds['register'],
+            str_starts_with($path, '/payment-methods') => $this->bIds['paymentMethod'],
+            str_starts_with($path, '/shifts') => $this->bIds['shift'],
+            str_starts_with($path, '/sales') => $this->bIds['sale'],
             default => null,
         };
         $checked = [];
@@ -117,6 +151,8 @@ class IsolationTest extends TestCase
             'PUT /branches/{id}', 'PUT /roles/{id}', 'DELETE /roles/{id}', 'PUT /employees/{membershipId}', 'PUT /categories/{id}',
             'GET /products/{id}', 'GET /products/{id}/history', 'PUT /products/{id}', 'POST /products/{id}/status',
             'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
+            'PUT /registers/{id}', 'PUT /payment-methods/{id}', 'GET /shifts/{id}', 'POST /shifts/{id}/movements', 'POST /shifts/{id}/counts',
+            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns',
         ] as $expected) {
             $this->assertContains($expected, $checked);
         }
@@ -127,7 +163,9 @@ class IsolationTest extends TestCase
         $this->assertSame('Casa central', $branchesB->firstWhere('id', $this->bIds['branch'])['name']);
         $productB = $this->b['client']->get('/products/'.$this->bIds['product'])->body;
         $this->assertSame('active', $productB['status']);
-        $this->assertSame('10.000', $productB['stock']);
+        $this->assertSame('9.000', $productB['stock']);
+        $this->assertSame('open', $this->b['client']->get('/shifts/'.$this->bIds['shift'])->body['status']);
+        $this->assertSame('confirmed', $this->b['client']->get('/sales/'.$this->bIds['sale'])->body['status']);
         $this->assertSame('open', $this->b['client']->get('/stock-counts/'.$this->bIds['count'])->body['status']);
     }
 
@@ -151,7 +189,7 @@ class IsolationTest extends TestCase
         $preview = $a->post('/prices/bulk/preview', ['scope' => ['categoryId' => null, 'brandId' => null, 'productIds' => [$this->bIds['product']]], 'rule' => ['kind' => 'percent', 'value' => '50'], 'roundingStep' => 0]);
         $this->assertSame(200, $preview->status);
         $this->assertSame([], $preview->body['rows']);
-        $this->assertSame('10.000', $this->b['client']->get('/products/'.$this->bIds['product'])->body['stock']);
+        $this->assertSame('9.000', $this->b['client']->get('/products/'.$this->bIds['product'])->body['stock']);
     }
 
     public function test_el_mismo_codigo_de_barras_puede_existir_en_dos_comercios(): void

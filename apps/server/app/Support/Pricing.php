@@ -86,6 +86,41 @@ final class Pricing
         return Money::round($value);
     }
 
+    /**
+     * Importes de una línea de venta: bruto = cantidad × precio, descuento = bruto × % / 100,
+     * total = bruto − descuento. Cada paso se redondea a 2 decimales.
+     *
+     * @return array{gross: string, discount: string, total: string}
+     */
+    public static function saleLine(string $quantity, string $unitPrice, string $discountPercent = '0'): array
+    {
+        $gross = Money::round(Money::of($quantity)->multipliedBy($unitPrice));
+        $discount = Money::round(Money::divide(Money::of($gross)->multipliedBy($discountPercent), '100'));
+
+        return ['gross' => $gross, 'discount' => $discount, 'total' => Money::round(Money::of($gross)->minus($discount))];
+    }
+
+    public static function lineGross(string $quantity, string $unitPrice): string
+    {
+        return self::saleLine($quantity, $unitPrice)['gross'];
+    }
+
+    public static function lineDiscount(string $quantity, string $unitPrice, string $discountPercent): string
+    {
+        return self::saleLine($quantity, $unitPrice, $discountPercent)['discount'];
+    }
+
+    public static function lineTotal(string $quantity, string $unitPrice, string $discountPercent): string
+    {
+        return self::saleLine($quantity, $unitPrice, $discountPercent)['total'];
+    }
+
+    /** Parte proporcional de un importe al devolver una cantidad: importe × devuelta / vendida. */
+    public static function proportionalAmount(string $amount, string $part, string $whole): string
+    {
+        return Money::round(Money::divide(Money::of($amount)->multipliedBy($part), $whole));
+    }
+
     private static function factor(string $percent): BigDecimal
     {
         return BigDecimal::one()->plus(Money::divide($percent, '100'));

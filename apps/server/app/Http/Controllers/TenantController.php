@@ -7,9 +7,11 @@ use App\Models\Membership;
 use App\Models\Tenant;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
+use App\Services\SalesService;
 use App\Support\AppError;
 use App\Support\Catalog;
 use App\Support\Input;
+use App\Support\Money;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +48,12 @@ class TenantController extends Controller
             'settings' => ['required', 'array'],
             'settings.allowNegativeStock' => ['present', Input::strictBoolean()],
             'settings.priceRoundingStep' => ['present', Input::oneOfIntegers([0, 1, 5, 10, 50, 100])],
+            'settings.discountLimitPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Porcentaje inválido')],
         ]);
+        $discountLimit = Money::round($input['settings']['discountLimitPercent'] ?? SalesService::DEFAULT_DISCOUNT_LIMIT);
+        if (Money::of($discountLimit)->isGreaterThan(100)) {
+            throw AppError::validation([['path' => 'settings.discountLimitPercent', 'message' => 'El tope no puede superar el 100%']]);
+        }
         $after = [
             'tradeName' => $input['tradeName'],
             'legalName' => $input['legalName'] ?? null,
@@ -58,6 +65,7 @@ class TenantController extends Controller
             'settings' => [
                 'allowNegativeStock' => (bool) $input['settings']['allowNegativeStock'],
                 'priceRoundingStep' => (int) $input['settings']['priceRoundingStep'],
+                'discountLimitPercent' => $discountLimit,
             ],
         ];
 
@@ -118,7 +126,7 @@ class TenantController extends Controller
             'email' => $t->email,
             'businessTypeCode' => $t->business_type_code,
             'status' => $t->status,
-            'settings' => $t->settings,
+            'settings' => $t->settings + ['discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00'],
             'plan' => $this->entitlements->plan(),
             'usage' => [
                 'branches' => Branch::where('status', 'active')->count(),
