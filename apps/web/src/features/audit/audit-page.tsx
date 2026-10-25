@@ -23,6 +23,19 @@ const ACTION_LABELS: Record<string, string> = {
   'membership.updated': 'Cambio de empleado',
   'platform.tenant_suspended': 'Suspensión por la plataforma',
   'platform.tenant_activated': 'Habilitación por la plataforma',
+  'product.created': 'Alta de producto',
+  'product.updated': 'Cambio de producto',
+  'product.deactivated': 'Desactivación de producto',
+  'product.activated': 'Reactivación de producto',
+  'category.created': 'Alta de categoría',
+  'category.updated': 'Cambio de categoría',
+  'brand.created': 'Alta de marca',
+  'stock.adjusted': 'Ajuste de stock',
+  'stock.wasted': 'Baja de stock por merma o vencimiento',
+  'stock_count.opened': 'Inicio de inventario físico',
+  'stock_count.closed': 'Cierre de inventario físico',
+  'stock_count.cancelled': 'Cancelación de inventario físico',
+  'prices.bulk_updated': 'Cambio masivo de precios',
 };
 
 const ENTITY_OPTIONS = [
@@ -32,6 +45,11 @@ const ENTITY_OPTIONS = [
   ['role', 'Roles'],
   ['membership', 'Empleados'],
   ['session', 'Sesiones'],
+  ['product', 'Productos'],
+  ['category', 'Categorías'],
+  ['warehouse', 'Stock'],
+  ['stock_count', 'Inventario físico'],
+  ['price_change_batch', 'Cambios de precios'],
 ] as const;
 
 const PAGE_SIZE = 25;

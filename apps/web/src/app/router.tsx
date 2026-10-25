@@ -7,6 +7,9 @@ import { LoginPage } from '@/features/auth/login-page';
 import { ForgotPasswordPage, ResetPasswordPage } from '@/features/auth/password-pages';
 import { RegisterPage } from '@/features/auth/register-page';
 import { BranchesPage } from '@/features/branches/branches-page';
+import { CategoriesPage } from '@/features/catalog/categories-page';
+import { PricesPage } from '@/features/catalog/prices-page';
+import { ProductsPage } from '@/features/catalog/products-page';
 import { EmployeesPage } from '@/features/employees/employees-page';
 import { HomePage } from '@/features/home/home-page';
 import { AppLayout, NoTenantPage } from '@/features/layout/app-layout';
@@ -17,6 +20,9 @@ import { PlatformPlansPage } from '@/features/platform/plans-page';
 import { PlatformTenantsPage } from '@/features/platform/tenants-page';
 import { RolesPage } from '@/features/roles/roles-page';
 import { SettingsPage } from '@/features/settings/settings-page';
+import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
+import { MovementsPage } from '@/features/stock/movements-page';
+import { StockPage } from '@/features/stock/stock-page';
 import { ApiRequestError } from '@/lib/api';
 import { meQuery } from '@/lib/session';
 
@@ -85,6 +91,18 @@ const rolesRoute = createRoute({ getParentRoute: () => appRoute, path: 'roles', 
 const auditRoute = createRoute({ getParentRoute: () => appRoute, path: 'auditoria', component: AuditPage });
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: 'configuracion', component: SettingsPage });
 const accountRoute = createRoute({ getParentRoute: () => appRoute, path: 'cuenta', component: AccountPage });
+const productsRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos', component: ProductsPage });
+const categoriesRoute = createRoute({ getParentRoute: () => appRoute, path: 'categorias', component: CategoriesPage });
+const pricesRoute = createRoute({ getParentRoute: () => appRoute, path: 'precios', component: PricesPage });
+const stockRoute = createRoute({ getParentRoute: () => appRoute, path: 'stock', component: StockPage });
+const movementsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: 'stock/movimientos',
+  validateSearch: z.object({ productId: z.string().uuid().optional().catch(undefined) }),
+  component: MovementsPage,
+});
+const countsRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios', component: CountsPage });
+const countDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios/$id', component: CountDetailPage });
 
 const platformLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/plataforma/login', component: PlatformLoginPage });
 
@@ -107,7 +125,22 @@ const routeTree = rootRoute.addChildren([
   registerRoute,
   forgotRoute,
   resetRoute,
-  appRoute.addChildren([appIndexRoute, branchesRoute, employeesRoute, rolesRoute, auditRoute, settingsRoute, accountRoute]),
+  appRoute.addChildren([
+    appIndexRoute,
+    productsRoute,
+    categoriesRoute,
+    pricesRoute,
+    stockRoute,
+    movementsRoute,
+    countsRoute,
+    countDetailRoute,
+    branchesRoute,
+    employeesRoute,
+    rolesRoute,
+    auditRoute,
+    settingsRoute,
+    accountRoute,
+  ]),
   platformLoginRoute,
   platformRoute.addChildren([platformIndexRoute, platformPlansRoute]),
 ]);

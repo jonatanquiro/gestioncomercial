@@ -65,8 +65,8 @@ export function HomePage() {
           <Card className="p-6 lg:col-span-2">
             <h2 className="font-semibold">Próximos módulos</h2>
             <p className="mt-2 text-sm text-slate-600">
-              Productos, inventario, punto de venta, caja, compras y facturación electrónica se habilitan en las próximas etapas. Mientras tanto
-              podés configurar el comercio, las sucursales y tu equipo.
+              Ya podés cargar productos y controlar el stock. El punto de venta, la caja, las compras y la facturación electrónica se habilitan en las
+              próximas etapas.
             </p>
           </Card>
         </div>
