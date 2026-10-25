@@ -182,7 +182,7 @@ class SalesService
             }
         }
         if (! $cash->isZero()) {
-            $this->cash->addMovement($actor, $shift, 'sale', $cash, ['source_type' => 'sale', 'source_id' => $sale->id]);
+            $this->cash->addMovement($actor, $shift, 'sale', $cash, ['reason' => "Venta N° {$sale->number}", 'source_type' => 'sale', 'source_id' => $sale->id]);
         }
 
         $this->record($actor, 'sale.created', $sale->id, [

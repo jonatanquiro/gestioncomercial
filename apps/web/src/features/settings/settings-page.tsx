@@ -10,7 +10,7 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Card, PageHeader, Spinner } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
-import { formatCuit } from '@/lib/format';
+import { formatCuit, parseDecimalInput } from '@/lib/format';
 import { useCan } from '@/lib/session';
 
 type FormIn = z.input<typeof updateTenantSchema>;
@@ -30,7 +30,7 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
       address: tenant.address ?? '',
       phone: tenant.phone ?? '',
       email: tenant.email ?? '',
-      settings: tenant.settings,
+      settings: { ...tenant.settings, discountLimitPercent: (tenant.settings.discountLimitPercent ?? '10').replace(/\.00$/, '') },
     },
   });
   const save = useMutation({
@@ -119,6 +119,13 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
             </Field>
           )}
         />
+        <Field
+          label="Descuento máximo por artículo en caja (%)"
+          error={e.settings?.discountLimitPercent?.message}
+          hint="Hasta este porcentaje, quien tiene el permiso de descuentos lo aplica solo. Más arriba hace falta el PIN de un encargado."
+        >
+          {(p) => <Input {...p} inputMode="decimal" className="max-w-40" {...register('settings.discountLimitPercent', { setValueAs: (v: string) => parseDecimalInput(v) })} />}
+        </Field>
       </Card>
       <div className="flex justify-end">
         <Button type="submit" loading={save.isPending}>

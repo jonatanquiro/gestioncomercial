@@ -75,9 +75,18 @@ export const switchTenantSchema = z.object({ tenantId: uuidSchema });
 
 // ---------- Comercio ----------
 
+/** Descuento por línea: 0 a 100 con hasta 2 decimales. */
+export const discountPercentSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,3}(\.\d{1,2})?$/, 'Descuento inválido')
+  .refine((v) => Number.parseFloat(v) <= 100, 'El descuento no puede superar el 100%');
+
 export const tenantSettingsSchema = z.object({
   allowNegativeStock: z.boolean(),
   priceRoundingStep: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(10), z.literal(50), z.literal(100)]),
+  /** Descuento máximo por línea con sales.discount; más arriba hace falta sales.discount_unlimited o un PIN. */
+  discountLimitPercent: discountPercentSchema,
 });
 export type TenantSettings = z.infer<typeof tenantSettingsSchema>;
 
@@ -294,3 +303,69 @@ export const bulkPriceSchema = z.object({
 export type BulkPriceInput = z.infer<typeof bulkPriceSchema>;
 
 export const applyBulkPriceSchema = bulkPriceSchema.extend({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/) });
+
+// ---------------------------------------------------------------- Fase 4: ventas y caja
+
+export const PAYMENT_KINDS = ['cash', 'debit', 'credit', 'transfer', 'qr', 'other'] as const;
+export type PaymentKind = (typeof PAYMENT_KINDS)[number];
+export const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
+  cash: 'Efectivo',
+  debit: 'Tarjeta de débito',
+  credit: 'Tarjeta de crédito',
+  transfer: 'Transferencia',
+  qr: 'QR o billetera virtual',
+  other: 'Otro',
+};
+
+export const pinAuthorizationSchema = z.object({ membershipId: uuidSchema, pin: z.string().regex(/^\d{4,6}$/) });
+export type PinAuthorizationInput = z.infer<typeof pinAuthorizationSchema>;
+
+const positiveMoney = moneySchema.refine((v) => !/^0+(\.0+)?$/.test(v), 'El importe no puede ser cero');
+const positiveQuantity = quantitySchema.refine((v) => !/^0+(\.0+)?$/.test(v), 'La cantidad no puede ser cero');
+
+export const createSaleSchema = z.object({
+  clientUuid: uuidSchema,
+  registerId: uuidSchema,
+  lines: z
+    .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, discountPercent: discountPercentSchema }))
+    .min(1, 'Agregá al menos un artículo')
+    .max(300),
+  payments: z.array(z.object({ paymentMethodId: uuidSchema, amount: positiveMoney, reference: optionalText(80) })).max(10),
+  expectedTotal: moneySchema,
+  authorization: pinAuthorizationSchema.nullable().optional(),
+});
+export type CreateSaleInput = z.infer<typeof createSaleSchema>;
+
+export const voidSaleSchema = z.object({ reason: trimmed(200), authorization: pinAuthorizationSchema.nullable().optional() });
+
+export const createSaleReturnSchema = z.object({
+  clientUuid: uuidSchema,
+  registerId: uuidSchema,
+  reason: trimmed(200),
+  paymentMethodId: uuidSchema,
+  lines: z.array(z.object({ saleLineId: uuidSchema, quantity: positiveQuantity, restock: z.boolean() })).min(1, 'Elegí qué se devuelve').max(300),
+  authorization: pinAuthorizationSchema.nullable().optional(),
+});
+export type CreateSaleReturnInput = z.infer<typeof createSaleReturnSchema>;
+
+export const openShiftSchema = z.object({ registerId: uuidSchema, openingFloat: moneySchema });
+export const cashMovementSchema = z.object({ type: z.enum(['withdrawal', 'deposit']), amount: positiveMoney, reason: trimmed(200) });
+export const cashCountSchema = z.object({ counted: moneySchema });
+export const closeShiftSchema = z.object({ counted: moneySchema, notes: optionalText(300) });
+
+export const registerSchema = z.object({ branchId: uuidSchema, name: trimmed(60) });
+export const updateRegisterSchema = z.object({ name: trimmed(60), status: z.enum(['active', 'inactive']) });
+
+export const paymentMethodSchema = z.object({
+  name: trimmed(60),
+  kind: z.enum(PAYMENT_KINDS),
+  requiresReference: z.boolean(),
+  active: z.boolean(),
+  sortOrder: z.number().int().min(0).max(999),
+});
+export type PaymentMethodInput = z.infer<typeof paymentMethodSchema>;
+
+export const posPinSchema = z.object({
+  password: z.string().min(1, 'Obligatorio'),
+  pin: z.string().regex(/^\d{4,6}$/, 'El PIN tiene que tener de 4 a 6 números'),
+});

@@ -1,7 +1,7 @@
 import type { PermissionCode } from '@gc/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
-import { Boxes, Building2, ClipboardList, History, Home, KeyRound, LogOut, Menu, Package, Percent, Settings, ShieldCheck, Store, Tags, Users } from 'lucide-react';
+import { Boxes, Building2, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet } from 'lucide-react';
 import { type ComponentType, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -19,6 +19,9 @@ interface NavItem {
 /** Solo se muestran módulos implementados; cada fase agrega los suyos. */
 const NAV: NavItem[] = [
   { to: '/app', label: 'Inicio', icon: Home },
+  { to: '/app/vender', label: 'Vender', icon: ShoppingCart, anyOf: ['sales.create'] },
+  { to: '/app/caja', label: 'Caja', icon: Wallet, anyOf: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
+  { to: '/app/ventas', label: 'Ventas', icon: Receipt, anyOf: ['sales.read_own', 'sales.read_all'] },
   { to: '/app/productos', label: 'Productos', icon: Package, anyOf: ['products.read'] },
   { to: '/app/categorias', label: 'Categorías y marcas', icon: Tags, anyOf: ['products.read'] },
   { to: '/app/precios', label: 'Cambio de precios', icon: Percent, anyOf: ['prices.bulk_update'] },
@@ -28,6 +31,7 @@ const NAV: NavItem[] = [
   { to: '/app/empleados', label: 'Empleados', icon: Users, anyOf: ['users.manage'] },
   { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },
   { to: '/app/auditoria', label: 'Auditoría', icon: History, anyOf: ['audit.read'] },
+  { to: '/app/cajas', label: 'Cajas y medios de pago', icon: CreditCard, anyOf: ['branches.manage', 'settings.manage'] },
   { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage'] },
   { to: '/app/cuenta', label: 'Mi cuenta', icon: KeyRound },
 ];
