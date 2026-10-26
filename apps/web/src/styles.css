@@ -1,44 +1,44 @@
 @import "tailwindcss";
 
-/*
- * Estilo "Mostrador": pensado para usar todo el día en el local.
- * Neutros cálidos (crema y grafito) en lugar de grises fríos, acento ámbar y letra Archivo.
- * La escala slate se redefine para que todas las pantallas tomen los neutros cálidos.
- */
+/* Paleta compartida por comercios, plataforma y acceso. */
 @theme {
-  --color-slate-50: #faf7f2;
-  --color-slate-100: #f3eee6;
-  --color-slate-200: #e6dfd3;
-  --color-slate-300: #d3cabb;
-  --color-slate-400: #a39a8b;
-  --color-slate-500: #776e61;
-  --color-slate-600: #5b544a;
-  --color-slate-700: #45403a;
-  --color-slate-800: #2e2a25;
-  --color-slate-900: #1f1c18;
-  --color-slate-950: #151310;
+  --color-slate-50: #f6f8fc;
+  --color-slate-100: #eef2f8;
+  --color-slate-200: #dfe6f0;
+  --color-slate-300: #c8d2e1;
+  --color-slate-400: #8b9bb3;
+  --color-slate-500: #61728b;
+  --color-slate-600: #4a5a73;
+  --color-slate-700: #35445d;
+  --color-slate-800: #22314a;
+  --color-slate-900: #14213a;
+  --color-slate-950: #0b1426;
 
-  --color-brand-50: #fff8eb;
-  --color-brand-100: #fdebc8;
-  --color-brand-200: #fbd28d;
-  --color-brand-300: #f7b54f;
-  --color-brand-400: #f29d24;
-  --color-brand-500: #e8900c;
-  --color-brand-600: #c96f05;
-  --color-brand-700: #a85a06;
-  --color-brand-800: #85460a;
-  --color-brand-900: #6b390c;
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #3b82f6;
+  --color-brand-600: #2563eb;
+  --color-brand-700: #1d4ed8;
+  --color-brand-800: #1e40af;
+  --color-brand-900: #1e3a8a;
 
-  --font-sans: "Archivo Variable", "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
 
-  --radius-lg: 0.375rem;
-  --radius-xl: 0.5rem;
-  --radius-2xl: 0.625rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 0.875rem;
+  --radius-2xl: 1.25rem;
 }
 
 html, body, #root { height: 100%; }
-html { font-size: 17px; }
+html { font-size: 16px; }
 body { @apply bg-slate-50 text-slate-900 antialiased; font-feature-settings: "tnum" 1; }
+
+button:not(:disabled), select:not(:disabled), input[type="checkbox"]:not(:disabled) { cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--color-brand-600); }
+::selection { background: var(--color-brand-100); color: var(--color-brand-900); }
 
 :focus-visible { @apply outline-2 outline-offset-2 outline-brand-600; }
 

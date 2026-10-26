@@ -87,9 +87,20 @@ El comando pide la contraseña (mínimo 10 caracteres).
 
 Desde el panel se pueden dar de alta comercios a mano (botón **Nuevo comercio**): se elige rubro y plan, y el dueño recibe un correo con un enlace para elegir su contraseña (vence en 7 días). Si ese email ya tenía cuenta, el comercio se suma a los suyos y entra con su contraseña de siempre.
 
+El panel también permite:
+
+- Buscar comercios por nombre o CUIT y filtrarlos por estado.
+- Consultar el plan asignado, el vencimiento de la prueba y la cantidad de sucursales y usuarios activos.
+- Suspender o habilitar un comercio indicando un motivo que queda auditado.
+- Editar los planes existentes: nombre, precio mensual, días de prueba, límites de sucursales, usuarios, productos y cajas, funciones incluidas y disponibilidad para nuevas altas.
+
+Editar un plan cambia su definición para todos los comercios que lo usan. **Todavía no se puede reasignar el plan de un comercio existente desde el panel**; se elige al crear el comercio. La API dispone de auditoría de plataforma (`GET /api/v1/platform/audit`), pero el panel todavía no tiene una pantalla para consultarla. Marcar una función en un plan no implementa los módulos que siguen pendientes.
+
 ### Cargar el catálogo de referencia de productos (Precios Claros / SEPA)
 
-Los comercios usan los datos abiertos de SEPA (Precios Claros) de dos maneras. En **Productos → Agregar desde catálogo** buscan lo que venden, lo tildan, le ponen su precio y lo agregan de una vez. Y al dar de alta un producto, si escanean o escriben un código que no tienen cargado, se completan el nombre y la marca. El catálogo es común a todos los comercios y no guarda precios.
+Los comercios usan los datos abiertos de SEPA (Precios Claros) de dos maneras. En **Productos → Agregar desde catálogo** buscan lo que venden, lo tildan, le ponen su precio y, opcionalmente, su stock inicial, y lo agregan de una vez. Y al dar de alta un producto, si escanean o escriben un código que no tienen cargado, se completan el nombre y la marca. El catálogo es común a todos los comercios y no guarda precios.
+
+El campo **Stock inicial** aparece para quienes tienen el permiso `stock.adjust`. Acepta cantidades enteras no negativas, porque los productos del catálogo se crean con venta por unidad. Al dejarlo vacío, el stock queda en 0. Una cantidad mayor que 0 se registra como un movimiento de ajuste con motivo «Stock inicial» en el depósito principal, dentro de la misma transacción que crea el producto. Se cargan activos, con IVA 21 %; estos datos se pueden editar después.
 
 1. Bajá el ZIP de un día del dataset **Precios Claros - Base SEPA** en [datos.produccion.gob.ar](https://datos.produccion.gob.ar/dataset/sepa-precios). Pesa varios cientos de MB.
 2. Importalo:
@@ -120,6 +131,12 @@ pnpm build        # compila a apps/server/public/spa: hay que commitear el resul
 ```
 
 Los permisos, roles plantilla y rubros se definen una sola vez en `packages/contracts`. Después de cambiarlos, correr `pnpm catalog`. Eso regenera `apps/server/database/catalog.json`, que hay que commitear. CI verifica que la web compilada y el catálogo estén al día.
+
+### Diseño visual y documentación
+
+La interfaz comparte una paleta azul y gris, fondo claro, tipografía del sistema, navegación lateral clara para los comercios y componentes comunes para formularios, tablas y diálogos. Se aplica también al acceso y al panel de plataforma. La paleta y los radios se definen en `apps/web/src/styles.css`; los componentes están en `apps/web/src/components/ui`. El ícono y los colores de la aplicación instalada se mantienen en `apps/web/public` y `apps/web/index.html`.
+
+Cada cambio funcional o visual debe acompañarse de la actualización de la documentación correspondiente. El README describe el comportamiento disponible; `docs/adr` registra decisiones de arquitectura cuando corresponde. Antes de ejecutar `iniciar.bat`, los cambios deben estar guardados y subidos a la rama que descarga el archivo: el actualizador reemplaza modificaciones locales. Para iniciar sin actualizar, usar `php artisan serve` desde `apps/server`.
 
 ## Variables de entorno
 

@@ -2,7 +2,7 @@ import type { PermissionCode } from '@gc/contracts';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { Boxes, Building2, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet } from 'lucide-react';
-import { type ComponentType, useState } from 'react';
+import { type ComponentType, Fragment, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
@@ -65,38 +65,50 @@ export function AppLayout() {
   return (
     <div className="flex min-h-full">
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col bg-slate-900 text-slate-300 transition-transform lg:static lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col border-r border-slate-200 bg-white transition-transform lg:sticky lg:top-0 lg:h-dvh lg:shrink-0 lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
         aria-label="Navegación principal"
       >
-        <div className="flex h-16 items-center gap-3 px-5">
-          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-8" />
-          <span className="font-semibold tracking-tight text-white">Gestión Comercial</span>
+        <div className="flex h-20 shrink-0 items-center gap-3 px-5">
+          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-10" />
+          <div>
+            <span className="block font-bold tracking-tight text-slate-900">Gestión Comercial</span>
+            <span className="text-xs text-slate-500">Tu negocio, conectado</span>
+          </div>
         </div>
-        <nav className="flex-1 space-y-0.5 px-3 py-2">
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {items.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              onClick={() => setOpen(false)}
-              activeOptions={{ exact: item.to === '/app' }}
-              className="flex items-center gap-3 rounded-lg border-l-4 border-transparent px-3 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-800 hover:text-white"
-              activeProps={{ className: '!border-brand-400 bg-slate-800 !text-white' }}
-            >
-              <item.icon className="size-4" />
-              {item.label}
-            </Link>
+            <Fragment key={item.to}>
+              {['/app', '/app/productos', '/app/sucursales'].includes(item.to) && (
+                <p className="px-3 pb-2 pt-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  {item.to === '/app' ? 'Tu comercio' : item.to === '/app/productos' ? 'Catálogo e inventario' : 'Administración'}
+                </p>
+              )}
+              <Link
+                to={item.to}
+                onClick={() => setOpen(false)}
+                activeOptions={{ exact: item.to === '/app' }}
+                className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                activeProps={{ className: 'bg-brand-50 !font-semibold !text-brand-700' }}
+              >
+                <item.icon className="size-4" />
+                {item.label}
+              </Link>
+            </Fragment>
           ))}
         </nav>
-        <div className="border-t border-slate-800 px-5 py-4 text-xs text-slate-500">
-          <div className="truncate font-medium text-slate-300">{me.user.name}</div>
-          <div className="truncate">{me.role?.name}</div>
+        <div className="flex shrink-0 items-center gap-3 border-t border-slate-100 px-5 py-4 text-xs text-slate-500">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-100 font-bold text-brand-700" aria-hidden>{me.user.name.slice(0, 1).toUpperCase()}</span>
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-slate-800">{me.user.name}</div>
+            <div className="mt-0.5 truncate">{me.role?.name}</div>
+          </div>
         </div>
       </aside>
       {open && <div className="fixed inset-0 z-20 bg-slate-900/50 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between gap-4 border-b border-slate-200 bg-white/70 px-4 lg:px-8">
-          <div className="flex items-center gap-3">
+        <header className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 lg:px-8">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <button className="rounded-md p-2 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Abrir menú">
               <Menu className="size-5" />
             </button>
@@ -116,7 +128,7 @@ export function AppLayout() {
                 ))}
               </select>
             ) : (
-              <span className="text-base font-semibold">{me.tenant?.tradeName}</span>
+              <span className="max-w-[45vw] truncate text-base font-semibold sm:max-w-none">{me.tenant?.tradeName}</span>
             )}
             {me.tenant && me.tenant.status !== 'active' && (
               <Badge tone={me.tenant.status === 'trial' ? 'brand' : 'red'}>{TENANT_STATUS_LABELS[me.tenant.status] ?? me.tenant.status}</Badge>
@@ -129,7 +141,7 @@ export function AppLayout() {
             </button>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 lg:p-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6 lg:p-9">
           <Outlet />
         </main>
       </div>

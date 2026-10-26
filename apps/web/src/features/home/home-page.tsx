@@ -38,15 +38,15 @@ export function HomePage() {
       {tenant.error && <Alert>{errorMessage(tenant.error)}</Alert>}
       {tenant.data && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-xl bg-slate-900 p-6 text-slate-300">
-            <div className="text-xs font-semibold tracking-wider text-brand-400 uppercase">Tu comercio</div>
+          <div className="rounded-2xl bg-linear-to-br from-slate-900 to-brand-900 p-7 text-slate-300 shadow-sm">
+            <div className="text-xs font-semibold tracking-wider text-brand-300 uppercase">Tu comercio</div>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-white">{tenant.data.tradeName}</h2>
             <dl className="mt-5 grid grid-cols-2 gap-3 text-sm">
-              <dt className="text-slate-500">Estado</dt>
+              <dt className="text-slate-300">Estado</dt>
               <dd className="text-white">{TENANT_STATUS_LABELS[tenant.data.status] ?? tenant.data.status}</dd>
-              <dt className="text-slate-500">CUIT</dt>
+              <dt className="text-slate-300">CUIT</dt>
               <dd className="text-white">{formatCuit(tenant.data.cuit) || 'Sin cargar'}</dd>
-              <dt className="text-slate-500">Tu rol</dt>
+              <dt className="text-slate-300">Tu rol</dt>
               <dd className="text-white">{me.role?.name}</dd>
             </dl>
             {can('settings.manage') && (

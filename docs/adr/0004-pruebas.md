@@ -11,4 +11,4 @@
 
 ## Desvío respecto del diseño: sin Testcontainers
 
-El diseño proponía Testcontainers. Las pruebas usan en cambio un PostgreSQL ya levantado (el servicio de GitHub Actions, o `docker compose up db` en local), que se indica por variables de entorno. La cobertura es la misma, porque igual es PostgreSQL 17 real con RLS. Así se evita depender del socket de Docker dentro del proceso de pruebas, que no está disponible en todos los entornos de CI.
+El diseño original proponía Testcontainers para PostgreSQL. Desde la migración a Laravel ([0005](0005-php-mysql-xampp.md)), las pruebas usan MySQL/MariaDB ya levantado: el servicio de CI o MySQL de XAMPP en local. La conexión se indica por variables de entorno y la base de pruebas se selecciona con `DB_TEST_DATABASE`. Así se evita depender del socket de Docker dentro del proceso de pruebas. El aislamiento se verifica con los controles de aplicación y claves compuestas descritos en [0006](0006-aislamiento-sin-rls.md).
