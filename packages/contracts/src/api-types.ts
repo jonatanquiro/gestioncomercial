@@ -196,6 +196,16 @@ export interface ProductLookupDto {
   quantityFactor: string;
 }
 
+/** Sugerencia del catálogo de referencia (datos abiertos de SEPA) para un código que el comercio no tiene. */
+export interface ReferenceProductDto {
+  code: string;
+  name: string;
+  brandName: string | null;
+  /** Contenido de la etiqueta, por ejemplo "500 g" o "2,25 l". */
+  presentation: string | null;
+  source: 'sepa';
+}
+
 export interface WarehouseDto {
   id: string;
   name: string;

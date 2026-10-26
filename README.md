@@ -87,6 +87,20 @@ El comando pide la contraseña (mínimo 10 caracteres).
 
 Desde el panel se pueden dar de alta comercios a mano (botón **Nuevo comercio**): se elige rubro y plan, y el dueño recibe un correo con un enlace para elegir su contraseña (vence en 7 días). Si ese email ya tenía cuenta, el comercio se suma a los suyos y entra con su contraseña de siempre.
 
+### Cargar el catálogo de referencia de productos (Precios Claros / SEPA)
+
+Cuando un comercio da de alta un producto y escanea un código que no tiene cargado, el sistema completa el nombre y la marca con los datos abiertos de SEPA (Precios Claros). El comercio revisa y pone su precio. El catálogo es común a todos los comercios y no guarda precios.
+
+1. Bajá el ZIP de un día del dataset **Precios Claros - Base SEPA** en [datos.produccion.gob.ar](https://datos.produccion.gob.ar/dataset/sepa-precios). Pesa varios cientos de MB.
+2. Importalo:
+
+```bash
+cd apps/server
+php artisan catalogo:importar-sepa C:\Users\vos\Downloads\sepa_lunes.zip
+```
+
+Tarda unos minutos. También acepta la carpeta ya descomprimida o un `productos.csv` suelto. Para actualizarlo, se vuelve a correr con un archivo más nuevo. Leer el ZIP directamente requiere `extension=zip` activa en el `php.ini` de XAMPP. Si no está activa, descomprimí el archivo y pasá la carpeta.
+
 ## Pruebas
 
 ```bash

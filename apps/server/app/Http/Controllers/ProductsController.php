@@ -9,6 +9,7 @@ use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReferenceProduct;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Models\VariantCost;
@@ -90,6 +91,19 @@ class ProductsController extends Controller
         }
 
         return $this->json(['product' => $this->dto($variant->product_id, $actor), 'quantityFactor' => $barcode ? Money::quantity($barcode->quantity_factor) : '1.000']);
+    }
+
+    /** Sugerencia del catálogo de referencia (SEPA) para un código que el comercio todavía no cargó. */
+    public function reference(Request $request): JsonResponse
+    {
+        $q = Input::validate($request->query(), ['code' => ['required', 'string', 'max:64']]);
+        $key = ReferenceProduct::key($q['code']);
+        $found = $key === null ? null : ReferenceProduct::find($key);
+        if (! $found) {
+            throw AppError::notFound('Código');
+        }
+
+        return $this->json(['code' => $q['code'], 'name' => $found->name, 'brandName' => $found->brand, 'presentation' => $found->presentation, 'source' => $found->source]);
     }
 
     public function history(Request $request, string $id): JsonResponse
