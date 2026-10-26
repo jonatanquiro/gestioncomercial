@@ -122,6 +122,65 @@ class ReferenceCatalogTest extends TestCase
         $this->assertSame(403, $emp['client']->get('/products/reference?code='.self::ean('779089500'))->status);
     }
 
+    public function test_busca_en_el_catalogo_y_agrega_varios_con_su_precio(): void
+    {
+        $tag = 'Prueba'.random_int(100000, 999999);
+        $alfajor = self::ean('779458001');
+        $galletita = self::ean('779458002');
+        $upc = self::gtin('0'.random_int(1000000000, 9999999999));
+        $now = now()->format('Y-m-d H:i:s.u');
+        ReferenceProduct::upsert([
+            ['code' => $alfajor, 'name' => "Alfajor {$tag} chocolate", 'brand' => "Marca {$tag}", 'presentation' => '75 g', 'source' => 'sepa', 'seen_in' => 5, 'updated_at' => $now],
+            ['code' => $galletita, 'name' => "Galletitas {$tag} dulces", 'brand' => "Marca {$tag}", 'presentation' => '300 g', 'source' => 'sepa', 'seen_in' => 3, 'updated_at' => $now],
+            ['code' => ltrim($upc, '0'), 'name' => "Chicle {$tag}", 'brand' => null, 'presentation' => null, 'source' => 'sepa', 'seen_in' => 1, 'updated_at' => $now],
+        ], ['code']);
+
+        ['client' => $owner] = $this->registerTenant();
+        $category = $owner->get('/categories')->body[0];
+        // La marca ya existe en el comercio con otras mayúsculas: se reutiliza.
+        $brand = $owner->post('/brands', ['name' => "MARCA {$tag}"])->body;
+
+        $found = $owner->get('/products/reference/search?q='.urlencode("{$tag} chocolate"))->body;
+        $this->assertSame(1, $found['total']);
+        $this->assertSame([$alfajor, false], [$found['items'][0]['code'], $found['items'][0]['added']]);
+        $this->assertSame(3, $owner->get("/products/reference/search?q={$tag}")->body['total']);
+        $this->assertSame("Chicle {$tag}", $owner->get("/products/reference/search?q={$upc}")->body['items'][0]['name']);
+
+        $res = $owner->post('/products/reference/add', ['categoryId' => $category['id'], 'items' => [
+            ['code' => $alfajor, 'price' => '1500'], ['code' => $galletita, 'price' => '2300.50'], ['code' => $upc, 'price' => '300'],
+        ]]);
+        $this->assertSame(201, $res->status, json_encode($res->body));
+        $this->assertSame(3, $res->body['created']);
+
+        $p = $owner->get('/products/lookup?code='.$alfajor)->body['product'];
+        $this->assertSame(["Alfajor {$tag} chocolate", '1500.00', $category['id'], $brand['id'], 'active', '0.000'], [
+            $p['name'], $p['price'], $p['categoryId'], $p['brandId'], $p['status'], $p['stock'],
+        ]);
+        $this->assertSame('2300.50', $owner->get('/products/lookup?code='.$galletita)->body['product']['price']);
+        $this->assertNull($owner->get('/products/lookup?code='.$upc)->body['product']['brandId']);
+        $this->assertTrue($owner->get("/products/reference/search?q={$alfajor}")->body['items'][0]['added']);
+
+        // Lo que ya está cargado no se duplica, y lo que no está en el catálogo se rechaza.
+        $dup = $owner->post('/products/reference/add', ['categoryId' => null, 'items' => [['code' => $alfajor, 'price' => '1']]]);
+        $this->assertSame([409, 'BARCODE_DUPLICATE'], [$dup->status, $dup->body['code']]);
+        $missing = $owner->post('/products/reference/add', ['categoryId' => null, 'items' => [['code' => self::ean('779999998'), 'price' => '1']]]);
+        $this->assertSame([400, 'items.0.code'], [$missing->status, $missing->body['details'][0]['path']]);
+    }
+
+    public function test_agregar_desde_el_catalogo_crea_la_marca_que_falta_y_respeta_el_permiso(): void
+    {
+        $tag = 'Nueva'.random_int(100000, 999999);
+        $code = self::ean('779458003');
+        ReferenceProduct::upsert([['code' => $code, 'name' => "Yerba {$tag}", 'brand' => "Marca {$tag}", 'presentation' => '1 kg', 'source' => 'sepa', 'seen_in' => 1, 'updated_at' => now()->format('Y-m-d H:i:s.u')]], ['code']);
+        ['client' => $owner, 'me' => $me] = $this->registerTenant();
+        $this->assertSame(201, $owner->post('/products/reference/add', ['categoryId' => null, 'items' => [['code' => $code, 'price' => '5000']]])->status);
+        $this->assertContains("Marca {$tag}", array_column($owner->get('/brands')->body, 'name'));
+
+        $cashier = $this->roleByTemplate($owner, 'cashier');
+        $emp = $this->addEmployee($owner, $cashier['id'], $me['branchIds']);
+        $this->assertSame(403, $emp['client']->get('/products/reference/search?q=yerba')->status);
+    }
+
     /** Arma un productos.csv con BOM, CRLF y la línea final de SEPA. */
     private function csv(array $rows): string
     {

@@ -206,6 +206,12 @@ export interface ReferenceProductDto {
   source: 'sepa';
 }
 
+/** Resultado de la búsqueda en el catálogo de referencia. */
+export interface ReferenceSearchItemDto extends ReferenceProductDto {
+  /** El comercio ya tiene un producto con este código. */
+  added: boolean;
+}
+
 export interface WarehouseDto {
   id: string;
   name: string;

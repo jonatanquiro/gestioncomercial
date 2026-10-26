@@ -143,33 +143,105 @@ class ProductsController extends Controller
             throw AppError::forbidden('stock.adjust');
         }
 
-        $id = $this->guardUnique(fn () => DB::transaction(function () use ($actor, $input, $initial) {
+        $id = $this->guardUnique(fn () => DB::transaction(function () use ($actor, $input) {
             $this->entitlements->lockTenant($actor->tenantId);
             $this->entitlements->assertBelowLimit('max_products', Product::where('status', 'active')->count());
             $this->assertReferences($input);
             $this->assertCodesFree($input, null);
 
-            $product = Product::create([...$this->masterColumns($input), 'status' => 'active', 'created_by' => $actor->userId]);
-            $variant = ProductVariant::create(['product_id' => $product->id, 'sku' => $input['sku'], 'price' => $input['price'], 'cost' => null]);
-            $this->products->setPrice($variant, $input['price'], $actor->userId, initial: true);
-            if ($input['cost'] !== null) {
-                $this->products->setCost($variant, $input['cost'], 'initial', $actor->userId, initial: true);
-            }
-            $this->saveBarcodes($variant->id, $input['barcodes']);
-            $this->stock->initVariant($variant->id);
-            if ($initial !== null && $product->track_stock && ! BigDecimal::of($initial)->isZero()) {
-                $warehouse = Warehouse::where('is_default', true)->orderBy('created_at')->first() ?? throw AppError::notFound('Depósito');
-                $this->stock->apply(
-                    [['warehouseId' => $warehouse->id, 'variantId' => $variant->id, 'type' => 'adjust', 'quantity' => $initial, 'sourceLineId' => $variant->id]],
-                    ['sourceType' => 'initial_stock', 'sourceId' => $product->id, 'reason' => 'Stock inicial', 'userId' => $actor->userId],
-                );
-            }
-            $this->record($actor, 'product.created', $product->id, null, $this->auditView($input));
-
-            return $product->id;
+            return $this->createProduct($actor, $input);
         }));
 
         return $this->json($this->dto($id, $actor), 201);
+    }
+
+    /** Búsqueda en el catálogo de referencia (SEPA) por nombre, marca o código, marcando lo que el comercio ya tiene. */
+    public function referenceSearch(Request $request): JsonResponse
+    {
+        ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
+        $q = Input::validate($request->query(), ['q' => ['nullable', 'string', 'max:100']]);
+        $term = trim($q['q'] ?? '');
+        $query = ReferenceProduct::query();
+        if (preg_match('/^\d{6,14}$/', $term)) {
+            $query->whereKey(ReferenceProduct::key($term) ?? '');
+        } else {
+            foreach (array_filter(explode(' ', $term)) as $word) {
+                $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $word).'%';
+                $query->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('brand', 'like', $like));
+            }
+        }
+        $total = (clone $query)->count();
+        $rows = $query->orderByDesc('seen_in')->orderBy('name')->orderBy('code')->forPage($page, $pageSize)->get();
+        $taken = Barcode::whereIn('code', $rows->flatMap(fn (ReferenceProduct $r) => ReferenceProduct::spellings($r->code)))->pluck('code')
+            ->map(fn ($c) => ReferenceProduct::key($c))->flip();
+
+        return $this->json([
+            'items' => $rows->map(fn (ReferenceProduct $r) => [
+                'code' => ReferenceProduct::barcode($r->code), 'name' => $r->name, 'brandName' => $r->brand, 'presentation' => $r->presentation,
+                'source' => $r->source, 'added' => isset($taken[$r->code]),
+            ])->values()->all(),
+            'total' => $total, 'page' => $page, 'pageSize' => $pageSize,
+        ]);
+    }
+
+    /**
+     * Alta de varios productos del catálogo de referencia, con el precio que pone el comercio.
+     * Quedan como cualquier alta manual: activos, IVA 21 %, por unidad y sin stock inicial.
+     */
+    public function addFromReference(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'categoryId' => ['present', 'nullable', 'string', 'uuid'],
+            'items' => ['required', 'array', 'list', 'min:1', 'max:100'],
+            'items.*' => ['array'],
+            'items.*.code' => ['required', 'string', 'regex:/^\d{6,14}$/', 'distinct'],
+            'items.*.price' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+        ], [
+            'items.min' => 'Elegí al menos un producto',
+            'items.max' => 'Hasta 100 productos por vez',
+            'items.*.code.regex' => 'Código inválido',
+            'items.*.code.distinct' => 'Código repetido',
+        ]);
+        $refs = ReferenceProduct::whereIn('code', array_map(fn ($i) => ReferenceProduct::key($i['code']) ?? '', $v['items']))->get()->keyBy('code');
+        $details = [];
+        foreach ($v['items'] as $i => $item) {
+            if (! isset($refs[ReferenceProduct::key($item['code']) ?? ''])) {
+                $details[] = ['path' => "items.{$i}.code", 'message' => 'No está en el catálogo'];
+            }
+        }
+        if ($details !== []) {
+            throw AppError::validation($details);
+        }
+
+        $ids = $this->guardUnique(fn () => DB::transaction(function () use ($actor, $v, $refs) {
+            $this->entitlements->lockTenant($actor->tenantId);
+            $active = Product::where('status', 'active')->count();
+            $this->entitlements->assertBelowLimit('max_products', $active + count($v['items']) - 1);
+            $brands = Brand::pluck('id', 'name')->mapWithKeys(fn ($id, $name) => [mb_strtolower($name) => $id])->all();
+            $ids = [];
+            foreach ($v['items'] as $item) {
+                $ref = $refs[ReferenceProduct::key($item['code'])];
+                $brandId = null;
+                if ($ref->brand !== null) {
+                    $brandId = $brands[mb_strtolower($ref->brand)] ??= $this->createBrand($actor, $ref->brand);
+                }
+                $input = [
+                    'kind' => 'good', 'name' => $ref->name, 'description' => null, 'categoryId' => $v['categoryId'] ?? null, 'brandId' => $brandId,
+                    'saleMode' => 'unit', 'vatRate' => '21', 'trackStock' => true, 'minStock' => null, 'blockNegativeStock' => false,
+                    'sku' => null, 'price' => Money::round($item['price']), 'cost' => null,
+                    'barcodes' => [['code' => ReferenceProduct::barcode($ref->code), 'quantityFactor' => '1.000']],
+                ];
+                $this->assertReferences($input);
+                // El comercio puede tenerlo cargado con o sin ceros adelante.
+                $this->assertCodesFree(['sku' => null, 'barcodes' => array_map(fn ($c) => ['code' => $c], ReferenceProduct::spellings($ref->code))], null);
+                $ids[] = $this->createProduct($actor, $input);
+            }
+
+            return $ids;
+        }));
+
+        return $this->json(['created' => count($ids)], 201);
     }
 
     public function update(Request $request, string $id): JsonResponse
@@ -436,6 +508,43 @@ class ProductsController extends Controller
             }
             throw $e;
         }
+    }
+
+    /** Crea el producto con su variante, precio, costo, códigos y stock inicial. Corre dentro de la transacción del llamador. */
+    private function createProduct(Actor $actor, array $input): string
+    {
+        $product = Product::create([...$this->masterColumns($input), 'status' => 'active', 'created_by' => $actor->userId]);
+        $variant = ProductVariant::create(['product_id' => $product->id, 'sku' => $input['sku'], 'price' => $input['price'], 'cost' => null]);
+        $this->products->setPrice($variant, $input['price'], $actor->userId, initial: true);
+        if ($input['cost'] !== null) {
+            $this->products->setCost($variant, $input['cost'], 'initial', $actor->userId, initial: true);
+        }
+        $this->saveBarcodes($variant->id, $input['barcodes']);
+        $this->stock->initVariant($variant->id);
+        $initial = $input['initialStock'] ?? null;
+        if ($initial !== null && $product->track_stock && ! BigDecimal::of($initial)->isZero()) {
+            $warehouse = Warehouse::where('is_default', true)->orderBy('created_at')->first() ?? throw AppError::notFound('Depósito');
+            $this->stock->apply(
+                [['warehouseId' => $warehouse->id, 'variantId' => $variant->id, 'type' => 'adjust', 'quantity' => $initial, 'sourceLineId' => $variant->id]],
+                ['sourceType' => 'initial_stock', 'sourceId' => $product->id, 'reason' => 'Stock inicial', 'userId' => $actor->userId],
+            );
+        }
+        $this->record($actor, 'product.created', $product->id, null, $this->auditView($input));
+
+        return $product->id;
+    }
+
+    /** Marca que viene del catálogo y el comercio todavía no tiene: se crea con su auditoría, como desde Categorías y marcas. */
+    private function createBrand(Actor $actor, string $name): string
+    {
+        $brand = Brand::create(['name' => $name]);
+        $this->audit->record([
+            'tenantId' => $actor->tenantId, 'actorType' => 'user', 'actorId' => $actor->userId, 'actorName' => $actor->userName,
+            'action' => 'brand.created', 'entityType' => 'brand', 'entityId' => $brand->id, 'before' => null, 'after' => ['name' => $name],
+            'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
+
+        return $brand->id;
     }
 
     private function saveBarcodes(string $variantId, array $barcodes): void

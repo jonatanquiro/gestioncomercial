@@ -139,6 +139,11 @@ export function ProductsPage() {
               </Link>
             )}
             {can('products.create') && (
+              <Link to="/app/productos/catalogo" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+                Agregar desde catálogo
+              </Link>
+            )}
+            {can('products.create') && (
               <Button onClick={() => setDialog({ mode: 'new' })}>
                 <Plus className="size-4" aria-hidden /> Nuevo producto
               </Button>

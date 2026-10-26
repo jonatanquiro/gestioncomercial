@@ -31,6 +31,27 @@ class ReferenceProduct extends Model
         return strlen($key) >= 6 ? $key : null;
     }
 
+    /** Cómo se carga en el comercio: EAN-8, UPC-A (12), EAN-13 o GTIN-14, que es lo que devuelve el lector. */
+    public static function barcode(string $key): string
+    {
+        $len = strlen($key);
+
+        return str_pad($key, $len <= 8 ? 8 : ($len <= 12 ? 12 : $len), '0', STR_PAD_LEFT);
+    }
+
+    /** Formas en que el mismo código puede estar cargado en un comercio (con o sin ceros adelante). @return list<string> */
+    public static function spellings(string $key): array
+    {
+        $out = [$key];
+        foreach ([8, 12, 13, 14] as $len) {
+            if (strlen($key) <= $len) {
+                $out[] = str_pad($key, $len, '0', STR_PAD_LEFT);
+            }
+        }
+
+        return array_values(array_unique($out));
+    }
+
     /** Dígito verificador GS1 (EAN-8, UPC-A, EAN-13, GTIN-14). */
     private static function validCheckDigit(string $code): bool
     {

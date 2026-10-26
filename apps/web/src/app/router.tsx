@@ -12,6 +12,7 @@ import { CashSetupPage } from '@/features/cash/setup-page';
 import { CategoriesPage } from '@/features/catalog/categories-page';
 import { PricesPage } from '@/features/catalog/prices-page';
 import { ProductsPage } from '@/features/catalog/products-page';
+import { ReferenceCatalogPage } from '@/features/catalog/reference-catalog-page';
 import { EmployeesPage } from '@/features/employees/employees-page';
 import { HomePage } from '@/features/home/home-page';
 import { AppLayout, NoTenantPage } from '@/features/layout/app-layout';
@@ -96,6 +97,7 @@ const auditRoute = createRoute({ getParentRoute: () => appRoute, path: 'auditori
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: 'configuracion', component: SettingsPage });
 const accountRoute = createRoute({ getParentRoute: () => appRoute, path: 'cuenta', component: AccountPage });
 const productsRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos', component: ProductsPage });
+const referenceCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos/catalogo', component: ReferenceCatalogPage });
 const categoriesRoute = createRoute({ getParentRoute: () => appRoute, path: 'categorias', component: CategoriesPage });
 const pricesRoute = createRoute({ getParentRoute: () => appRoute, path: 'precios', component: PricesPage });
 const stockRoute = createRoute({ getParentRoute: () => appRoute, path: 'stock', component: StockPage });
@@ -144,6 +146,7 @@ const routeTree = rootRoute.addChildren([
     shiftRoute,
     cashSetupRoute,
     productsRoute,
+    referenceCatalogRoute,
     categoriesRoute,
     pricesRoute,
     stockRoute,

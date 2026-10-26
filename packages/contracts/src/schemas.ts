@@ -241,6 +241,16 @@ export const createProductSchema = z.object({
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
+/** Alta de varios productos del catálogo de referencia (SEPA), cada uno con su precio. */
+export const addReferenceProductsSchema = z.object({
+  categoryId: uuidSchema.nullable(),
+  items: z
+    .array(z.object({ code: z.string().trim().regex(/^\d{6,14}$/, 'Código inválido'), price: moneySchema }))
+    .min(1, 'Elegí al menos un producto')
+    .max(100, 'Hasta 100 productos por vez'),
+});
+export type AddReferenceProductsInput = z.infer<typeof addReferenceProductsSchema>;
+
 export const updateProductSchema = z.object({ ...productBase, version: z.number().int().min(1) });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 

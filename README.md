@@ -89,7 +89,7 @@ Desde el panel se pueden dar de alta comercios a mano (botón **Nuevo comercio**
 
 ### Cargar el catálogo de referencia de productos (Precios Claros / SEPA)
 
-Cuando un comercio da de alta un producto y escanea un código que no tiene cargado, el sistema completa el nombre y la marca con los datos abiertos de SEPA (Precios Claros). El comercio revisa y pone su precio. El catálogo es común a todos los comercios y no guarda precios.
+Los comercios usan los datos abiertos de SEPA (Precios Claros) de dos maneras. En **Productos → Agregar desde catálogo** buscan lo que venden, lo tildan, le ponen su precio y lo agregan de una vez. Y al dar de alta un producto, si escanean o escriben un código que no tienen cargado, se completan el nombre y la marca. El catálogo es común a todos los comercios y no guarda precios.
 
 1. Bajá el ZIP de un día del dataset **Precios Claros - Base SEPA** en [datos.produccion.gob.ar](https://datos.produccion.gob.ar/dataset/sepa-precios). Pesa varios cientos de MB.
 2. Importalo:
