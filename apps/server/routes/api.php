@@ -6,6 +6,7 @@ use App\Http\Controllers\BranchesController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\CategoriesController;
 use App\Http\Controllers\EmployeesController;
+use App\Http\Controllers\FiscalController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\PaymentMethodsController;
 use App\Http\Controllers\PlatformController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\PricesController;
 use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\RolesController;
 use App\Http\Controllers\SalesController;
+use App\Http\Controllers\SettlementsController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\StockCountsController;
 use App\Http\Controllers\TenantController;
@@ -55,6 +57,21 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     // Datos generales del comercio y sus sucursales: visibles para todo miembro activo.
     Route::get('tenant', [TenantController::class, 'show']);
     Route::put('tenant', [TenantController::class, 'update'])->middleware('perm:settings.manage');
+    Route::put('tenant/appearance', [TenantController::class, 'appearance'])->middleware('perm:settings.manage');
+    Route::get('fiscal/settings', [FiscalController::class, 'settings'])->middleware('perm:fiscal.manage');
+    Route::put('fiscal/settings', [FiscalController::class, 'save'])->middleware('perm:fiscal.manage');
+    Route::post('fiscal/csr', [FiscalController::class, 'csr'])->middleware('perm:fiscal.manage');
+    Route::post('fiscal/check', [FiscalController::class, 'check'])->middleware('perm:fiscal.manage');
+    Route::get('fiscal/invoices', [FiscalController::class, 'invoices'])->middleware('perm:fiscal.manage');
+    Route::post('sales/{id}/invoice', [FiscalController::class, 'issue'])->middleware('perm:fiscal.manage');
+    Route::get('settlements', [SettlementsController::class, 'index'])->middleware('perm:cash.read_all');
+    Route::post('settlements', [SettlementsController::class, 'store'])->middleware('perm:cash.read_all');
+    Route::get('settlements/{id}', [SettlementsController::class, 'show'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/refresh', [SettlementsController::class, 'refresh'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/import', [SettlementsController::class, 'import'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/review', [SettlementsController::class, 'review'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/match', [SettlementsController::class, 'match'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/close', [SettlementsController::class, 'close'])->middleware('perm:cash.read_all');
 
     Route::get('branches', [BranchesController::class, 'index']);
     Route::post('branches', [BranchesController::class, 'store'])->middleware('perm:branches.manage');
@@ -143,6 +160,7 @@ Route::prefix('platform')->middleware(['csrf.double', 'auth.platform'])->group(f
     Route::get('tenants', [PlatformController::class, 'tenants']);
     Route::post('tenants', [PlatformController::class, 'createTenant']);
     Route::post('tenants/{id}/status', [PlatformController::class, 'setTenantStatus']);
+    Route::post('tenants/{id}/plan', [PlatformController::class, 'changeTenantPlan']);
     Route::get('plans', [PlatformController::class, 'plans']);
     Route::put('plans/{id}', [PlatformController::class, 'updatePlan']);
     Route::get('audit', [PlatformController::class, 'audit']);

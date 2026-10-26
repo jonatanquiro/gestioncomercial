@@ -13,6 +13,7 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
   return (
     <div className="ticket font-mono text-[12px] leading-snug text-black">
       <div className="text-center">
+        {tenant.appearance?.logoData && <img src={tenant.appearance.logoData} alt="" className="mx-auto mb-2 h-12 max-w-40 object-contain" />}
         <div className="text-[14px] font-bold">{tenant.tradeName}</div>
         {tenant.legalName && <div>{tenant.legalName}</div>}
         {tenant.cuit && <div>CUIT {formatCuit(tenant.cuit)}</div>}

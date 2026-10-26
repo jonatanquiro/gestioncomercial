@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Auth\Actor;
+use App\Models\FiscalInvoice;
 use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -252,6 +253,7 @@ class SalesService
 
         return DB::transaction(function () use ($actor, $saleId, $reason, $authorizedBy) {
             $sale = Sale::whereKey($saleId)->lockForUpdate()->first();
+            $this->assertNoFiscalVoucher($saleId);
             if ($sale->status !== 'confirmed') {
                 throw AppError::conflict('SALE_ALREADY_VOIDED', 'La venta ya está anulada');
             }
@@ -327,6 +329,7 @@ class SalesService
     private function confirmReturn(Actor $actor, string $saleId, Register $register, array $input, ?string $authorizedBy): SaleReturn
     {
         $sale = Sale::whereKey($saleId)->lockForUpdate()->first();
+        $this->assertNoFiscalVoucher($saleId);
         if ($sale->status !== 'confirmed') {
             throw AppError::conflict('SALE_VOIDED', 'La venta está anulada: no admite devoluciones');
         }
@@ -406,6 +409,13 @@ class SalesService
         ]);
 
         return $saleReturn;
+    }
+
+    private function assertNoFiscalVoucher(string $saleId): void
+    {
+        if (FiscalInvoice::where('sale_id', $saleId)->where('environment', 'produccion')->whereIn('status', ['pending', 'authorized'])->exists()) {
+            throw AppError::conflict('FISCAL_CREDIT_NOTE_REQUIRED', 'La venta tiene un comprobante fiscal real o pendiente. Requiere resolver su estado y la nota de crédito fiscal antes de anular o devolver. Este módulo todavía no emite notas de crédito.');
+        }
     }
 
     private function record(Actor $actor, string $action, string $saleId, array $after, ?array $before = null): void

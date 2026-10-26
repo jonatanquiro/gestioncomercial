@@ -185,6 +185,7 @@ export function PlatformTenantsPage() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<PlatformTenantDto | null>(null);
   const [creating, setCreating] = useState(false);
+  const [changingPlan, setChangingPlan] = useState<PlatformTenantDto | null>(null);
   const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
   if (search.trim()) params.set('q', search.trim());
   if (status) params.set('status', status);
@@ -281,6 +282,7 @@ export function PlatformTenantsPage() {
                 </Td>
                 <Td className="whitespace-nowrap">{formatDate(t.createdAt)}</Td>
                 <Td className="text-right">
+                  {t.status !== 'cancelled' && <Button size="sm" variant="secondary" onClick={() => setChangingPlan(t)}>Cambiar plan</Button>}
                   {t.status !== 'cancelled' && (
                     <Button size="sm" variant={t.status === 'suspended' ? 'secondary' : 'ghost'} onClick={() => setEditing(t)}>
                       {t.status === 'suspended' ? 'Habilitar' : 'Suspender'}
@@ -310,6 +312,9 @@ export function PlatformTenantsPage() {
       <Dialog open={creating} onOpenChange={setCreating} title="Nuevo comercio" wide>
         {creating && <CreateTenantForm onDone={() => setCreating(false)} />}
       </Dialog>
+      <Dialog open={changingPlan !== null} onOpenChange={o => !o && setChangingPlan(null)} title={`Cambiar plan de ${changingPlan?.tradeName ?? ''}`}>
+        {changingPlan && <ChangePlanForm tenant={changingPlan} plans={plans.data ?? []} onDone={() => setChangingPlan(null)} />}
+      </Dialog>
       <Dialog
         open={editing !== null}
         onOpenChange={(o) => !o && setEditing(null)}
@@ -319,4 +324,21 @@ export function PlatformTenantsPage() {
       </Dialog>
     </>
   );
+}
+
+function ChangePlanForm({ tenant, plans, onDone }: { tenant: PlatformTenantDto; plans: PlanDto[]; onDone: () => void }) {
+  const [code, setCode] = useState('');
+  const [reason, setReason] = useState('');
+  const client = useQueryClient();
+  const toast = useToast();
+  const selected = plans.find(p => p.code === code);
+  const save = useMutation({ mutationFn: () => http.post(`/platform/tenants/${tenant.id}/plan`, { planCode: code, expectedPlanCode: tenant.planCode, reason }), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['platform-tenants'] }); await client.invalidateQueries({ queryKey: ['tenant'] }); toast('Plan del comercio actualizado'); onDone(); } });
+  return <form className="space-y-4" onSubmit={e => { e.preventDefault(); save.mutate(); }}>{save.error && <Alert>{errorMessage(save.error)}</Alert>}
+    <p className="text-sm text-slate-600">Plan actual: <strong>{plans.find(p => p.code === tenant.planCode)?.name ?? tenant.planCode}</strong></p>
+    <Field label="Nuevo plan">{p => <Select {...p} required value={code} onChange={e => setCode(e.target.value)}><option value="">Elegí un plan</option>{plans.filter(p => p.active && p.code !== tenant.planCode).map(p => <option key={p.id} value={p.code}>{p.name}</option>)}</Select>}</Field>
+    {selected && <p className="text-sm text-slate-600">Límites: {selected.limits.max_branches ?? 'Sin límite'} sucursales · {selected.limits.max_users ?? 'Sin límite'} usuarios · {selected.limits.max_products ?? 'Sin límite'} productos · {selected.limits.max_registers ?? 'Sin límite'} cajas.</p>}
+    <Field label="Motivo del cambio">{p => <Input {...p} required maxLength={300} value={reason} onChange={e => setReason(e.target.value)} />}</Field>
+    <Alert kind="info">Se aplica inmediatamente y queda auditado. Se conservan el estado y las fechas de la suscripción, sin reiniciar la prueba ni generar cobros automáticos. Si el uso actual supera los límites del nuevo plan, el cambio se rechaza.</Alert>
+    <Button type="submit" loading={save.isPending}>Confirmar cambio de plan</Button>
+  </form>;
 }

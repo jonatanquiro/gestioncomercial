@@ -13,6 +13,8 @@ use App\Models\Plan;
 use App\Models\PlanFeature;
 use App\Models\PlanLimit;
 use App\Models\PlatformUser;
+use App\Models\Product;
+use App\Models\Register;
 use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\User;
@@ -288,6 +290,39 @@ class PlatformController extends Controller
     public function plans(): JsonResponse
     {
         return $this->json(Plan::with(['limits', 'features'])->orderBy('sort_order')->get()->map(fn (Plan $p) => $this->planDto($p))->all());
+    }
+
+    public function changeTenantPlan(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['planCode' => ['required', 'string', 'max:40'], 'expectedPlanCode' => ['present', 'nullable', 'string', 'max:40'], 'reason' => ['required', 'string', 'max:300']]);
+        $this->context->withoutTenant(fn () => DB::transaction(function () use ($actor, $v, $id) {
+            $tenant = Tenant::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($tenant->status === 'cancelled') {
+                throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+            }
+            $subscription = Subscription::where('tenant_id', $id)->where('status', '<>', 'cancelled')->lockForUpdate()->first() ?? throw AppError::notFound('Suscripción vigente');
+            $previous = Plan::find($subscription->plan_id);
+            if ($previous?->code !== ($v['expectedPlanCode'] ?? null)) {
+                throw AppError::conflict('PLAN_CHANGED', 'Otra persona cambió el plan. Actualizá la lista y volvé a intentarlo.');
+            }
+            $plan = Plan::where('code', $v['planCode'])->where('active', true)->lockForUpdate()->first() ?? throw AppError::notFound('Plan activo');
+            if ($plan->id === $subscription->plan_id) {
+                throw AppError::badRequest('PLAN_UNCHANGED', 'Elegí un plan diferente');
+            }
+            $usage = ['max_branches' => Branch::where('tenant_id', $id)->where('status', 'active')->count(), 'max_users' => Membership::where('tenant_id', $id)->where('status', 'active')->count(), 'max_products' => Product::where('tenant_id', $id)->where('status', 'active')->count(), 'max_registers' => Register::where('tenant_id', $id)->where('status', 'active')->count()];
+            $limits = $plan->limitMap();
+            $labels = ['max_branches' => 'sucursales', 'max_users' => 'usuarios', 'max_products' => 'productos', 'max_registers' => 'cajas'];
+            foreach ($usage as $key => $used) {
+                if (isset($limits[$key]) && $used > $limits[$key]) {
+                    throw AppError::conflict('PLAN_USAGE_EXCEEDED', "El comercio tiene {$used} {$labels[$key]} activos y el plan permite {$limits[$key]}. Reducí el uso antes de cambiarlo.");
+                }
+            }
+            $subscription->forceFill(['plan_id' => $plan->id])->save();
+            $this->audit->record(['tenantId' => $id, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => 'Plataforma: '.$actor->name, 'action' => 'platform.tenant_plan_changed', 'entityType' => 'tenant', 'entityId' => $id, 'before' => ['planCode' => $previous?->code], 'after' => ['planCode' => $plan->code, 'reason' => $v['reason'], 'usage' => $usage], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        }));
+
+        return $this->json(['ok' => true]);
     }
 
     public function updatePlan(Request $request, string $id): JsonResponse

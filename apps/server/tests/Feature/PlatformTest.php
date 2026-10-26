@@ -248,4 +248,21 @@ class PlatformTest extends TestCase
         ['client' => $owner] = $this->registerTenant();
         $this->assertSame(401, $owner->post('/platform/tenants', $this->newTenantInput())->status);
     }
+
+    public function test_reasigna_plan_sin_reiniciar_prueba_y_controla_ediciones_simultaneas(): void
+    {
+        ['client' => $owner, 'tenantId' => $id] = $this->registerTenant();
+        $admin = $this->platformLogin();
+        $before = collect($admin->get('/platform/tenants?pageSize=100')->body['items'])->firstWhere('id', $id);
+        $this->assertSame(200, $admin->post("/platform/tenants/{$id}/plan", ['planCode' => 'multisucursal', 'expectedPlanCode' => 'inicial', 'reason' => 'Ampliación solicitada'])->status);
+        $this->assertSame('multisucursal', $owner->get('/tenant')->body['plan']['code']);
+        $after = collect($admin->get('/platform/tenants?pageSize=100')->body['items'])->firstWhere('id', $id);
+        $this->assertSame($before['trialEndsAt'], $after['trialEndsAt']);
+        $this->assertSame($before['subscriptionStatus'], $after['subscriptionStatus']);
+        $this->assertSame(409, $admin->post("/platform/tenants/{$id}/plan", ['planCode' => 'inicial', 'expectedPlanCode' => 'inicial', 'reason' => 'Edición desactualizada'])->status);
+        $this->assertSame(201, $owner->post('/branches', ['name' => 'Segunda sucursal', 'address' => null])->status);
+        $denied = $admin->post("/platform/tenants/{$id}/plan", ['planCode' => 'inicial', 'expectedPlanCode' => 'multisucursal', 'reason' => 'Baja de plan']);
+        $this->assertSame([409, 'PLAN_USAGE_EXCEEDED'], [$denied->status, $denied->body['code']]);
+        $this->assertContains('platform.tenant_plan_changed', array_column($owner->get('/audit?entityType=tenant')->body['items'], 'action'));
+    }
 }

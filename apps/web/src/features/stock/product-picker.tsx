@@ -39,16 +39,20 @@ export function ProductPicker({
   }
 
   async function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== 'Enter' || !q) return;
+    const code = e.currentTarget.value.trim();
+    if (e.key !== 'Enter' || !code) return;
     e.preventDefault();
+    // Liberar el lector al enviar el pedido: una respuesta anterior no debe borrar el siguiente escaneo.
+    setTerm('');
+    setMessage(null);
     try {
-      const found = await http.get<ProductLookupDto>(`/products/lookup?code=${encodeURIComponent(q)}`);
+      const found = await http.get<ProductLookupDto>(`/products/lookup?code=${encodeURIComponent(code)}`);
       if (onlyStock && !found.product.trackStock) return setMessage(`${found.product.name} no controla stock`);
       if (found.product.status !== 'active') return setMessage(`${found.product.name} está desactivado`);
-      pick(found.product, found.quantityFactor);
+      onPick(found.product, found.quantityFactor);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 404) {
-        if (options.length === 1) return pick(options[0]!);
+        if (options.length === 1) return onPick(options[0]!, '1.000');
         return setMessage('No hay ningún artículo con ese código');
       }
       setMessage('No se pudo buscar el código');

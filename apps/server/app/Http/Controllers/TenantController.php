@@ -8,6 +8,7 @@ use App\Models\Tenant;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
 use App\Services\SalesService;
+use App\Support\Appearance;
 use App\Support\AppError;
 use App\Support\Catalog;
 use App\Support\Input;
@@ -111,6 +112,20 @@ class TenantController extends Controller
     }
 
     /** Forma de TenantDto. */
+    public function appearance(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Appearance::validate($this->body($request));
+        DB::transaction(function () use ($actor, $v) {
+            $tenant = Tenant::whereKey($actor->tenantId)->lockForUpdate()->firstOrFail();
+            $before = $tenant->appearance ?? Appearance::DEFAULTS;
+            $tenant->forceFill(['appearance' => $v, 'version' => $tenant->version + 1])->save();
+            $this->audit->record(['tenantId' => $actor->tenantId, 'actorType' => 'user', 'actorId' => $actor->userId, 'actorName' => $actor->userName, 'action' => 'tenant.appearance_updated', 'entityType' => 'tenant', 'entityId' => $actor->tenantId, 'before' => [...$before, 'logoData' => ! empty($before['logoData'])], 'after' => [...$v, 'logoData' => ! empty($v['logoData'])], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        });
+
+        return $this->json($this->load($actor->tenantId));
+    }
+
     private function load(string $tenantId): array
     {
         $t = Tenant::find($tenantId) ?? throw AppError::notFound('Comercio');
@@ -127,6 +142,7 @@ class TenantController extends Controller
             'businessTypeCode' => $t->business_type_code,
             'status' => $t->status,
             'settings' => $t->settings + ['discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00'],
+            'appearance' => ($t->appearance ?? []) + Appearance::DEFAULTS,
             'plan' => $this->entitlements->plan(),
             'usage' => [
                 'branches' => Branch::where('status', 'active')->count(),

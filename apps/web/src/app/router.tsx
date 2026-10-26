@@ -9,6 +9,7 @@ import { RegisterPage } from '@/features/auth/register-page';
 import { BranchesPage } from '@/features/branches/branches-page';
 import { CashPage, ShiftPage } from '@/features/cash/cash-page';
 import { CashSetupPage } from '@/features/cash/setup-page';
+import { SettlementsPage } from '@/features/cash/settlements-page';
 import { CategoriesPage } from '@/features/catalog/categories-page';
 import { PricesPage } from '@/features/catalog/prices-page';
 import { ProductsPage } from '@/features/catalog/products-page';
@@ -25,6 +26,8 @@ import { RolesPage } from '@/features/roles/roles-page';
 import { PosPage } from '@/features/sales/pos-page';
 import { SaleDetailPage, SalesPage } from '@/features/sales/sales-page';
 import { SettingsPage } from '@/features/settings/settings-page';
+import { AppearancePage } from '@/features/settings/appearance-page';
+import { FiscalPage } from '@/features/settings/fiscal-page';
 import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
 import { MovementsPage } from '@/features/stock/movements-page';
 import { StockPage } from '@/features/stock/stock-page';
@@ -95,6 +98,8 @@ const employeesRoute = createRoute({ getParentRoute: () => appRoute, path: 'empl
 const rolesRoute = createRoute({ getParentRoute: () => appRoute, path: 'roles', component: RolesPage });
 const auditRoute = createRoute({ getParentRoute: () => appRoute, path: 'auditoria', component: AuditPage });
 const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: 'configuracion', component: SettingsPage });
+const appearanceRoute = createRoute({ getParentRoute: () => appRoute, path: 'apariencia', component: AppearancePage });
+const fiscalRoute = createRoute({ getParentRoute: () => appRoute, path: 'facturacion', component: FiscalPage, validateSearch: z.object({ saleId: z.string().uuid().optional().catch(undefined) }) });
 const accountRoute = createRoute({ getParentRoute: () => appRoute, path: 'cuenta', component: AccountPage });
 const productsRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos', component: ProductsPage });
 const referenceCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos/catalogo', component: ReferenceCatalogPage });
@@ -115,6 +120,7 @@ const saleDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'ven
 const cashRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja', component: CashPage });
 const shiftRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja/$id', component: ShiftPage });
 const cashSetupRoute = createRoute({ getParentRoute: () => appRoute, path: 'cajas', component: CashSetupPage });
+const settlementsRoute = createRoute({ getParentRoute: () => appRoute, path: 'rendiciones', component: SettlementsPage });
 
 const platformLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/plataforma/login', component: PlatformLoginPage });
 
@@ -145,6 +151,7 @@ const routeTree = rootRoute.addChildren([
     cashRoute,
     shiftRoute,
     cashSetupRoute,
+    settlementsRoute,
     productsRoute,
     referenceCatalogRoute,
     categoriesRoute,
@@ -158,6 +165,8 @@ const routeTree = rootRoute.addChildren([
     rolesRoute,
     auditRoute,
     settingsRoute,
+    appearanceRoute,
+    fiscalRoute,
     accountRoute,
   ]),
   platformLoginRoute,

@@ -121,6 +121,7 @@ export function SaleDetailPage() {
             <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting(true)}>
               <Printer className="size-4" /> Reimprimir ticket
             </Button>
+            {can('fiscal.manage') && <Link to="/app/facturacion" search={{ saleId: s.id }} className="inline-flex h-10 items-center rounded-lg bg-brand-600 px-4 text-sm font-semibold text-white">Facturar en ARCA</Link>}
             {s.status === 'confirmed' && can('sales.create', 'sales.return') && returnable && (
               <Button variant="secondary" onClick={() => setReturning(true)}>
                 Devolución

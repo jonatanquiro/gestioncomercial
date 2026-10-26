@@ -37,6 +37,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->dontReportDuplicates();
         $exceptions->dontFlash(['ownerPassword']);
+        $exceptions->dontFlash(['privateKeyPem', 'certificatePem']);
         // Todo error de la API sale con el formato { code, message, details, requestId }.
         $exceptions->render(function (Throwable $e, Request $request) {
             if ($request->is('api/*')) {

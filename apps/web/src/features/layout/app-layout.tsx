@@ -1,5 +1,5 @@
-import type { PermissionCode } from '@gc/contracts';
-import { useQueryClient } from '@tanstack/react-query';
+import type { PermissionCode, TenantDto } from '@gc/contracts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
 import { Boxes, Building2, ChevronDown, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
 import { type ComponentType, useEffect, useRef, useState } from 'react';
@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
 import { TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
+import { appearanceStyle, DEFAULT_APPEARANCE } from '@/features/settings/appearance';
 
 interface NavItem {
   to: string;
@@ -22,6 +23,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/vender', label: 'Vender', icon: ShoppingCart, anyOf: ['sales.create'] },
     { to: '/app/caja', label: 'Caja', icon: Wallet, anyOf: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
     { to: '/app/ventas', label: 'Ventas', icon: Receipt, anyOf: ['sales.read_own', 'sales.read_all'] },
+    { to: '/app/rendiciones', label: 'Rendición de cobros', icon: ClipboardList, anyOf: ['cash.read_all'] },
   ] },
   { id: 'catalogo', label: 'Catálogo', items: [
     { to: '/app/productos', label: 'Productos', icon: Package, anyOf: ['products.read'] },
@@ -39,6 +41,8 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/auditoria', label: 'Auditoría', icon: History, anyOf: ['audit.read'] },
     { to: '/app/cajas', label: 'Cajas y medios de pago', icon: CreditCard, anyOf: ['branches.manage', 'settings.manage'] },
     { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage'] },
+    { to: '/app/apariencia', label: 'Apariencia', icon: Tags, anyOf: ['settings.manage'] },
+    { to: '/app/facturacion', label: 'Facturación ARCA', icon: Receipt, anyOf: ['fiscal.manage'] },
     { to: '/app/cuenta', label: 'Mi cuenta', icon: KeyRound },
   ] },
 ];
@@ -50,12 +54,30 @@ export function AppLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const queryClient = useQueryClient();
   const toast = useToast();
+  const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => http.get<TenantDto>('/tenant') });
+  const appearance = tenant.data?.appearance ?? DEFAULT_APPEARANCE;
   const [open, setOpen] = useState(false);
   const [dropdown, setDropdown] = useState<string | null>(null);
   const header = useRef<HTMLElement>(null);
   const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
   const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.anyOf || can(...i.anyOf)) })).filter((g) => g.items.length > 0);
   const others = me.memberships.filter((m) => m.status === 'active' && m.tenantId !== me.tenant?.id);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const styles = appearanceStyle(appearance) as Record<string, string>;
+    const previous = Object.fromEntries(Object.keys(styles).map(key => [key, root.style.getPropertyValue(key)]));
+    const size = root.style.fontSize;
+    const density = root.dataset.density;
+    Object.entries(styles).forEach(([key, value]) => root.style.setProperty(key, value));
+    root.style.fontSize = appearance.textSize === 'large' ? '18px' : '16px';
+    root.dataset.density = appearance.density;
+    return () => {
+      Object.entries(previous).forEach(([key, value]) => value ? root.style.setProperty(key, value) : root.style.removeProperty(key));
+      root.style.fontSize = size;
+      if (density) root.dataset.density = density; else delete root.dataset.density;
+    };
+  }, [appearance]);
 
   useEffect(() => {
     function dismiss(event: PointerEvent) {
@@ -99,7 +121,7 @@ export function AppLayout() {
         <div className="bg-slate-950 text-white">
           <div className="mx-auto flex min-h-20 max-w-[1440px] items-center justify-between gap-4 px-4 py-4 sm:px-8 lg:px-12">
             <Link to="/app" onClick={closeMenus} className="flex shrink-0 items-center gap-3" aria-label="Gestión Comercial, inicio">
-              <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-9" />
+              <img src={appearance.logoData || `${import.meta.env.BASE_URL}icon.svg`} alt="" className={appearance.logoData ? 'h-10 max-w-24 rounded object-contain' : 'size-9'} />
               <span className="font-display text-sm font-semibold leading-tight tracking-tight sm:text-base">Gestión<span className="block text-brand-300">Comercial.</span></span>
             </Link>
             <div className="ml-auto flex min-w-0 items-center gap-3 sm:ml-6 sm:mr-auto sm:border-l sm:border-white/15 sm:pl-6">
@@ -125,7 +147,7 @@ export function AppLayout() {
             </button>
           </div>
         </div>
-        <div className="hidden border-b border-slate-200 bg-white lg:block">
+        {appearance.navigation === 'top' && <div data-tenant-menu className="hidden border-b border-slate-200 bg-white lg:block">
           <nav className="mx-auto flex max-w-[1440px] items-center gap-1 px-12" aria-label="Navegación principal">
             <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="top-nav-link" activeProps={{ className: 'top-nav-active' }}><Home className="size-4" aria-hidden />Inicio</Link>
             {groups.map((group) => {
@@ -145,16 +167,22 @@ export function AppLayout() {
             })}
             {can('sales.create') && <Link to="/app/vender" onClick={closeMenus} className="ml-auto flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"><ShoppingCart className="size-4" aria-hidden />Nueva venta</Link>}
           </nav>
-        </div>
+        </div>}
         {open && (
-          <nav id="mobile-navigation" className="absolute inset-x-0 top-full max-h-[calc(100dvh-5rem)] overflow-y-auto border-b border-slate-200 bg-white p-4 shadow-xl lg:hidden" aria-label="Navegación móvil">
+          <nav data-tenant-menu id="mobile-navigation" className="absolute inset-x-0 top-full max-h-[calc(100dvh-5rem)] overflow-y-auto border-b border-slate-200 bg-white p-4 shadow-xl lg:hidden" aria-label="Navegación móvil">
             <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-semibold" activeProps={{ className: 'bg-brand-50 text-brand-700' }}><Home className="size-4" />Inicio</Link>
             {groups.map((group) => <div key={group.id} className="mt-4 border-t border-slate-100 pt-3"><p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">{group.label}</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50" activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}</div></div>)}
             <button onClick={() => void logout()} className="mt-4 flex items-center gap-3 px-3 py-3 text-sm text-slate-600"><LogOut className="size-4" />Salir</button>
           </nav>
         )}
       </header>
-      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 lg:px-12 lg:py-10"><Outlet /></main>
+      <div className="flex min-w-0 flex-1">
+        {appearance.navigation === 'side' && <aside data-tenant-menu className="sticky top-0 hidden max-h-dvh w-60 shrink-0 self-start overflow-y-auto border-r border-slate-200 px-3 pb-6 pt-4 lg:block" aria-label="Navegación principal">
+          <Link to="/app" activeOptions={{ exact: true }} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><Home className="size-4" />Inicio</Link>
+          {groups.map(group => <div key={group.id} className="mt-5"><p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest">{group.label}</p>{group.items.map(item => <Link key={item.to} to={item.to} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}</div>)}
+        </aside>}
+        <main className={`mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 ${appearance.navigation === 'top' ? 'lg:px-12' : 'lg:px-8'} lg:py-10`}><Outlet /></main>
+      </div>
       <footer className="mx-auto flex w-full max-w-[1440px] flex-wrap justify-between gap-2 px-4 pb-5 pt-8 text-[11px] text-slate-500 sm:px-8 lg:px-12"><span>Gestión Comercial · Hecho para tu negocio</span><span>{me.tenant?.tradeName}</span></footer>
     </div>
   );

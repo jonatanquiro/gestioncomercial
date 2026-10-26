@@ -64,6 +64,10 @@ class IsolationTest extends TestCase
             'register' => $register['id'], 'shift' => $shift->body['id'], 'paymentMethod' => $cash['id'], 'sale' => $sale->body['id'],
             'saleLine' => $sale->body['lines'][0]['id'],
         ];
+        $transfer = collect($this->b['client']->get('/payment-methods')->body)->firstWhere('kind', 'transfer');
+        $settlement = $this->b['client']->post('/settlements', ['paymentMethodId' => $transfer['id'], 'provider' => 'MP', 'fromDate' => '2026-01-01', 'toDate' => '2026-01-01']);
+        $this->assertSame(201, $settlement->status);
+        $this->bIds['settlement'] = $settlement->body['id'];
     }
 
     public function test_a_no_ve_datos_de_b_en_los_listados(): void
@@ -97,6 +101,11 @@ class IsolationTest extends TestCase
     public function test_cada_ruta_con_identificador_responde_404_ante_un_id_de_otro_comercio(): void
     {
         $bodies = [
+            '/settlements/{id}/refresh' => [],
+            '/settlements/{id}/import' => [],
+            '/settlements/{id}/review' => [],
+            '/settlements/{id}/match' => [],
+            '/settlements/{id}/close' => [],
             '/branches/{id}' => ['name' => 'Hackeada', 'address' => null, 'status' => 'active'],
             '/roles/{id}' => ['name' => 'Hackeado', 'permissions' => []],
             '/employees/{membershipId}' => ['roleId' => $this->bIds['role'], 'branchIds' => [$this->bIds['branch']], 'status' => 'inactive'],
@@ -112,12 +121,14 @@ class IsolationTest extends TestCase
             '/shifts/{id}/counts' => ['counted' => '0'],
             '/shifts/{id}/close' => ['counted' => '0'],
             '/sales/{id}/void' => ['reason' => 'Hackeo'],
+            '/sales/{id}/invoice' => [],
             '/sales/{id}/returns' => [
                 'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
                 'paymentMethodId' => $this->bIds['paymentMethod'], 'lines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
             ],
         ];
         $idFor = fn (string $path) => match (true) {
+            str_starts_with($path, '/settlements') => $this->bIds['settlement'],
             str_starts_with($path, '/branches') => $this->bIds['branch'],
             str_starts_with($path, '/roles') => $this->bIds['role'],
             str_starts_with($path, '/employees') => $this->bIds['membership'],

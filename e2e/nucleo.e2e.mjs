@@ -18,7 +18,7 @@ const cashier = { name: 'Cajero Prueba', email: `cajero.${stamp}@example.com`, p
 const tradeName = `Kiosco E2E ${stamp}`;
 const invited = { name: 'Dueño Invitado', email: `invitado.${stamp}@example.com`, password: 'Almacen-Prueba-2026', tradeName: `Almacén E2E ${stamp}` };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: process.env.E2E_BROWSER_CHANNEL });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -79,7 +79,7 @@ try {
   await shot('01-inicio');
 
   step('Alta de empleado con rol Cajero en Casa central');
-  await page.getByRole('button', { name: 'Administración', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Administración', exact: true }).isVisible()) await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByRole('link', { name: 'Empleados' }).click();
   await page.getByRole('button', { name: 'Nuevo empleado' }).click();
   const dialog = page.getByRole('dialog');
@@ -99,7 +99,7 @@ try {
 
   step('El cajero no ve ni puede abrir la administración de empleados');
   await login(cashier);
-  await page.getByRole('button', { name: 'Administración', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Administración', exact: true }).isVisible()) await page.getByRole('button', { name: 'Administración', exact: true }).click();
   assert.equal(await page.getByRole('link', { name: 'Empleados' }).count(), 0);
   await page.goto(`${BASE}/app/empleados`);
   await page.getByText('No tenés permiso para ver esta sección').waitFor();
@@ -110,7 +110,7 @@ try {
 
   step('La auditoría registra el alta del empleado');
   await login(owner);
-  await page.getByRole('button', { name: 'Administración', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Administración', exact: true }).isVisible()) await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByRole('link', { name: 'Auditoría' }).click();
   await page.getByRole('cell', { name: 'Alta de empleado' }).first().waitFor();
   await shot('04-auditoria');
@@ -141,6 +141,12 @@ try {
     await page.waitForURL(`${BASE}/plataforma`);
     await page.getByPlaceholder('Buscar por nombre o CUIT').fill(tradeName);
     const row = page.getByRole('row').filter({ hasText: tradeName });
+    step('La plataforma reasigna el plan de un comercio');
+    await row.getByRole('button', { name: 'Cambiar plan' }).click();
+    await page.getByRole('dialog').getByLabel('Nuevo plan').selectOption('profesional');
+    await page.getByRole('dialog').getByLabel('Motivo del cambio').fill('Ampliación solicitada en prueba E2E');
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cambio de plan' }).click();
+    await row.getByText('Profesional', { exact: false }).waitFor();
     await row.getByRole('button', { name: 'Suspender' }).click();
     await page.getByRole('dialog').getByLabel('Motivo').fill('Prueba E2E');
     await page.getByRole('dialog').getByRole('button', { name: 'Suspender' }).click();
@@ -154,6 +160,7 @@ try {
     await dialog.getByLabel('Rubro').selectOption('almacen');
     await dialog.getByLabel('Nombre del dueño').fill(invited.name);
     await dialog.getByLabel('Email del dueño').fill(invited.email);
+    await dialog.getByLabel('Contraseña inicial del dueño (opcional)').fill(invited.password);
     await dialog.getByRole('button', { name: 'Crear comercio' }).click();
     await dialog.waitFor({ state: 'detached' });
     await page.getByPlaceholder('Buscar por nombre o CUIT').fill(invited.tradeName);
@@ -167,14 +174,11 @@ try {
     assert.equal(blocked, 403);
     await shot('06-suspendido');
 
-    if (mailpit) {
-      step('El dueño del comercio dado de alta elige su contraseña con la invitación y entra');
-      await page.context().clearCookies();
-      await choosePassword(await mailText(mailpit, invited.email), invited.password);
-      await login(invited);
-      await page.getByText(invited.tradeName).first().waitFor();
-      await shot('07-invitado');
-    }
+    step('El dueño del comercio dado de alta entra con la contraseña definida desde plataforma');
+    await page.context().clearCookies();
+    await login(invited);
+    await page.getByText(invited.tradeName).first().waitFor();
+    await shot('07-invitado');
   } else {
     step('Panel de plataforma omitido (faltan variables E2E_PLATFORM_*)');
   }

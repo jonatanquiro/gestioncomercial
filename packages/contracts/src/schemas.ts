@@ -90,6 +90,14 @@ export const tenantSettingsSchema = z.object({
 });
 export type TenantSettings = z.infer<typeof tenantSettingsSchema>;
 
+export const appearanceSchema = z.object({
+  logoData: z.string().max(350000).nullable(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), menuColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  font: z.enum(['system', 'archivo', 'serif']), navigation: z.enum(['side', 'top']),
+  textSize: z.enum(['normal', 'large']), density: z.enum(['normal', 'compact']),
+});
+export type Appearance = z.infer<typeof appearanceSchema>;
+
 export const updateTenantSchema = z.object({
   tradeName: trimmed(120),
   legalName: optionalText(160),

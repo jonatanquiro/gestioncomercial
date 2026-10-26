@@ -14,7 +14,7 @@ const owner = { name: 'Dueño Inventario', email: `inventario.${stamp}@example.c
 const barcode = `779${String(stamp).slice(-10)}`;
 const packCode = `1${barcode}`;
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: process.env.E2E_BROWSER_CHANNEL });
 const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -34,13 +34,13 @@ try {
   await page.waitForURL(`${BASE}/app`);
 
   step('Las categorías iniciales salen del rubro');
-  await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Catálogo', exact: true }).isVisible()) await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
   await page.getByRole('link', { name: 'Categorías y marcas' }).click();
   await page.getByRole('cell', { name: 'Golosinas' }).waitFor();
   await page.getByRole('cell', { name: 'Cigarrillos' }).waitFor();
 
   step('Alta de producto con código de unidad, código de pack y stock inicial');
-  await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Catálogo', exact: true }).isVisible()) await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
   await page.getByRole('link', { name: 'Productos', exact: true }).click();
   await page.getByText('Todavía no hay productos cargados.').waitFor();
   await page.getByRole('button', { name: 'Nuevo producto' }).click();
@@ -75,7 +75,7 @@ try {
   await shot('11-productos');
 
   step('Ajuste de stock con motivo');
-  await page.getByRole('button', { name: 'Inventario', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Inventario', exact: true }).isVisible()) await page.getByRole('button', { name: 'Inventario', exact: true }).click();
   await page.getByRole('link', { name: 'Stock', exact: true }).click();
   const row = page.getByRole('row', { name: /Alfajor de chocolate/ });
   await row.getByText('10', { exact: true }).waitFor();
@@ -105,7 +105,7 @@ try {
   await shot('13-movimientos');
 
   step('Inventario físico: se escanea el pack y se corrige la cantidad');
-  await page.getByRole('button', { name: 'Inventario', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Inventario', exact: true }).isVisible()) await page.getByRole('button', { name: 'Inventario', exact: true }).click();
   await page.getByRole('link', { name: 'Inventario físico' }).click();
   await page.getByRole('button', { name: 'Nuevo recuento' }).click();
   await dialog().getByLabel('Nota').fill('Golosinas');
@@ -125,7 +125,7 @@ try {
   await page.getByText('Cerrado', { exact: true }).waitFor();
 
   step('Cambio masivo de precios con vista previa');
-  await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Catálogo', exact: true }).isVisible()) await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
   await page.getByRole('link', { name: 'Cambio de precios' }).click();
   await page.getByLabel('Regla').selectOption({ label: 'Margen sobre el precio de venta' });
   await page.getByLabel('Margen sobre el precio (%)').fill('30');
@@ -138,7 +138,7 @@ try {
   await dialog().getByRole('button', { name: 'Aplicar' }).click();
   await page.getByText('Se actualizó 1 precio').waitFor();
 
-  await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
+  if (await page.getByRole('button', { name: 'Catálogo', exact: true }).isVisible()) await page.getByRole('button', { name: 'Catálogo', exact: true }).click();
   await page.getByRole('link', { name: 'Productos', exact: true }).click();
   const product = page.getByRole('row', { name: /Alfajor de chocolate/ });
   await product.getByRole('cell', { name: '$ 1.150,00' }).waitFor();

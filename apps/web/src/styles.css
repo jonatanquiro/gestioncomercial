@@ -48,6 +48,15 @@ input[type="checkbox"] { accent-color: var(--color-brand-600); }
 }
 .top-nav-active { @apply border-brand-600 text-brand-700; }
 
+[data-tenant-menu] { background: var(--menu-background, white); color: var(--menu-foreground, #14213a); }
+[data-tenant-menu] a:not(.bg-brand-600), [data-tenant-menu] .top-nav-link { color: inherit; }
+[data-tenant-menu] a:not(.bg-brand-600):hover, [data-tenant-menu] .top-nav-link:hover { background: color-mix(in srgb, var(--menu-foreground) 8%, transparent); }
+[data-tenant-menu] .top-nav-active { border-color: var(--menu-foreground); }
+[data-tenant-menu] :focus-visible { outline-color: var(--menu-foreground); }
+.side-nav-link { @apply mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors; }
+.side-nav-active { background: color-mix(in srgb, var(--menu-foreground) 10%, transparent); font-weight: 600; }
+html[data-density="compact"] td, html[data-density="compact"] th { padding-top: .5rem; padding-bottom: .5rem; }
+
 /* Ticket de 80 mm: al imprimir se ve solo el ticket. */
 #print-root { display: none; }
 @media print {

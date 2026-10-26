@@ -1,5 +1,5 @@
 import type { PermissionCode } from './permissions';
-import type { PaymentKind, SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
+import type { Appearance, PaymentKind, SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
 
 /** Formato único de error de la API. */
 export interface ApiError {
@@ -45,6 +45,7 @@ export interface TenantDto {
   businessTypeCode: string;
   status: string;
   settings: TenantSettings;
+  appearance?: Appearance;
   plan: { code: string; name: string; limits: Record<string, number>; features: string[] } | null;
   usage: { branches: number; users: number };
 }
