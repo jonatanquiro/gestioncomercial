@@ -245,7 +245,11 @@ export type CreateProductInput = z.infer<typeof createProductSchema>;
 export const addReferenceProductsSchema = z.object({
   categoryId: uuidSchema.nullable(),
   items: z
-    .array(z.object({ code: z.string().trim().regex(/^\d{6,14}$/, 'Código inválido'), price: moneySchema }))
+    .array(z.object({
+      code: z.string().trim().regex(/^\d{6,14}$/, 'Código inválido'),
+      price: moneySchema,
+      initialStock: quantitySchema.refine((v) => Number.isInteger(Number(v)), 'En la venta por unidad, la cantidad tiene que ser entera').nullable().optional(),
+    }))
     .min(1, 'Elegí al menos un producto')
     .max(100, 'Hasta 100 productos por vez'),
 });

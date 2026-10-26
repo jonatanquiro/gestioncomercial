@@ -147,16 +147,23 @@ class ReferenceCatalogTest extends TestCase
         $this->assertSame("Chicle {$tag}", $owner->get("/products/reference/search?q={$upc}")->body['items'][0]['name']);
 
         $res = $owner->post('/products/reference/add', ['categoryId' => $category['id'], 'items' => [
-            ['code' => $alfajor, 'price' => '1500'], ['code' => $galletita, 'price' => '2300.50'], ['code' => $upc, 'price' => '300'],
+            ['code' => $alfajor, 'price' => '1500', 'initialStock' => '12'], ['code' => $galletita, 'price' => '2300.50', 'initialStock' => null], ['code' => $upc, 'price' => '300'],
         ]]);
         $this->assertSame(201, $res->status, json_encode($res->body));
         $this->assertSame(3, $res->body['created']);
 
         $p = $owner->get('/products/lookup?code='.$alfajor)->body['product'];
-        $this->assertSame(["Alfajor {$tag} chocolate", '1500.00', $category['id'], $brand['id'], 'active', '0.000'], [
+        $this->assertSame(["Alfajor {$tag} chocolate", '1500.00', $category['id'], $brand['id'], 'active', '12.000'], [
             $p['name'], $p['price'], $p['categoryId'], $p['brandId'], $p['status'], $p['stock'],
         ]);
         $this->assertSame('2300.50', $owner->get('/products/lookup?code='.$galletita)->body['product']['price']);
+        $this->assertSame('0.000', $owner->get('/products/lookup?code='.$galletita)->body['product']['stock']);
+        $this->assertSame('0.000', $owner->get('/products/lookup?code='.$upc)->body['product']['stock']);
+        $movements = $owner->get("/stock/movements?productId={$p['id']}")->body['items'];
+        $this->assertCount(1, $movements);
+        $this->assertSame(['initial_stock', '12.000', '12.000', 'Stock inicial'], [
+            $movements[0]['sourceType'], $movements[0]['quantity'], $movements[0]['balanceAfter'], $movements[0]['reason'],
+        ]);
         $this->assertNull($owner->get('/products/lookup?code='.$upc)->body['product']['brandId']);
         $this->assertTrue($owner->get("/products/reference/search?q={$alfajor}")->body['items'][0]['added']);
 
@@ -179,6 +186,27 @@ class ReferenceCatalogTest extends TestCase
         $cashier = $this->roleByTemplate($owner, 'cashier');
         $emp = $this->addEmployee($owner, $cashier['id'], $me['branchIds']);
         $this->assertSame(403, $emp['client']->get('/products/reference/search?q=yerba')->status);
+    }
+
+    public function test_stock_inicial_del_catalogo_valida_cantidad_y_permiso_sin_crear_productos(): void
+    {
+        $code = self::ean('779458004');
+        ReferenceProduct::upsert([['code' => $code, 'name' => 'Producto con stock inicial', 'brand' => null, 'presentation' => null, 'source' => 'sepa', 'seen_in' => 1, 'updated_at' => now()->format('Y-m-d H:i:s.u')]], ['code']);
+        ['client' => $owner, 'me' => $me] = $this->registerTenant();
+        foreach (['-1', '1.5', '1.2345', 'abc', '100000000000', 5] as $invalid) {
+            $res = $owner->post('/products/reference/add', ['categoryId' => null, 'items' => [['code' => $code, 'price' => '100', 'initialStock' => $invalid]]]);
+            $this->assertSame(400, $res->status, json_encode($res->body));
+            $this->assertSame('items.0.initialStock', $res->body['details'][0]['path']);
+        }
+        $role = $owner->post('/roles', ['name' => 'Carga sin ajuste', 'permissions' => ['products.create']]);
+        $this->assertSame(201, $role->status);
+        $employee = $this->addEmployee($owner, $role->body['id'], $me['branchIds'])['client'];
+        $denied = $employee->post('/products/reference/add', ['categoryId' => null, 'items' => [['code' => $code, 'price' => '100', 'initialStock' => '5']]]);
+        $this->assertSame(403, $denied->status);
+        $this->assertFalse($owner->get("/products/reference/search?q={$code}")->body['items'][0]['added']);
+        // Sin permiso de ajuste se puede seguir dando de alta con stock cero.
+        $this->assertSame(201, $employee->post('/products/reference/add', ['categoryId' => null, 'items' => [['code' => $code, 'price' => '100', 'initialStock' => '0']]])->status);
+        $this->assertSame('0.000', $owner->get('/products/lookup?code='.$code)->body['product']['stock']);
     }
 
     /** Arma un productos.csv con BOM, CRLF y la línea final de SEPA. */

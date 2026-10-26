@@ -185,8 +185,8 @@ class ProductsController extends Controller
     }
 
     /**
-     * Alta de varios productos del catálogo de referencia, con el precio que pone el comercio.
-     * Quedan como cualquier alta manual: activos, IVA 21 %, por unidad y sin stock inicial.
+     * Alta de varios productos del catálogo de referencia, con precio y stock inicial.
+     * Quedan como cualquier alta manual: activos, IVA 21 % y por unidad.
      */
     public function addFromReference(Request $request): JsonResponse
     {
@@ -197,6 +197,7 @@ class ProductsController extends Controller
             'items.*' => ['array'],
             'items.*.code' => ['required', 'string', 'regex:/^\d{6,14}$/', 'distinct'],
             'items.*.price' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'items.*.initialStock' => ['nullable', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
         ], [
             'items.min' => 'Elegí al menos un producto',
             'items.max' => 'Hasta 100 productos por vez',
@@ -206,6 +207,12 @@ class ProductsController extends Controller
         $refs = ReferenceProduct::whereIn('code', array_map(fn ($i) => ReferenceProduct::key($i['code']) ?? '', $v['items']))->get()->keyBy('code');
         $details = [];
         foreach ($v['items'] as $i => $item) {
+            if (isset($item['initialStock']) && BigDecimal::of($item['initialStock'])->hasNonZeroFractionalPart()) {
+                $details[] = ['path' => "items.{$i}.initialStock", 'message' => 'En la venta por unidad, la cantidad tiene que ser entera'];
+            }
+            if (isset($item['initialStock']) && ! BigDecimal::of($item['initialStock'])->isZero() && ! $actor->can('stock.adjust')) {
+                throw AppError::forbidden('stock.adjust');
+            }
             if (! isset($refs[ReferenceProduct::key($item['code']) ?? ''])) {
                 $details[] = ['path' => "items.{$i}.code", 'message' => 'No está en el catálogo'];
             }
@@ -230,6 +237,7 @@ class ProductsController extends Controller
                     'kind' => 'good', 'name' => $ref->name, 'description' => null, 'categoryId' => $v['categoryId'] ?? null, 'brandId' => $brandId,
                     'saleMode' => 'unit', 'vatRate' => '21', 'trackStock' => true, 'minStock' => null, 'blockNegativeStock' => false,
                     'sku' => null, 'price' => Money::round($item['price']), 'cost' => null,
+                    'initialStock' => isset($item['initialStock']) ? Money::quantity($item['initialStock']) : null,
                     'barcodes' => [['code' => ReferenceProduct::barcode($ref->code), 'quantityFactor' => '1.000']],
                 ];
                 $this->assertReferences($input);

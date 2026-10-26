@@ -14,7 +14,7 @@ import { categoriesQuery, zodFieldErrors } from './queries';
 
 const PAGE_SIZE = 25;
 
-type Picked = { name: string; price: string };
+type Picked = { name: string; price: string; initialStock: string };
 
 /**
  * Catálogo de referencia (datos abiertos de SEPA, Precios Claros): el comercio busca lo que
@@ -23,6 +23,7 @@ type Picked = { name: string; price: string };
 export function ReferenceCatalogPage() {
   const can = useCan();
   const allowed = can('products.create');
+  const canAdjustStock = can('stock.adjust');
   const toast = useToast();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -64,24 +65,30 @@ export function ReferenceCatalogPage() {
     setPicked((prev) => {
       const next = new Map(prev);
       if (next.has(item.code)) next.delete(item.code);
-      else next.set(item.code, { name: item.name, price: '' });
+      else next.set(item.code, { name: item.name, price: '', initialStock: '' });
       return next;
     });
   }
 
-  function setPrice(code: string, price: string) {
-    setPicked((prev) => new Map(prev).set(code, { ...prev.get(code)!, price }));
-    // El aviso de ese precio se va apenas se corrige.
-    setErrors(({ [`items.${codes.indexOf(code)}.price`]: _, ...rest }) => rest);
+  function setValue(code: string, field: 'price' | 'initialStock', value: string) {
+    setPicked((prev) => new Map(prev).set(code, { ...prev.get(code)!, [field]: value }));
+    setErrors(({ [`items.${codes.indexOf(code)}.${field}`]: _, ...rest }) => rest);
   }
 
   function submit() {
     setError(null);
-    const body = { categoryId: categoryId || null, items: codes.map((code) => ({ code, price: parseDecimalInput(picked.get(code)!.price) })) };
+    const body = {
+      categoryId: categoryId || null,
+      items: codes.map((code) => ({
+        code,
+        price: parseDecimalInput(picked.get(code)!.price),
+        initialStock: canAdjustStock ? parseDecimalInput(picked.get(code)!.initialStock) || null : null,
+      })),
+    };
     const parsed = addReferenceProductsSchema.safeParse(body);
     if (!parsed.success) {
       setErrors(zodFieldErrors(parsed.error));
-      setError('Revisá los precios marcados.');
+      setError('Revisá los campos marcados.');
       return;
     }
     setErrors({});
@@ -94,7 +101,7 @@ export function ReferenceCatalogPage() {
     <>
       <PageHeader
         title="Agregar desde el catálogo"
-        description="Productos con código de barras de los supermercados (datos abiertos de Precios Claros). Tildá los que vendés, poné tu precio y agregalos."
+        description="Productos con código de barras de los supermercados (datos abiertos de Precios Claros). Tildá los que vendés, cargá el precio y el stock inicial y agregalos."
         actions={
           <Link to="/app/productos" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
             Volver a productos
@@ -129,12 +136,14 @@ export function ReferenceCatalogPage() {
                 <Th className="w-10"><span className="sr-only">Elegir</span></Th>
                 <Th>Producto</Th>
                 <Th className="w-44 text-right">Tu precio</Th>
+                {canAdjustStock && <Th className="w-36 text-right">Stock inicial</Th>}
               </>
             }
           >
             {results.data.items.map((item) => {
               const chosen = picked.get(item.code);
               const err = chosen ? priceError(item.code) : undefined;
+              const stockError = chosen ? errors[`items.${codes.indexOf(item.code)}.initialStock`] : undefined;
               return (
                 <tr key={item.code}>
                   <Td>
@@ -164,12 +173,30 @@ export function ReferenceCatalogPage() {
                           className="text-right"
                           value={chosen.price}
                           aria-invalid={err ? true : undefined}
-                          onChange={(e) => setPrice(item.code, e.target.value)}
+                          onChange={(e) => setValue(item.code, 'price', e.target.value)}
                         />
                         {err && <p className="mt-1 text-xs text-red-600">{err}</p>}
                       </>
                     )}
                   </Td>
+                  {canAdjustStock && (
+                    <Td className="text-right">
+                      {chosen && (
+                        <>
+                          <Input
+                            aria-label={`Stock inicial de ${item.name}`}
+                            inputMode="decimal"
+                            placeholder="0"
+                            className="text-right"
+                            value={chosen.initialStock}
+                            aria-invalid={stockError ? true : undefined}
+                            onChange={(e) => setValue(item.code, 'initialStock', e.target.value)}
+                          />
+                          {stockError && <p className="mt-1 text-xs text-red-600">{stockError}</p>}
+                        </>
+                      )}
+                    </Td>
+                  )}
                 </tr>
               );
             })}
@@ -201,7 +228,12 @@ export function ReferenceCatalogPage() {
               Agregar {codes.length === 1 ? 'producto' : `${codes.length} productos`}
             </Button>
           </div>
-          <p className="text-xs text-slate-500">Se cargan activos, por unidad, con IVA 21 % y sin stock. Después podés editarlos como cualquier producto.</p>
+          <p className="text-xs text-slate-500">
+            Se cargan activos, por unidad y con IVA 21 %.{' '}
+            {canAdjustStock
+              ? 'El stock inicial es opcional y se registra como un ajuste en el depósito principal. Si lo dejás vacío, queda en 0.'
+              : 'Se necesita permiso para ajustar stock para indicar una cantidad inicial; se cargan con stock 0.'}
+          </p>
         </div>
       )}
     </>
