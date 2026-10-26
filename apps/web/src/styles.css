@@ -2,7 +2,7 @@
 
 /* Paleta compartida por comercios, plataforma y acceso. */
 @theme {
-  --color-slate-50: #f6f8fc;
+  --color-slate-50: #f5f7fa;
   --color-slate-100: #eef2f8;
   --color-slate-200: #dfe6f0;
   --color-slate-300: #c8d2e1;
@@ -26,6 +26,7 @@
   --color-brand-900: #1e3a8a;
 
   --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --font-display: "Archivo Variable", "Segoe UI", sans-serif;
 
   --radius-lg: 0.625rem;
   --radius-xl: 0.875rem;
@@ -41,6 +42,11 @@ input[type="checkbox"] { accent-color: var(--color-brand-600); }
 ::selection { background: var(--color-brand-100); color: var(--color-brand-900); }
 
 :focus-visible { @apply outline-2 outline-offset-2 outline-brand-600; }
+
+.top-nav-link {
+  @apply flex min-h-14 items-center gap-2 border-b-2 border-transparent px-5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900;
+}
+.top-nav-active { @apply border-brand-600 text-brand-700; }
 
 /* Ticket de 80 mm: al imprimir se ve solo el ticket. */
 #print-root { display: none; }

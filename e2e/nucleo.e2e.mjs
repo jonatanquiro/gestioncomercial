@@ -79,6 +79,7 @@ try {
   await shot('01-inicio');
 
   step('Alta de empleado con rol Cajero en Casa central');
+  await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByRole('link', { name: 'Empleados' }).click();
   await page.getByRole('button', { name: 'Nuevo empleado' }).click();
   const dialog = page.getByRole('dialog');
@@ -98,6 +99,7 @@ try {
 
   step('El cajero no ve ni puede abrir la administración de empleados');
   await login(cashier);
+  await page.getByRole('button', { name: 'Administración', exact: true }).click();
   assert.equal(await page.getByRole('link', { name: 'Empleados' }).count(), 0);
   await page.goto(`${BASE}/app/empleados`);
   await page.getByText('No tenés permiso para ver esta sección').waitFor();
@@ -108,6 +110,7 @@ try {
 
   step('La auditoría registra el alta del empleado');
   await login(owner);
+  await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByRole('link', { name: 'Auditoría' }).click();
   await page.getByRole('cell', { name: 'Alta de empleado' }).first().waitFor();
   await shot('04-auditoria');

@@ -15,17 +15,18 @@ export function PlatformLayout() {
     await navigate({ to: '/plataforma/login' });
   }
 
-  const linkClass = 'flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900';
-  const activeClass = { className: 'bg-brand-50 !text-brand-700' };
+  const linkClass = 'flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-slate-300 transition-colors hover:bg-white/5 hover:text-white';
+  const activeClass = { className: 'bg-white/10 !text-white' };
   return (
     <div className="flex min-h-full flex-col">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 py-4 lg:px-8">
+      <header className="bg-slate-950 text-white">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-8 lg:px-12">
         <div className="flex flex-wrap items-center gap-4 sm:gap-8">
           <div className="flex items-center gap-2">
             <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-10" />
             <div>
-              <span className="block text-sm font-bold text-slate-900">Gestión Comercial</span>
-              <span className="text-xs text-slate-500">Administración de plataforma</span>
+              <span className="block font-display text-sm font-semibold text-white">Gestión Comercial.</span>
+              <span className="text-xs text-brand-300">Administración de plataforma</span>
             </div>
           </div>
           <nav className="flex gap-1" aria-label="Navegación de la plataforma">
@@ -40,14 +41,15 @@ export function PlatformLayout() {
           </nav>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="hidden text-slate-500 sm:inline">{me.name}</span>
-          <button onClick={() => void logout()} className="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-600 hover:bg-slate-100">
+          <span className="hidden text-slate-300 sm:inline">{me.name}</span>
+          <button onClick={() => void logout()} className="flex items-center gap-2 rounded-lg px-3 py-2 text-slate-300 hover:bg-white/5">
             <LogOut className="size-4" aria-hidden />
             Salir
           </button>
         </div>
+        </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6 lg:p-9">
+      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 lg:px-12 lg:py-10">
         <Outlet />
       </main>
     </div>

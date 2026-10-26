@@ -145,7 +145,9 @@ Los permisos, roles plantilla y rubros se definen una sola vez en `packages/cont
 
 ### Diseño visual y documentación
 
-La interfaz comparte una paleta azul y gris, fondo claro, tipografía del sistema, navegación lateral clara para los comercios y componentes comunes para formularios, tablas y diálogos. Se aplica también al acceso y al panel de plataforma. La paleta y los radios se definen en `apps/web/src/styles.css`; los componentes están en `apps/web/src/components/ui`. El ícono y los colores de la aplicación instalada se mantienen en `apps/web/public` y `apps/web/index.html`.
+La interfaz tiene un encabezado oscuro y **menú superior**, fondo claro y acentos azules. La navegación del comercio agrupa las pantallas en **Operación**, **Catálogo**, **Inventario** y **Administración**, con Inicio y un acceso directo a Nueva venta. Los grupos y accesos respetan los permisos del usuario; la sección actual queda marcada. Los desplegables se cierran al elegir una opción, hacer clic fuera o presionar Escape. En celular, el botón del encabezado abre las mismas secciones en un menú vertical desplazable.
+
+El inicio muestra accesos rápidos a venta, caja, productos e inventario, junto con los datos reales del comercio y el uso de su plan. La fecha se presenta en la zona `America/Buenos_Aires`. Los títulos usan Archivo, incluida localmente, y los textos usan la tipografía del sistema. El acceso y el panel de plataforma comparten la misma identidad. La paleta y los estilos de navegación se definen en `apps/web/src/styles.css`; los componentes están en `apps/web/src/components/ui`. El ícono y los colores de la aplicación instalada se mantienen en `apps/web/public` y `apps/web/index.html`.
 
 Cada cambio funcional o visual debe acompañarse de la actualización de la documentación correspondiente. El README describe el comportamiento disponible; `docs/adr` registra decisiones de arquitectura cuando corresponde. Antes de ejecutar `iniciar.bat`, los cambios deben estar guardados y subidos a la rama que descarga el archivo: el actualizador reemplaza modificaciones locales. Para iniciar sin actualizar, usar `php artisan serve` desde `apps/server`.
 

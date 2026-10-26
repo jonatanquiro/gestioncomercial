@@ -59,6 +59,7 @@ try {
   assert.equal((await api('POST', '/products', product('Gaseosa 500 ml', '999.99', gaseosa, '10'))).status, 201);
 
   step('La caja arranca cerrada y se abre con el fondo inicial');
+  await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Vender', exact: true }).click();
   await page.getByText('Caja 1 está cerrada').waitFor();
   await page.getByLabel('Efectivo con el que arranca la caja').fill('10.000');
@@ -121,6 +122,7 @@ try {
   assert.ok(seconds < 30, `la venta de 20 artículos tardó ${seconds} s`);
 
   step('Anulación de la venta 1 con motivo');
+  await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Ventas', exact: true }).click();
   await page.getByRole('link', { name: '1', exact: true }).click();
   await page.getByRole('heading', { name: 'Venta N° 1' }).waitFor();
@@ -130,6 +132,7 @@ try {
   await page.getByText(/Motivo: Cobrada dos veces/).waitFor();
 
   step('Devolución parcial de la venta 3');
+  await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Ventas', exact: true }).click();
   await page.getByRole('link', { name: '3', exact: true }).click();
   await page.getByRole('button', { name: 'Devolución' }).click();
@@ -147,6 +150,7 @@ try {
   assert.equal(byName['Gaseosa 500 ml'], '1.000'); // 10 − 1 − 10 + 1 (anulación) + 1 (devolución)
 
   step('Caja: retiro y cierre ciego con diferencia');
+  await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Caja', exact: true }).click();
   await page.getByRole('link', { name: 'Ver turno' }).click();
   await page.getByRole('button', { name: 'Retiro' }).click();
@@ -165,6 +169,7 @@ try {
   await shot('23-cierre');
 
   step('Turno cerrado: ya no se puede operar');
+  await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Vender', exact: true }).click();
   await page.getByText('Caja 1 está cerrada').waitFor();
 

@@ -3,14 +3,14 @@ import type { ReactNode } from 'react';
 import { cn } from './cn';
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('rounded-2xl border border-slate-200 bg-white shadow-xs', className)}>{children}</div>;
+  return <div className={cn('rounded-xl border border-slate-200 bg-white', className)}>{children}</div>;
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{title}</h1>
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{title}</h1>
         {description && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">{description}</p>}
       </div>
       {actions && <div className="flex gap-2">{actions}</div>}

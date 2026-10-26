@@ -1,8 +1,8 @@
 import type { PermissionCode } from '@gc/contracts';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, Outlet, useNavigate } from '@tanstack/react-router';
-import { Boxes, Building2, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet } from 'lucide-react';
-import { type ComponentType, Fragment, useState } from 'react';
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
+import { Boxes, Building2, ChevronDown, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
+import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
@@ -16,35 +16,67 @@ interface NavItem {
   anyOf?: PermissionCode[];
 }
 
-/** Solo se muestran módulos implementados; cada fase agrega los suyos. */
-const NAV: NavItem[] = [
-  { to: '/app', label: 'Inicio', icon: Home },
-  { to: '/app/vender', label: 'Vender', icon: ShoppingCart, anyOf: ['sales.create'] },
-  { to: '/app/caja', label: 'Caja', icon: Wallet, anyOf: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
-  { to: '/app/ventas', label: 'Ventas', icon: Receipt, anyOf: ['sales.read_own', 'sales.read_all'] },
-  { to: '/app/productos', label: 'Productos', icon: Package, anyOf: ['products.read'] },
-  { to: '/app/categorias', label: 'Categorías y marcas', icon: Tags, anyOf: ['products.read'] },
-  { to: '/app/precios', label: 'Cambio de precios', icon: Percent, anyOf: ['prices.bulk_update'] },
-  { to: '/app/stock', label: 'Stock', icon: Boxes, anyOf: ['stock.read'] },
-  { to: '/app/inventarios', label: 'Inventario físico', icon: ClipboardList, anyOf: ['stock.count'] },
-  { to: '/app/sucursales', label: 'Sucursales', icon: Building2 },
-  { to: '/app/empleados', label: 'Empleados', icon: Users, anyOf: ['users.manage'] },
-  { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },
-  { to: '/app/auditoria', label: 'Auditoría', icon: History, anyOf: ['audit.read'] },
-  { to: '/app/cajas', label: 'Cajas y medios de pago', icon: CreditCard, anyOf: ['branches.manage', 'settings.manage'] },
-  { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage'] },
-  { to: '/app/cuenta', label: 'Mi cuenta', icon: KeyRound },
+/** Las secciones agrupan solo funciones implementadas y respetan los permisos del usuario. */
+const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
+  { id: 'operacion', label: 'Operación', items: [
+    { to: '/app/vender', label: 'Vender', icon: ShoppingCart, anyOf: ['sales.create'] },
+    { to: '/app/caja', label: 'Caja', icon: Wallet, anyOf: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
+    { to: '/app/ventas', label: 'Ventas', icon: Receipt, anyOf: ['sales.read_own', 'sales.read_all'] },
+  ] },
+  { id: 'catalogo', label: 'Catálogo', items: [
+    { to: '/app/productos', label: 'Productos', icon: Package, anyOf: ['products.read'] },
+    { to: '/app/categorias', label: 'Categorías y marcas', icon: Tags, anyOf: ['products.read'] },
+    { to: '/app/precios', label: 'Cambio de precios', icon: Percent, anyOf: ['prices.bulk_update'] },
+  ] },
+  { id: 'inventario', label: 'Inventario', items: [
+    { to: '/app/stock', label: 'Stock', icon: Boxes, anyOf: ['stock.read'] },
+    { to: '/app/inventarios', label: 'Inventario físico', icon: ClipboardList, anyOf: ['stock.count'] },
+  ] },
+  { id: 'administracion', label: 'Administración', items: [
+    { to: '/app/sucursales', label: 'Sucursales', icon: Building2 },
+    { to: '/app/empleados', label: 'Empleados', icon: Users, anyOf: ['users.manage'] },
+    { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },
+    { to: '/app/auditoria', label: 'Auditoría', icon: History, anyOf: ['audit.read'] },
+    { to: '/app/cajas', label: 'Cajas y medios de pago', icon: CreditCard, anyOf: ['branches.manage', 'settings.manage'] },
+    { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage'] },
+    { to: '/app/cuenta', label: 'Mi cuenta', icon: KeyRound },
+  ] },
 ];
 
 export function AppLayout() {
   const me = useMe();
   const can = useCan();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const queryClient = useQueryClient();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const items = NAV.filter((i) => !i.anyOf || can(...i.anyOf));
+  const [dropdown, setDropdown] = useState<string | null>(null);
+  const header = useRef<HTMLElement>(null);
+  const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
+  const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.anyOf || can(...i.anyOf)) })).filter((g) => g.items.length > 0);
   const others = me.memberships.filter((m) => m.status === 'active' && m.tenantId !== me.tenant?.id);
+
+  useEffect(() => {
+    function dismiss(event: PointerEvent) {
+      if (!header.current?.contains(event.target as Node)) { setDropdown(null); setOpen(false); }
+    }
+    function escape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        if (dropdown) triggers.current[dropdown]?.focus();
+        setDropdown(null);
+        setOpen(false);
+      }
+    }
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [dropdown]);
+
+  function closeMenus() { setDropdown(null); setOpen(false); }
 
   async function logout() {
     await http.post('/auth/logout').catch(() => undefined);
@@ -55,96 +87,75 @@ export function AppLayout() {
   async function switchTenant(tenantId: string) {
     try {
       await http.post('/auth/switch-tenant', { tenantId });
+      closeMenus();
       queryClient.clear();
       await navigate({ to: '/app' });
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    }
+    } catch (err) { toast(errorMessage(err), 'error'); }
   }
 
   return (
-    <div className="flex min-h-full">
-      <aside
-        className={`fixed inset-y-0 left-0 z-30 flex w-64 transform flex-col border-r border-slate-200 bg-white transition-transform lg:sticky lg:top-0 lg:h-dvh lg:shrink-0 lg:translate-x-0 ${open ? 'translate-x-0' : '-translate-x-full'}`}
-        aria-label="Navegación principal"
-      >
-        <div className="flex h-20 shrink-0 items-center gap-3 px-5">
-          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-10" />
-          <div>
-            <span className="block font-bold tracking-tight text-slate-900">Gestión Comercial</span>
-            <span className="text-xs text-slate-500">Tu negocio, conectado</span>
-          </div>
-        </div>
-        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          {items.map((item) => (
-            <Fragment key={item.to}>
-              {['/app', '/app/productos', '/app/sucursales'].includes(item.to) && (
-                <p className="px-3 pb-2 pt-5 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                  {item.to === '/app' ? 'Tu comercio' : item.to === '/app/productos' ? 'Catálogo e inventario' : 'Administración'}
-                </p>
-              )}
-              <Link
-                to={item.to}
-                onClick={() => setOpen(false)}
-                activeOptions={{ exact: item.to === '/app' }}
-                className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
-                activeProps={{ className: 'bg-brand-50 !font-semibold !text-brand-700' }}
-              >
-                <item.icon className="size-4" />
-                {item.label}
-              </Link>
-            </Fragment>
-          ))}
-        </nav>
-        <div className="flex shrink-0 items-center gap-3 border-t border-slate-100 px-5 py-4 text-xs text-slate-500">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-100 font-bold text-brand-700" aria-hidden>{me.user.name.slice(0, 1).toUpperCase()}</span>
-          <div className="min-w-0">
-            <div className="truncate font-semibold text-slate-800">{me.user.name}</div>
-            <div className="mt-0.5 truncate">{me.role?.name}</div>
-          </div>
-        </div>
-      </aside>
-      {open && <div className="fixed inset-0 z-20 bg-slate-900/50 lg:hidden" onClick={() => setOpen(false)} aria-hidden />}
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-20 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 lg:px-8">
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <button className="rounded-md p-2 hover:bg-slate-100 lg:hidden" onClick={() => setOpen(true)} aria-label="Abrir menú">
-              <Menu className="size-5" />
-            </button>
-            <Store className="hidden size-5 text-slate-400 sm:block" aria-hidden />
-            {others.length > 0 ? (
-              <select
-                aria-label="Comercio activo"
-                className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-sm font-medium"
-                value={me.tenant?.id ?? ''}
-                onChange={(e) => void switchTenant(e.target.value)}
-              >
-                {me.tenant && <option value={me.tenant.id}>{me.tenant.tradeName}</option>}
-                {others.map((m) => (
-                  <option key={m.tenantId} value={m.tenantId}>
-                    {m.tenantName}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="max-w-[45vw] truncate text-base font-semibold sm:max-w-none">{me.tenant?.tradeName}</span>
-            )}
-            {me.tenant && me.tenant.status !== 'active' && (
-              <Badge tone={me.tenant.status === 'trial' ? 'brand' : 'red'}>{TENANT_STATUS_LABELS[me.tenant.status] ?? me.tenant.status}</Badge>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => void logout()} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">
-              <LogOut className="size-4" aria-hidden />
-              Salir
+    <div className="flex min-h-full flex-col">
+      <header ref={header} className="relative z-30">
+        <div className="bg-slate-950 text-white">
+          <div className="mx-auto flex min-h-20 max-w-[1440px] items-center justify-between gap-4 px-4 py-4 sm:px-8 lg:px-12">
+            <Link to="/app" onClick={closeMenus} className="flex shrink-0 items-center gap-3" aria-label="Gestión Comercial, inicio">
+              <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-9" />
+              <span className="font-display text-sm font-semibold leading-tight tracking-tight sm:text-base">Gestión<span className="block text-brand-300">Comercial.</span></span>
+            </Link>
+            <div className="ml-auto flex min-w-0 items-center gap-3 sm:ml-6 sm:mr-auto sm:border-l sm:border-white/15 sm:pl-6">
+              <Store className="hidden size-4 shrink-0 text-brand-300 sm:block" aria-hidden />
+              <div className="min-w-0">
+                <p className="hidden text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400 sm:block">Tu espacio de trabajo</p>
+                {others.length > 0 ? (
+                  <select aria-label="Comercio activo" className="max-w-[35vw] rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white sm:max-w-72" value={me.tenant?.id ?? ''} onChange={(e) => void switchTenant(e.target.value)}>
+                    {me.tenant && <option value={me.tenant.id}>{me.tenant.tradeName}</option>}
+                    {others.map((m) => <option key={m.tenantId} value={m.tenantId}>{m.tenantName}</option>)}
+                  </select>
+                ) : <p className="max-w-[32vw] truncate text-sm font-medium sm:max-w-80">{me.tenant?.tradeName}</p>}
+              </div>
+              {me.tenant && me.tenant.status !== 'active' && <span className="hidden sm:block"><Badge tone={me.tenant.status === 'trial' ? 'brand' : 'red'}>{TENANT_STATUS_LABELS[me.tenant.status] ?? me.tenant.status}</Badge></span>}
+            </div>
+            <Link to="/app/cuenta" onClick={closeMenus} className="hidden items-center gap-3 rounded-lg px-2 py-1 hover:bg-white/5 sm:flex">
+              <div className="text-right"><p className="text-sm font-medium">{me.user.name}</p><p className="text-xs text-slate-400">{me.role?.name}</p></div>
+              <span className="flex size-9 items-center justify-center rounded-full border border-white/20 bg-white/5 text-sm text-brand-200" aria-hidden>{me.user.name.slice(0, 1).toUpperCase()}</span>
+            </Link>
+            <button onClick={() => void logout()} className="hidden rounded-lg p-2.5 text-slate-400 hover:bg-white/5 hover:text-white sm:block" aria-label="Salir"><LogOut className="size-4" /></button>
+            <button className="shrink-0 rounded-lg border border-white/20 p-2 lg:hidden" onClick={() => setOpen(!open)} aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={open} aria-controls="mobile-navigation">
+              {open ? <X className="size-5" /> : <Menu className="size-5" />}
             </button>
           </div>
-        </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6 lg:p-9">
-          <Outlet />
-        </main>
-      </div>
+        </div>
+        <div className="hidden border-b border-slate-200 bg-white lg:block">
+          <nav className="mx-auto flex max-w-[1440px] items-center gap-1 px-12" aria-label="Navegación principal">
+            <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="top-nav-link" activeProps={{ className: 'top-nav-active' }}><Home className="size-4" aria-hidden />Inicio</Link>
+            {groups.map((group) => {
+              const active = group.items.some((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
+              return (
+                <div key={group.id} className="relative">
+                  <button ref={(node) => { triggers.current[group.id] = node; }} className={`top-nav-link ${active || dropdown === group.id ? 'top-nav-active' : ''}`} onClick={() => setDropdown(dropdown === group.id ? null : group.id)} aria-expanded={dropdown === group.id} aria-controls={`nav-${group.id}`}>
+                    {group.label}<ChevronDown className={`size-3.5 transition-transform ${dropdown === group.id ? 'rotate-180' : ''}`} aria-hidden />
+                  </button>
+                  {dropdown === group.id && (
+                    <div id={`nav-${group.id}`} className="absolute left-0 top-full z-40 w-64 rounded-b-xl border border-t-0 border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10">
+                      {group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900" activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {can('sales.create') && <Link to="/app/vender" onClick={closeMenus} className="ml-auto flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"><ShoppingCart className="size-4" aria-hidden />Nueva venta</Link>}
+          </nav>
+        </div>
+        {open && (
+          <nav id="mobile-navigation" className="absolute inset-x-0 top-full max-h-[calc(100dvh-5rem)] overflow-y-auto border-b border-slate-200 bg-white p-4 shadow-xl lg:hidden" aria-label="Navegación móvil">
+            <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-semibold" activeProps={{ className: 'bg-brand-50 text-brand-700' }}><Home className="size-4" />Inicio</Link>
+            {groups.map((group) => <div key={group.id} className="mt-4 border-t border-slate-100 pt-3"><p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">{group.label}</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50" activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}</div></div>)}
+            <button onClick={() => void logout()} className="mt-4 flex items-center gap-3 px-3 py-3 text-sm text-slate-600"><LogOut className="size-4" />Salir</button>
+          </nav>
+        )}
+      </header>
+      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 lg:px-12 lg:py-10"><Outlet /></main>
+      <footer className="mx-auto flex w-full max-w-[1440px] flex-wrap justify-between gap-2 px-4 pb-5 pt-8 text-[11px] text-slate-500 sm:px-8 lg:px-12"><span>Gestión Comercial · Hecho para tu negocio</span><span>{me.tenant?.tradeName}</span></footer>
     </div>
   );
 }
