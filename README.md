@@ -85,7 +85,12 @@ php artisan platform:create-admin vos@dominio.com "Tu nombre"
 
 El comando pide la contraseña (mínimo 10 caracteres).
 
-Desde el panel se pueden dar de alta comercios a mano (botón **Nuevo comercio**): se elige rubro y plan, y el dueño recibe un correo con un enlace para elegir su contraseña (vence en 7 días). Si ese email ya tenía cuenta, el comercio se suma a los suyos y entra con su contraseña de siempre.
+Desde el panel se pueden dar de alta comercios a mano (botón **Nuevo comercio**): se elige rubro y plan y se carga el nombre y email del dueño, que queda con rol **Propietario**. Para una cuenta nueva hay dos alternativas:
+
+- **Definir una contraseña inicial** en el formulario (mínimo 10 caracteres, máximo 128; se rechazan contraseñas demasiado comunes). El dueño entra directamente en `/login` con su email y esa contraseña, sin necesitar correo. El operador debe compartirle la contraseña y el dueño puede cambiarla desde **Mi cuenta**. Se guarda únicamente su hash y no se incluye en la auditoría ni en la respuesta del alta.
+- **Dejar la contraseña vacía**: el dueño recibe un correo con un enlace para elegirla (vence en 7 días). Con `MAIL_MAILER=log`, la invitación se escribe en `apps/server/storage/logs/laravel.log`; para enviarla a una casilla real se necesita configurar SMTP.
+
+Si ese email ya tenía cuenta, el comercio se suma a los suyos y entra con su contraseña de siempre. En ese caso, se debe dejar vacía la contraseña inicial: el alta rechaza cualquier intento de reemplazar la contraseña de una cuenta existente.
 
 El panel también permite:
 
@@ -111,6 +116,12 @@ php artisan catalogo:importar-sepa C:\Users\vos\Downloads\sepa_lunes.zip
 ```
 
 Tarda unos minutos. También acepta la carpeta ya descomprimida o un `productos.csv` suelto. Para actualizarlo, se vuelve a correr con un archivo más nuevo. Leer el ZIP directamente requiere `extension=zip` activa en el `php.ini` de XAMPP. Si no está activa, descomprimí el archivo y pasá la carpeta.
+
+### Estado de la facturación ARCA y certificados
+
+La integración fiscal todavía no está implementada. El sistema genera **tickets internos**, no facturas electrónicas autorizadas. La opción `fiscal_arca` de los planes y el permiso `fiscal.manage` son definiciones preparadas para una etapa futura; activarlos no habilita emisión fiscal.
+
+Todavía no hay carga ni almacenamiento de certificados o claves privadas, configuración de puntos de venta y ambientes fiscales, autenticación con ARCA ni solicitud de CAE. Es necesario implementar y probar ese módulo antes de poder emitir comprobantes fiscales desde el sistema.
 
 ## Pruebas
 

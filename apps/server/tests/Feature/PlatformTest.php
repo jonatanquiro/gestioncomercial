@@ -189,6 +189,51 @@ class PlatformTest extends TestCase
         $this->assertCount(2, $tenantIds);
     }
 
+    public function test_crea_dueno_con_contrasena_inicial_sin_necesitar_correo(): void
+    {
+        $admin = $this->platformLogin();
+        // Los espacios forman parte de la contraseña: no deben recortarse.
+        $password = ' clave-inicial-del-kiosco ';
+        $input = $this->newTenantInput(['ownerPassword' => $password]);
+        $res = $admin->post('/platform/tenants', $input);
+        $this->assertSame(201, $res->status, json_encode($res->body));
+        $this->assertTrue($res->body['ownerPasswordSet']);
+        $this->assertFalse($res->body['ownerInvited']);
+        $this->assertFalse($res->body['invitationSent']);
+        Mail::assertNotSent(OwnerInvitationMail::class);
+        $owner = $this->client();
+        $this->assertSame(200, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => $password])->status);
+        $me = $owner->get('/auth/me')->body;
+        $this->assertSame($res->body['id'], $me['tenant']['id']);
+        $this->assertSame('Propietario', $me['role']['name']);
+        $audit = $owner->get('/audit?entityType=tenant')->body;
+        $this->assertStringNotContainsString($password, json_encode($audit));
+        $this->assertStringNotContainsString('ownerPassword', json_encode($audit));
+    }
+
+    public function test_no_reemplaza_la_contrasena_de_un_dueno_existente(): void
+    {
+        ['input' => $existing] = $this->registerTenant();
+        $admin = $this->platformLogin();
+        $input = $this->newTenantInput(['ownerEmail' => $existing['email'], 'ownerPassword' => 'otra-clave-del-kiosco']);
+        $res = $admin->post('/platform/tenants', $input);
+        $this->assertSame(400, $res->status);
+        $this->assertSame('ownerPassword', $res->body['details'][0]['path']);
+        $owner = $this->client();
+        $this->assertSame(200, $owner->post('/auth/login', ['email' => $existing['email'], 'password' => $existing['password']])->status);
+        $this->assertCount(1, $owner->get('/auth/me')->body['memberships']);
+    }
+
+    public function test_valida_la_contrasena_inicial_antes_de_crear_el_comercio(): void
+    {
+        $admin = $this->platformLogin();
+        foreach (['corta', str_repeat('x', 129), '1234567890', 'password123'] as $password) {
+            $res = $admin->post('/platform/tenants', $this->newTenantInput(['ownerPassword' => $password]));
+            $this->assertSame(400, $res->status);
+            $this->assertSame('ownerPassword', $res->body['details'][0]['path']);
+        }
+    }
+
     public function test_valida_el_alta_manual(): void
     {
         $admin = $this->platformLogin();

@@ -146,7 +146,7 @@ export const setTenantStatusSchema = z.object({
   reason: trimmed(300),
 });
 
-/** Alta manual de un comercio desde la plataforma. El dueño recibe una invitación para elegir su contraseña. */
+/** Alta manual: contraseña inicial opcional; sin ella se invita al dueño por correo. */
 export const platformCreateTenantSchema = z.object({
   tradeName: trimmed(120),
   legalName: optionalText(160),
@@ -156,6 +156,7 @@ export const platformCreateTenantSchema = z.object({
   planCode: trimmed(40),
   ownerName: trimmed(120),
   ownerEmail: emailSchema,
+  ownerPassword: z.union([passwordSchema, z.literal('')]).nullable().optional(),
 });
 export type PlatformCreateTenantInput = z.infer<typeof platformCreateTenantSchema>;
 

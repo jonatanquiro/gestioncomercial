@@ -106,9 +106,11 @@ export interface SessionDto {
 
 export interface PlatformCreateTenantResult {
   id: string;
-  /** false si el email ya tenía cuenta: entra con su contraseña de siempre. */
+  /** Se invitó a un dueño nuevo a elegir su contraseña por correo. */
   ownerInvited: boolean;
   invitationSent: boolean;
+  /** El dueño nuevo puede ingresar directamente con la contraseña definida en el alta. */
+  ownerPasswordSet: boolean;
 }
 
 export interface PlatformTenantDto {

@@ -94,7 +94,8 @@ function CreateTenantForm({ onDone }: { onDone: () => void }) {
     mutationFn: (v: CreateOut) => http.post<PlatformCreateTenantResult>('/platform/tenants', v),
     onSuccess: async (res, v) => {
       await queryClient.invalidateQueries({ queryKey: ['platform-tenants'] });
-      if (!res.ownerInvited) toast(`Comercio creado. ${v.ownerEmail} ya tenía cuenta: entra con su contraseña de siempre.`);
+      if (res.ownerPasswordSet) toast(`Comercio creado. ${v.ownerEmail} ya puede ingresar con la contraseña que definiste.`);
+      else if (!res.ownerInvited) toast(`Comercio creado. ${v.ownerEmail} ya tenía cuenta: entra con su contraseña de siempre.`);
       else if (res.invitationSent) toast(`Comercio creado. Le enviamos a ${v.ownerEmail} el enlace para elegir su contraseña.`);
       else toast(`Comercio creado, pero no se pudo enviar el correo. ${v.ownerEmail} puede entrar con «¿Olvidaste tu contraseña?».`, 'error');
       onDone();
@@ -155,10 +156,17 @@ function CreateTenantForm({ onDone }: { onDone: () => void }) {
         <Field label="Nombre del dueño" error={e.ownerName?.message}>
           {(p) => <Input {...p} {...register('ownerName')} />}
         </Field>
-        <Field label="Email del dueño" error={e.ownerEmail?.message} hint="Recibe un enlace para elegir su contraseña.">
+        <Field label="Email del dueño" error={e.ownerEmail?.message} hint="Será su usuario para ingresar al comercio.">
           {(p) => <Input {...p} type="email" {...register('ownerEmail')} />}
         </Field>
       </div>
+      <Field
+        label="Contraseña inicial del dueño (opcional)"
+        error={e.ownerPassword?.message}
+        hint="Para una cuenta nueva, definí una contraseña de al menos 10 caracteres y compartila con el dueño. Puede cambiarla desde Mi cuenta. Si la dejás vacía, se envía una invitación por correo. Si el email ya tiene cuenta, dejala vacía: conserva su contraseña actual."
+      >
+        {(p) => <Input {...p} type="password" autoComplete="new-password" {...register('ownerPassword')} />}
+      </Field>
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={onDone}>
           Cancelar

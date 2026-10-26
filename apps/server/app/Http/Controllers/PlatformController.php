@@ -173,8 +173,8 @@ class PlatformController extends Controller
 
     /**
      * Alta manual de un comercio (mismas reglas que platformCreateTenantSchema). Si el email del
-     * dueño no tiene cuenta, se crea una sin contraseña utilizable y se le envía una invitación
-     * para elegirla; si ya tiene cuenta, el comercio se suma a los suyos.
+     * dueño no tiene cuenta, se usa la contraseña indicada o se lo invita por correo.
+     * Si ya tiene cuenta, el comercio se suma a los suyos sin cambiar su contraseña.
      */
     public function createTenant(Request $request): JsonResponse
     {
@@ -190,23 +190,36 @@ class PlatformController extends Controller
             'planCode' => ['required', 'string', 'max:40', Rule::exists('plans', 'code')->where('active', true)],
             'ownerName' => ['required', 'string', 'max:120'],
             'ownerEmail' => ['required', 'string', 'email', 'max:254'],
-        ], ['planCode.exists' => 'Plan inexistente o inactivo']);
+            'ownerPassword' => ['nullable', 'string', 'min:10', 'max:128'],
+        ], ['planCode.exists' => 'Plan inexistente o inactivo', ...Input::passwordMessages('ownerPassword')]);
+        $password = $input['ownerPassword'] ?? null;
+        unset($input['ownerPassword']);
         $input['legalName'] = $input['legalName'] ?? null;
         $input['cuit'] = Input::optionalCuit($input['cuit'] ?? null);
         $client = Client::from($request);
         $token = Tokens::random();
 
-        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token) {
+        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token, $password) {
             $owner = User::where('email', $input['ownerEmail'])->lockForUpdate()->first();
             if ($owner && $owner->status !== 'active') {
                 throw AppError::conflict('USER_INACTIVE', 'Ese email pertenece a un usuario desactivado');
             }
-            $invited = $owner === null;
+            if ($owner && $password !== null) {
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => 'Ese email ya tiene cuenta. Dejá la contraseña vacía para conservar su acceso actual.']]);
+            }
+            $invited = $owner === null && $password === null;
+            try {
+                $hash = $owner ? null : $this->passwords->hash($password ?? Tokens::random());
+            } catch (AppError $e) {
+                if ($e->errorCode !== 'VALIDATION_ERROR') {
+                    throw $e;
+                }
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => $e->details[0]['message']]]);
+            }
             $owner ??= User::create([
                 'email' => $input['ownerEmail'],
                 'name' => $input['ownerName'],
-                // Nadie conoce esta contraseña: el dueño elige la suya con la invitación.
-                'password_hash' => $this->passwords->hash(Tokens::random()),
+                'password_hash' => $hash,
                 'password_changed_at' => Carbon::now(),
             ]);
             $tenantId = $this->provisioning->create($owner->id, $owner->name, $input, $client, [
@@ -237,7 +250,7 @@ class PlatformController extends Controller
             }
         }
 
-        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent], 201);
+        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent, 'ownerPasswordSet' => $password !== null], 201);
     }
 
     public function setTenantStatus(Request $request, string $id): JsonResponse
