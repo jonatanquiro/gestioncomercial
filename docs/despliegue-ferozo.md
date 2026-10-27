@@ -80,6 +80,14 @@ El servidor SMTP figura en la configuración de cliente de correo del panel. Con
 
 ## 5. Instalar la base
 
+Ferozo no permite crear disparadores (error `#1419 You do not have the SUPER privilege` en un `CREATE TRIGGER`). El sistema funciona igual sin ellos ([ADR 0011](adr/0011-disparadores-opcionales-en-hosting.md)), pero la base que se importa tiene que venir **sin disparadores**. Exportarla desde una consola en la PC:
+
+```powershell
+C:\xampp\mysql\bin\mysqldump.exe -P 3307 -u USUARIO -p --skip-triggers --no-tablespaces --add-drop-table gestioncomercial > base.sql
+```
+
+En phpMyAdmin local, la opción equivalente es desmarcar «Agregar CREATE TRIGGER» en la exportación personalizada.
+
 **Si llevás los datos actuales y no tenés SSH:** actualizar primero la base local con `php artisan migrate` desde `apps/server`. En phpMyAdmin local, exportar esa base en SQL, con estructura y datos (todas las tablas). Crear una base vacía en Ferozo e importar el SQL con el phpMyAdmin del hosting. La exportación incluye usuarios, ventas, sesiones y credenciales fiscales cifradas: no dejar el SQL en una carpeta pública. Si se supera el límite de importación, usar compresión o pedir a soporte que lo importe.
 
 **Si empezás desde cero y no tenés SSH:** crear una base local separada y vacía. Ejecutar las migraciones apuntando a esa base, sin modificar ni vaciar la base habitual:

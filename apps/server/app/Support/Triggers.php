@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
  * las ventas y los turnos cerrados. Algunos hostings compartidos no dejan crear disparadores
  * (falta el permiso TRIGGER o SUPER con binlog activo): ahí el sistema funciona igual, porque
  * el programa nunca modifica ni borra esas filas, pero la base no lo impide por su cuenta.
- * En ese caso se avisa en el log y la migración sigue. Ver docs/adr/0010.
+ * En ese caso se avisa en el log y la migración sigue. Ver docs/adr/0011.
  *
  * El CREATE TRIGGER lo ejecuta la migración (dentro de $create); acá solo se decide qué hacer si falla.
  */
