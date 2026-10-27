@@ -54,6 +54,10 @@ class FiscalController extends Controller
                 if (! $parsed || ($parsed['validTo_time_t'] ?? 0) <= time() || ($parsed['validFrom_time_t'] ?? PHP_INT_MAX) > time()) {
                     throw AppError::validation([['path' => 'certificatePem', 'message' => 'Certificado inválido, vencido o todavía no vigente']]);
                 }
+                $storedKey = $s?->private_key_enc ? Crypt::decryptString($s->private_key_enc) : null;
+                if (isset($v['privateKeyPem']) && $storedKey && $storedKey !== $key && @openssl_x509_check_private_key($certificate, $storedKey)) {
+                    throw AppError::validation([['path' => 'privateKeyPem', 'message' => 'El certificado corresponde a la clave que ya tiene guardada el sistema. Cargá solo el certificado y dejá vacía la clave privada.']]);
+                }
                 if (! $key || ! @openssl_x509_check_private_key($certificate, $key)) {
                     throw AppError::validation([['path' => 'certificatePem', 'message' => 'El certificado no corresponde a la clave privada']]);
                 }

@@ -10,7 +10,7 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, PageHeader, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { Forbidden } from '@/features/layout/app-layout';
-import { errorMessage, http } from '@/lib/api';
+import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatCuit } from '@/lib/format';
 import { useCan } from '@/lib/session';
 
@@ -40,6 +40,9 @@ export function FiscalPage() {
   </>;
 }
 
+/** Los errores de validación muestran el motivo de cada campo, no solo el mensaje general. */
+const detailedError = (err: unknown) => (err instanceof ApiRequestError && Object.keys(err.fieldErrors()).length ? Object.values(err.fieldErrors()).join(' · ') : errorMessage(err));
+
 function FiscalConfig({ environment, setting, defaultCuit }: { environment: Environment; setting?: Setting; defaultCuit: string }) {
   const client = useQueryClient();
   const toast = useToast();
@@ -59,11 +62,11 @@ function FiscalConfig({ environment, setting, defaultCuit }: { environment: Envi
   const check = useMutation({ mutationFn: () => http.post<{ pointsOfSale: { number: number; type: string; blocked: string; closedOn: string }[] }>('/fiscal/check', { environment }) });
   const read = async (file: File | undefined, setter: (v: string) => void) => { if (!file) return; if (file.size > 20000) return setFileError('El archivo supera los 20 KB'); setFileError(''); setter(await file.text()); };
   return <Card className="space-y-5 p-6"><h2 className="font-semibold">Certificado y punto de venta · {environment}</h2>
-    {(fileError || save.error || generate.error || check.error) && <Alert>{fileError || errorMessage(save.error ?? generate.error ?? check.error)}</Alert>}
+    {(fileError || save.error || generate.error || check.error) && <Alert>{fileError || detailedError(save.error ?? generate.error ?? check.error)}</Alert>}
     <div className="grid gap-4 md:grid-cols-3"><Field label="CUIT del emisor">{p => <Input {...p} value={cuit} onChange={e => setCuit(e.target.value)} />}</Field><Field label="Punto de venta" hint="Usá un punto de venta dedicado a este sistema, sin emitir desde otras aplicaciones con la misma numeración.">{p => <Input {...p} type="number" min={1} max={99999} value={point} onChange={e => setPoint(e.target.value)} />}</Field><Field label="Titular del certificado">{p => <Select {...p} value={mode} onChange={e => setMode(e.target.value as 'own' | 'delegated')}><option value="own">Certificado propio</option><option value="delegated">Certificado con servicio delegado</option></Select>}</Field></div>
     <p className="text-xs text-slate-500">{setting?.hasCertificate ? `Certificado cargado · vence ${setting.certificateExpiresOn}` : 'Sin certificado cargado'}. {setting?.hasPrivateKey ? 'Clave privada guardada de forma cifrada.' : 'Podés generar la clave y el pedido desde acá, o importar un par existente.'} Las credenciales guardadas no se descargan ni se muestran.</p>
     <div className="grid gap-4 sm:grid-cols-2"><Field label="Ingresos Brutos / condición de exención">{p => <Input {...p} maxLength={60} value={grossIncome} onChange={e => setGrossIncome(e.target.value)} />}</Field><Field label="Inicio de actividades">{p => <Input {...p} type="date" value={started} onChange={e => setStarted(e.target.value)} />}</Field></div>
-    <div className="grid gap-4 md:grid-cols-2"><Field label="Certificado PEM (.crt / .pem)">{p => <Input {...p} type="file" accept=".crt,.pem" onChange={e => void read(e.target.files?.[0], setCertificate)} />}</Field><Field label="Clave privada PEM (solo al importar una existente)">{p => <Input {...p} type="file" accept=".key,.pem" onChange={e => void read(e.target.files?.[0], setPrivateKey)} />}</Field></div>
+    <div className="grid gap-4 md:grid-cols-2"><Field label="Certificado PEM (.crt / .pem)">{p => <Input {...p} type="file" accept=".crt,.pem" onChange={e => void read(e.target.files?.[0], setCertificate)} />}</Field><Field label="Clave privada PEM (solo al importar una existente)" hint={setting?.hasPrivateKey ? 'Si generaste el pedido desde acá, dejala vacía: el sistema ya tiene la clave.' : undefined}>{p => <Input {...p} type="file" accept=".key,.pem" onChange={e => void read(e.target.files?.[0], setPrivateKey)} />}</Field></div>
     <div className="flex flex-wrap gap-3"><Button loading={save.isPending} onClick={() => save.mutate()}>Guardar configuración</Button><Button variant="secondary" loading={check.isPending} onClick={() => check.mutate()}>Probar conexión y puntos de venta</Button></div>
     {check.data && <Alert kind="success">Conexión verificada. Puntos de venta: {check.data.pointsOfSale.map(p => `${p.number} (${p.type}${p.blocked === 'S' ? ', bloqueado' : ''}${p.closedOn && p.closedOn !== 'NULL' ? `, baja ${p.closedOn}` : ''})`).join(' · ') || (environment === 'homologacion' ? 'ARCA no informa puntos de venta; en homologación es normal y podés usar cualquier número.' : 'ARCA no informa puntos de venta de web services: dalo de alta en ARCA como «Factura electrónica - Monotributo / RI Web Services».')}</Alert>}
     <details className="border-t border-slate-200 pt-4"><summary className="cursor-pointer text-sm font-semibold">Generar un pedido de certificado (CSR)</summary><div className="mt-4 space-y-4"><p className="text-sm text-slate-500">La clave se genera y guarda en este sistema. Subí el pedido a WSASS para homologación o a Administración de Certificados Digitales para producción y asociá el certificado al servicio WSFE. Después cargá el certificado recibido. No se necesitan las claves de otro sistema.</p><div className="grid gap-3 sm:grid-cols-2"><Field label="Alias (letras, números, guion)">{p => <Input {...p} value={alias} onChange={e => setAlias(e.target.value)} />}</Field><Field label="Razón social para el pedido">{p => <Input {...p} value={organization} onChange={e => setOrganization(e.target.value)} />}</Field></div><Button variant="secondary" loading={generate.isPending} onClick={() => generate.mutate()}>Generar CSR</Button>{csr && <Field label="Pedido para copiar en ARCA">{p => <textarea {...p} readOnly value={csr} className="h-48 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-xs" />}</Field>}</div></details>

@@ -52,6 +52,23 @@ class FiscalTest extends TestCase
         return Http::response('<Envelope><Body><loginCmsResponse><loginCmsReturn><![CDATA[<loginTicketResponse><header><expirationTime>'.now()->addHours(12)->toIso8601String().'</expirationTime></header><credentials><token>test-token</token><sign>test-sign</sign></credentials></loginTicketResponse>]]></loginCmsReturn></loginCmsResponse></Body></Envelope>');
     }
 
+    public function test_cargar_otra_clave_con_el_certificado_del_pedido_explica_el_error(): void
+    {
+        $registration = $this->registerTenant();
+        $owner = $registration['client'];
+        $config = ['environment' => 'homologacion', 'cuit' => '20123456786', 'pointOfSale' => 1, 'credentialMode' => 'own'];
+        $this->assertSame(200, $owner->put('/fiscal/settings', $config)->status);
+        $csr = $owner->post('/fiscal/csr', ['environment' => 'homologacion', 'cuit' => '20123456786', 'alias' => 'prueba', 'organization' => 'Prueba'])->body['csr'];
+        $pem = app(TenantContext::class)->run($registration['tenantId'], fn () => Crypt::decryptString(FiscalSetting::first()->private_key_enc));
+        openssl_x509_export(openssl_csr_sign($csr, null, openssl_pkey_get_private($pem), 1, ['digest_alg' => 'sha256', ...OpenSslConfig::options()]), $certificatePem);
+        openssl_pkey_export(openssl_pkey_new(['private_key_bits' => 2048, ...OpenSslConfig::options()]), $otherKey, null, OpenSslConfig::options());
+        $res = $owner->put('/fiscal/settings', [...$config, 'certificatePem' => $certificatePem, 'privateKeyPem' => $otherKey]);
+        $this->assertSame(400, $res->status);
+        $this->assertSame('privateKeyPem', $res->body['details'][0]['path']);
+        $this->assertStringContainsString('dejá vacía la clave', $res->body['details'][0]['message']);
+        $this->assertSame(200, $owner->put('/fiscal/settings', [...$config, 'certificatePem' => $certificatePem])->status);
+    }
+
     public function test_sin_puntos_de_venta_y_guardar_la_configuracion_conserva_el_ticket(): void
     {
         [$owner] = $this->prepare();
