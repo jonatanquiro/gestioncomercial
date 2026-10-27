@@ -256,20 +256,20 @@ return new class extends Migration
         }
 
         foreach (self::APPEND_ONLY as $table) {
-            Triggers::create("CREATE TRIGGER {$table}_no_update BEFORE UPDATE ON {$table} FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite UPDATE'");
-            Triggers::create("CREATE TRIGGER {$table}_no_delete BEFORE DELETE ON {$table} FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite DELETE'");
+            Triggers::create("{$table}_no_update", fn () => DB::unprepared("CREATE TRIGGER {$table}_no_update BEFORE UPDATE ON {$table} FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite UPDATE'"));
+            Triggers::create("{$table}_no_delete", fn () => DB::unprepared("CREATE TRIGGER {$table}_no_delete BEFORE DELETE ON {$table} FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite DELETE'"));
         }
         // Un turno cerrado queda fijo: ni el cierre ni sus importes se pueden cambiar después.
-        Triggers::create("CREATE TRIGGER cash_shifts_closed_is_final BEFORE UPDATE ON cash_shifts FOR EACH ROW
+        Triggers::create('cash_shifts_closed_is_final', fn () => DB::unprepared("CREATE TRIGGER cash_shifts_closed_is_final BEFORE UPDATE ON cash_shifts FOR EACH ROW
             BEGIN
                 IF OLD.status = 'closed' THEN
                     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Un turno de caja cerrado no se puede modificar';
                 END IF;
-            END");
-        Triggers::create("CREATE TRIGGER cash_shifts_no_delete BEFORE DELETE ON cash_shifts FOR EACH ROW
-            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Los turnos de caja no se borran'");
+            END"));
+        Triggers::create('cash_shifts_no_delete', fn () => DB::unprepared("CREATE TRIGGER cash_shifts_no_delete BEFORE DELETE ON cash_shifts FOR EACH ROW
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Los turnos de caja no se borran'"));
 
         // Comercios existentes: una caja por sucursal y los medios de pago habituales.
         $now = Carbon::now()->format('Y-m-d H:i:s.u');
