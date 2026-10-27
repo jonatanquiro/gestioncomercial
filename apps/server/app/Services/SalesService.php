@@ -176,6 +176,8 @@ class SalesService
                 'amount' => Money::round($p['amount']),
                 'status' => $p['method']->kind === 'cash' ? 'cash' : 'confirmed',
                 'reference' => $p['reference'],
+                'payer_name' => $p['payerName'],
+                'payer_phone' => $p['payerPhone'],
                 'confirmed_by' => $p['method']->kind === 'cash' ? null : $actor->userId,
             ]);
             if ($p['method']->kind === 'cash') {
@@ -199,7 +201,7 @@ class SalesService
      * de cada pago en efectivo ya tiene el vuelto descontado, así la suma de los pagos
      * registrados es siempre igual al total de la venta.
      *
-     * @return array{0: list<array{method: PaymentMethod, amount: BigDecimal, reference: ?string}>, 1: BigDecimal}
+     * @return array{0: list<array{method: PaymentMethod, amount: BigDecimal, reference: ?string, payerName: ?string, payerPhone: ?string}>, 1: BigDecimal}
      */
     private function payments(array $input, BigDecimal $total): array
     {
@@ -217,7 +219,9 @@ class SalesService
                 throw AppError::validation([['path' => "payments.{$i}.reference", 'message' => "Cargá el número de operación de {$method->name}"]]);
             }
             $amount = BigDecimal::of(Money::round($p['amount']));
-            $payments[] = ['method' => $method, 'amount' => $amount, 'reference' => $reference];
+            // El efectivo no guarda datos de quien paga.
+            $payer = fn (string $key) => $method->kind === 'cash' ? null : (trim((string) ($p[$key] ?? '')) ?: null);
+            $payments[] = ['method' => $method, 'amount' => $amount, 'reference' => $reference, 'payerName' => $payer('payerName'), 'payerPhone' => $payer('payerPhone')];
             $paid = $paid->plus($amount);
             if ($method->kind !== 'cash') {
                 $nonCash = $nonCash->plus($amount);

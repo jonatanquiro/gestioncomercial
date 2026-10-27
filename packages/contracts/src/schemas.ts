@@ -353,7 +353,18 @@ export const createSaleSchema = z.object({
     .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, discountPercent: discountPercentSchema }))
     .min(1, 'Agregá al menos un artículo')
     .max(300),
-  payments: z.array(z.object({ paymentMethodId: uuidSchema, amount: positiveMoney, reference: optionalText(80) })).max(10),
+  payments: z
+    .array(
+      z.object({
+        paymentMethodId: uuidSchema,
+        amount: positiveMoney,
+        reference: optionalText(80),
+        /** Quién transfiere o paga con QR: lo piden muchos comercios para identificar el cobro. */
+        payerName: optionalText(120),
+        payerPhone: optionalText(30).refine((v) => !v || /^[\d\s()+-]{6,30}$/.test(v), 'Teléfono inválido'),
+      }),
+    )
+    .max(10),
   expectedTotal: moneySchema,
   authorization: pinAuthorizationSchema.nullable().optional(),
 });

@@ -63,8 +63,9 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::put('fiscal/settings', [FiscalController::class, 'save'])->middleware('perm:fiscal.manage');
     Route::post('fiscal/csr', [FiscalController::class, 'csr'])->middleware('perm:fiscal.manage');
     Route::post('fiscal/check', [FiscalController::class, 'check'])->middleware('perm:fiscal.manage');
-    Route::get('fiscal/invoices', [FiscalController::class, 'invoices'])->middleware('perm:fiscal.manage');
-    Route::post('sales/{id}/invoice', [FiscalController::class, 'issue'])->middleware('perm:fiscal.manage');
+    Route::get('fiscal/status', [FiscalController::class, 'status'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::get('fiscal/invoices', [FiscalController::class, 'invoices'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::post('sales/{id}/invoice', [FiscalController::class, 'issue'])->middleware('perm:fiscal.manage,fiscal.issue');
     Route::get('payments', [PaymentsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::get('settlements', [SettlementsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::post('settlements', [SettlementsController::class, 'store'])->middleware('perm:cash.read_all');

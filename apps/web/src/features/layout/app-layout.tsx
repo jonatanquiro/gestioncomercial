@@ -1,7 +1,7 @@
 import type { PermissionCode, TenantDto } from '@gc/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ArrowRightLeft, Boxes, Building2, ChevronDown, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
+import { ArrowRightLeft, Boxes, Building2, ChevronDown, ClipboardList, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -9,12 +9,15 @@ import { errorMessage, http } from '@/lib/api';
 import { TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 import { appearanceStyle, DEFAULT_APPEARANCE } from '@/features/settings/appearance';
+import { SETTINGS_TABS } from '@/features/settings/settings-tabs';
 
 interface NavItem {
   to: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
   anyOf?: PermissionCode[];
+  /** Entrada que agrupa varias pantallas: abre la primera permitida y queda marcada en todas. */
+  sections?: typeof SETTINGS_TABS;
 }
 
 /** Las secciones agrupan solo funciones implementadas y respetan los permisos del usuario. */
@@ -40,10 +43,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/empleados', label: 'Empleados', icon: Users, anyOf: ['users.manage'] },
     { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },
     { to: '/app/auditoria', label: 'Auditoría', icon: History, anyOf: ['audit.read'] },
-    { to: '/app/cajas', label: 'Cajas y medios de pago', icon: CreditCard, anyOf: ['branches.manage', 'settings.manage'] },
-    { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage'] },
-    { to: '/app/apariencia', label: 'Apariencia', icon: Tags, anyOf: ['settings.manage'] },
-    { to: '/app/facturacion', label: 'Facturación ARCA', icon: Receipt, anyOf: ['fiscal.manage'] },
+    { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage', 'fiscal.manage', 'branches.manage'], sections: SETTINGS_TABS },
     { to: '/app/cuenta', label: 'Mi cuenta', icon: KeyRound },
   ] },
 ];
@@ -61,7 +61,11 @@ export function AppLayout() {
   const [dropdown, setDropdown] = useState<string | null>(null);
   const header = useRef<HTMLElement>(null);
   const triggers = useRef<Record<string, HTMLButtonElement | null>>({});
-  const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.anyOf || can(...i.anyOf)) })).filter((g) => g.items.length > 0);
+  const groups = GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter((i) => !i.anyOf || can(...i.anyOf)).map((i) => (i.sections ? { ...i, to: i.sections.find((t) => can(...t.anyOf))?.to ?? i.to } : i)),
+  })).filter((g) => g.items.length > 0);
+  const inSections = (item: NavItem) => !!item.sections?.some((t) => pathname === t.to || pathname.startsWith(`${t.to}/`));
   const others = me.memberships.filter((m) => m.status === 'active' && m.tenantId !== me.tenant?.id);
 
   useEffect(() => {
@@ -152,7 +156,7 @@ export function AppLayout() {
           <nav className="mx-auto flex max-w-[1440px] items-center gap-1 px-12" aria-label="Navegación principal">
             <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="top-nav-link" activeProps={{ className: 'top-nav-active' }}><Home className="size-4" aria-hidden />Inicio</Link>
             {groups.map((group) => {
-              const active = group.items.some((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
+              const active = group.items.some((item) => pathname === item.to || pathname.startsWith(`${item.to}/`) || inSections(item));
               return (
                 <div key={group.id} className="relative">
                   <button ref={(node) => { triggers.current[group.id] = node; }} className={`top-nav-link ${active || dropdown === group.id ? 'top-nav-active' : ''}`} onClick={() => setDropdown(dropdown === group.id ? null : group.id)} aria-expanded={dropdown === group.id} aria-controls={`nav-${group.id}`}>
@@ -160,7 +164,7 @@ export function AppLayout() {
                   </button>
                   {dropdown === group.id && (
                     <div id={`nav-${group.id}`} className="absolute left-0 top-full z-40 w-64 rounded-b-xl border border-t-0 border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10">
-                      {group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900" activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}
+                      {group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 ${inSections(item) ? 'bg-brand-50 !text-brand-700' : ''}`} activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}
                     </div>
                   )}
                 </div>
@@ -172,7 +176,7 @@ export function AppLayout() {
         {open && (
           <nav data-tenant-menu id="mobile-navigation" className="absolute inset-x-0 top-full max-h-[calc(100dvh-5rem)] overflow-y-auto border-b border-slate-200 bg-white p-4 shadow-xl lg:hidden" aria-label="Navegación móvil">
             <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-semibold" activeProps={{ className: 'bg-brand-50 text-brand-700' }}><Home className="size-4" />Inicio</Link>
-            {groups.map((group) => <div key={group.id} className="mt-4 border-t border-slate-100 pt-3"><p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">{group.label}</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50" activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}</div></div>)}
+            {groups.map((group) => <div key={group.id} className="mt-4 border-t border-slate-100 pt-3"><p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">{group.label}</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50 ${inSections(item) ? 'bg-brand-50 !text-brand-700' : ''}`} activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}</div></div>)}
             <button onClick={() => void logout()} className="mt-4 flex items-center gap-3 px-3 py-3 text-sm text-slate-600"><LogOut className="size-4" />Salir</button>
           </nav>
         )}
@@ -180,7 +184,7 @@ export function AppLayout() {
       <div className="flex min-w-0 flex-1">
         {appearance.navigation === 'side' && <aside data-tenant-menu className="sticky top-0 hidden max-h-dvh w-60 shrink-0 self-start overflow-y-auto border-r border-slate-200 px-3 pb-6 pt-4 lg:block" aria-label="Navegación principal">
           <Link to="/app" activeOptions={{ exact: true }} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><Home className="size-4" />Inicio</Link>
-          {groups.map(group => <div key={group.id} className="mt-5"><p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest">{group.label}</p>{group.items.map(item => <Link key={item.to} to={item.to} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}</div>)}
+          {groups.map(group => <div key={group.id} className="mt-5"><p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest">{group.label}</p>{group.items.map(item => <Link key={item.to} to={item.to} className={`side-nav-link ${inSections(item) ? 'side-nav-active' : ''}`} activeProps={{ className: 'side-nav-active' }}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}</div>)}
         </aside>}
         <main className={`mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 ${appearance.navigation === 'top' ? 'lg:px-12' : 'lg:px-8'} lg:py-10`}><Outlet /></main>
       </div>

@@ -29,6 +29,12 @@ class FiscalController extends Controller
         return $this->json(FiscalSetting::all()->map(fn ($s) => $this->settingDto($s))->all());
     }
 
+    /** Para facturar desde la venta: qué ambientes están listos, sin datos de las credenciales. */
+    public function status(): JsonResponse
+    {
+        return $this->json(FiscalSetting::all()->map(fn ($s) => ['environment' => $s->environment, 'pointOfSale' => $s->point_of_sale, 'ready' => (bool) ($s->certificate_enc && $s->private_key_enc)])->values()->all());
+    }
+
     public function save(Request $request): JsonResponse
     {
         $actor = $this->actor($request);

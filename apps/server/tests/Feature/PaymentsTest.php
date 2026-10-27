@@ -56,6 +56,17 @@ class PaymentsTest extends TestCase
         $this->assertSame(['id' => $settlement->body['id'], 'provider' => 'Banco', 'status' => 'open', 'itemStatus' => 'pending'], $pending->body['items'][0]['settlement']);
         $this->assertSame(2, $owner->get('/payments?settlement=none')->body['total']);
 
+        // Nombre y teléfono de quien transfiere: se guardan, se muestran y se buscan; el efectivo no los guarda.
+        $payer = $owner->post('/sales', ['clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $product['variantId'], 'quantity' => '1']], 'payments' => [['paymentMethodId' => $transfer['id'], 'amount' => '1000', 'reference' => 'OP-900', 'payerName' => ' Juana Pérez ', 'payerPhone' => '11 5555-1234']], 'expectedTotal' => '1000.00']);
+        $this->assertSame(201, $payer->status, json_encode($payer->body));
+        $this->assertSame(['Juana Pérez', '11 5555-1234'], [$payer->body['payments'][0]['payerName'], $payer->body['payments'][0]['payerPhone']]);
+        $this->assertSame([$payer->body['id']], array_column($owner->get('/payments?q=Pérez')->body['items'], 'saleId'));
+        $this->assertSame('11 5555-1234', $owner->get('/payments?q=5555')->body['items'][0]['payerPhone']);
+        $badPhone = $owner->post('/sales', ['clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $product['variantId'], 'quantity' => '1']], 'payments' => [['paymentMethodId' => $transfer['id'], 'amount' => '1000', 'reference' => 'OP-901', 'payerPhone' => 'llamame']], 'expectedTotal' => '1000.00']);
+        $this->assertSame(400, $badPhone->status);
+        $cashPayer = $owner->post('/sales', ['clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $product['variantId'], 'quantity' => '1']], 'payments' => [['paymentMethodId' => $cash['id'], 'amount' => '1000', 'payerName' => 'Nadie']], 'expectedTotal' => '1000.00']);
+        $this->assertNull($cashPayer->body['payments'][0]['payerName']);
+
         $cashier = $this->addEmployee($owner, $this->roleByTemplate($owner, 'cashier')['id'], $me['branchIds']);
         $this->assertSame(403, $cashier['client']->get('/payments')->status);
     }

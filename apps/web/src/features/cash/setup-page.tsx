@@ -9,6 +9,7 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, PageHeader, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
+import { SettingsTabs } from '@/features/settings/settings-tabs';
 import { useCan } from '@/lib/session';
 
 /** Cajas de cada sucursal y medios de pago que acepta el comercio. */
@@ -20,6 +21,7 @@ export function CashSetupPage() {
   return (
     <>
       <PageHeader title="Cajas y medios de pago" description="Puntos de cobro de cada sucursal y formas de pago que aceptás." />
+      <SettingsTabs />
       <div className="grid gap-6 xl:grid-cols-2">
         {manageRegisters && <RegistersCard />}
         {manageMethods && <MethodsCard />}

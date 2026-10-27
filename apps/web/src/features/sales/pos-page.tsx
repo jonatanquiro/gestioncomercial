@@ -19,6 +19,7 @@ import { useCan } from '@/lib/session';
 import { PinDialog } from './pin-dialog';
 import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQuery, rememberedRegister, rememberRegister } from './queries';
 import { PrintTicket } from './ticket';
+import { InvoiceDialog } from '@/features/fiscal/invoice-dialog';
 
 interface CartLine {
   product: ProductDto;
@@ -35,6 +36,8 @@ interface PaymentRow {
   paymentMethodId: string;
   amount: string;
   reference: string;
+  payerName?: string;
+  payerPhone?: string;
 }
 
 const emptyCart = (): Cart => ({ clientUuid: newClientUuid(), lines: [] });
@@ -154,6 +157,8 @@ function ClosedRegister({ register }: { register: RegisterDto }) {
 const UNIT: Record<string, string> = { weight: 'kg', length: 'm', volume: 'l' };
 const isMeasured = (p: ProductDto) => p.saleMode !== 'unit';
 const QUANTITY_RE = /^\d+(\.\d{1,3})?$/;
+/** Medios en los que se pide, opcionalmente, quién paga. */
+const PAYER_KINDS: string[] = ['transfer', 'qr'];
 const DISCOUNT_RE = /^\d{1,3}(\.\d{1,2})?$/;
 
 function Counter({ register }: { register: RegisterDto }) {
@@ -169,6 +174,7 @@ function Counter({ register }: { register: RegisterDto }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<SaleDto | null>(null);
   const [printing, setPrinting] = useState<SaleDto | null>(null);
+  const [invoicing, setInvoicing] = useState<SaleDto | null>(null);
   const scanner = useRef<HTMLInputElement>(null);
   const focusScanner = useCallback(() => window.setTimeout(() => scanner.current?.focus(), 0), []);
 
@@ -355,9 +361,16 @@ function Counter({ register }: { register: RegisterDto }) {
                   <span className="font-bold">{formatArs(lastSale.changeGiven)}</span>
                 </div>
               )}
-              <Button variant="secondary" className="h-11 w-full" disabled={!tenant.data} onClick={() => setPrinting(lastSale)}>
-                <Printer className="size-4" /> Imprimir ticket
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting(lastSale)}>
+                  <Printer className="size-4" /> Imprimir ticket
+                </Button>
+                {can('fiscal.issue', 'fiscal.manage') && (
+                  <Button variant="secondary" className="h-12" onClick={() => setInvoicing(lastSale)}>
+                    Facturar
+                  </Button>
+                )}
+              </div>
             </div>
           )}
           {can('sales.read_own', 'sales.read_all') && (
@@ -395,6 +408,7 @@ function Counter({ register }: { register: RegisterDto }) {
         />
       )}
       {printing && tenant.data && <PrintTicket sale={printing} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
+      {invoicing && <InvoiceDialog sale={invoicing} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => (setInvoicing(null), focusScanner())} />}
     </div>
   );
 }
@@ -534,7 +548,7 @@ function CheckoutDialog({
   const cash = methods.find((m) => m.kind === 'cash') ?? methods[0];
   const [rows, setRows] = useState<PaymentRow[]>([{ paymentMethodId: cash?.id ?? '', amount: '', reference: '' }]);
   const [active, setActive] = useState(0);
-  const [target, setTarget] = useState<'amount' | 'reference'>('amount');
+  const [target, setTarget] = useState<'amount' | 'reference' | 'phone'>('amount');
   const [keypad, toggleKeypad] = useKeypadPreference();
   const [error, setError] = useState<string | null>(null);
   const [pin, setPin] = useState<{ permission: PermissionCode; error: string | null } | null>(null);
@@ -559,7 +573,12 @@ function CheckoutDialog({
         clientUuid: cart.clientUuid,
         registerId,
         lines: cart.lines.map((l) => ({ variantId: l.product.variantId, quantity: l.quantity, discountPercent: l.discountPercent })),
-        payments: rows.map((r, i) => ({ paymentMethodId: r.paymentMethodId, amount: amounts[i]!, reference: r.reference || null })).filter((p) => dec(p.amount).gt(0)),
+        payments: rows
+          .map((r, i) => {
+            const payer = PAYER_KINDS.includes(byId.get(r.paymentMethodId)?.kind ?? 'cash');
+            return { paymentMethodId: r.paymentMethodId, amount: amounts[i]!, reference: r.reference || null, payerName: (payer && r.payerName?.trim()) || null, payerPhone: (payer && r.payerPhone?.trim()) || null };
+          })
+          .filter((p) => dec(p.amount).gt(0)),
         expectedTotal: total,
         authorization,
       });
@@ -664,6 +683,16 @@ function CheckoutDialog({
                   ))}
                 </div>
               )}
+              {method && PAYER_KINDS.includes(method.kind) && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label={`Nombre de quien paga ${active + 1} (opcional)`}>
+                    {(p) => <Input {...p} className="h-12" autoComplete="off" maxLength={120} value={row.payerName ?? ''} onChange={(e) => setRow(active, { payerName: e.target.value })} />}
+                  </Field>
+                  <Field label={`Teléfono ${active + 1} (opcional)`}>
+                    {(p) => <Input {...p} className="h-12" type="tel" inputMode={keypad ? 'none' : 'tel'} autoComplete="off" maxLength={30} value={row.payerPhone ?? ''} onFocus={() => setTarget('phone')} onChange={(e) => setRow(active, { payerPhone: e.target.value })} />}
+                  </Field>
+                </div>
+              )}
               {method?.requiresReference && (
                 <Field label={`N° de operación ${active + 1}`}>
                   {(p) => <Input {...p} className="h-12 text-lg" inputMode={keypad ? 'none' : 'text'} autoComplete="off" autoFocus={!keypad && target === 'reference'} value={row.reference} onFocus={() => setTarget('reference')} onChange={(e) => setRow(active, { reference: e.target.value })} />}
@@ -672,11 +701,11 @@ function CheckoutDialog({
             </div>
             {keypad && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-slate-500">{target === 'reference' ? 'Escribiendo el N° de operación' : 'Escribiendo el importe'}</p>
+                <p className="text-xs font-semibold text-slate-500">{target === 'reference' ? 'Escribiendo el N° de operación' : target === 'phone' ? 'Escribiendo el teléfono' : 'Escribiendo el importe'}</p>
                 <NumPad
-                  value={target === 'reference' ? row.reference : row.amount}
+                  value={target === 'reference' ? row.reference : target === 'phone' ? (row.payerPhone ?? '') : row.amount}
                   decimals={target === 'amount'}
-                  onChange={(v) => setRow(active, target === 'reference' ? { reference: v } : { amount: v })}
+                  onChange={(v) => setRow(active, target === 'reference' ? { reference: v } : target === 'phone' ? { payerPhone: v } : { amount: v })}
                 />
               </div>
             )}

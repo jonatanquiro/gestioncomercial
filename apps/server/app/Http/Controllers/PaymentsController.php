@@ -64,7 +64,8 @@ class PaymentsController extends Controller
         $term = trim($q['q'] ?? '');
         if ($term !== '') {
             $query->where(function ($w) use ($term) {
-                $w->where('reference', 'like', '%'.addcslashes($term, '%_\\').'%');
+                $like = '%'.addcslashes($term, '%_\\').'%';
+                $w->where('reference', 'like', $like)->orWhere('payer_name', 'like', $like)->orWhere('payer_phone', 'like', $like);
                 if (preg_match('/^\d{1,18}$/', $term)) {
                     $w->orWhereIn('sale_id', Sale::where('number', (int) $term)->select('id'));
                 }
@@ -98,7 +99,7 @@ class PaymentsController extends Controller
                     'id' => $p->id, 'saleId' => $sale->id, 'saleNumber' => $sale->number, 'confirmedAt' => Dates::iso($sale->confirmed_at),
                     'registerName' => $registers[$sale->register_id] ?? '', 'cashierName' => $users[$sale->cashier_id] ?? '',
                     'paymentMethodId' => $p->payment_method_id, 'methodName' => $methods[$p->payment_method_id] ?? '', 'kind' => $p->kind,
-                    'amount' => Money::round($p->amount), 'reference' => $p->reference,
+                    'amount' => Money::round($p->amount), 'reference' => $p->reference, 'payerName' => $p->payer_name, 'payerPhone' => $p->payer_phone,
                     'saleChanged' => $sale->status !== 'confirmed' || isset($returned[$sale->id]),
                     'duplicateReference' => $p->reference !== null && isset($repeated[$p->payment_method_id.'|'.mb_strtolower($p->reference)]),
                     'settlement' => $s ? ['id' => $s->id, 'provider' => $s->provider, 'status' => $s->status, 'itemStatus' => $item->status] : null,

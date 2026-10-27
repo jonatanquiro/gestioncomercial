@@ -15,7 +15,7 @@ import { formatDateTime } from '@/lib/format';
 import { useCan } from '@/lib/session';
 
 type ItemStatus = 'pending' | 'confirmed' | 'observed';
-type Payment = { id: string; saleId: string; saleNumber: number; confirmedAt: string; registerName: string; cashierName: string; paymentMethodId: string; methodName: string; kind: PaymentKind; amount: string; reference: string | null; saleChanged: boolean; duplicateReference: boolean; settlement: { id: string; provider: string; status: 'open' | 'closed'; itemStatus: ItemStatus } | null };
+type Payment = { id: string; saleId: string; saleNumber: number; confirmedAt: string; registerName: string; cashierName: string; paymentMethodId: string; methodName: string; kind: PaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null; saleChanged: boolean; duplicateReference: boolean; settlement: { id: string; provider: string; status: 'open' | 'closed'; itemStatus: ItemStatus } | null };
 type Result = Paginated<Payment> & { totalAmount: string };
 const PAGE_SIZE = 50;
 const ITEM_LABELS: Record<ItemStatus, string> = { pending: 'Pendiente', confirmed: 'Confirmado', observed: 'Observado' };
@@ -53,7 +53,7 @@ export function PaymentsPage() {
         <Field label="Caja">{(p) => <Select {...p} value={register} onChange={(e) => filter(setRegister)(e.target.value)}><option value="">Todas</option>{registers.data?.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select>}</Field>
         <Field label="Rendición">{(p) => <Select {...p} value={settlement} onChange={(e) => filter(setSettlement)(e.target.value)}><option value="">Cualquier estado</option><option value="none">Sin rendir</option>{Object.entries(ITEM_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>}</Field>
         <Field label="Revisar">{(p) => <Select {...p} value={flag} onChange={(e) => filter(setFlag)(e.target.value)}><option value="">Todos los cobros</option><option value="duplicate">N° de operación repetido</option><option value="missing_reference">Sin N° de operación</option><option value="sale_changed">Venta anulada o con devolución</option></Select>}</Field>
-        <Field label="Buscar">{(p) => <Input {...p} placeholder="N° de operación, venta o importe" maxLength={80} value={search} onChange={(e) => filter(setSearch)(e.target.value)} />}</Field>
+        <Field label="Buscar">{(p) => <Input {...p} placeholder="N° de operación, venta, importe, nombre o teléfono" maxLength={80} value={search} onChange={(e) => filter(setSearch)(e.target.value)} />}</Field>
       </div>
       {list.isLoading && <Spinner />}
       {list.error && <Alert>{errorMessage(list.error)}</Alert>}
@@ -63,7 +63,7 @@ export function PaymentsPage() {
         {list.data.items.map((p) => <tr key={p.id}>
           <Td><Link to="/app/ventas/$id" params={{ id: p.saleId }} className="font-semibold text-brand-700 hover:underline">Venta {p.saleNumber}</Link><p className="text-xs text-slate-500">{formatDateTime(p.confirmedAt)}</p><p className="text-xs text-slate-500">{p.cashierName} · {p.registerName}</p></Td>
           <Td>{p.methodName}<p className="text-xs text-slate-500">{PAYMENT_KIND_LABELS[p.kind]}</p></Td>
-          <Td>{p.reference ?? <Badge tone="amber">Sin N° de operación</Badge>}{p.duplicateReference && <p className="mt-1 text-xs font-semibold text-red-700">Repetido en otro cobro</p>}{p.saleChanged && <p className="mt-1 text-xs font-semibold text-red-700">Venta anulada o con devolución</p>}</Td>
+          <Td>{p.reference ?? <Badge tone="amber">Sin N° de operación</Badge>}{(p.payerName || p.payerPhone) && <p className="mt-1 text-xs text-slate-600">{[p.payerName, p.payerPhone].filter(Boolean).join(' · ')}</p>}{p.duplicateReference && <p className="mt-1 text-xs font-semibold text-red-700">Repetido en otro cobro</p>}{p.saleChanged && <p className="mt-1 text-xs font-semibold text-red-700">Venta anulada o con devolución</p>}</Td>
           <Td className="text-right font-semibold">{formatArs(p.amount)}</Td>
           <Td>{p.settlement ? <><Badge tone={p.settlement.itemStatus === 'confirmed' ? 'green' : p.settlement.itemStatus === 'observed' ? 'red' : 'amber'}>{ITEM_LABELS[p.settlement.itemStatus]}</Badge><p className="mt-1 text-xs"><Link to="/app/rendiciones" search={{ id: p.settlement.id }} className="text-brand-700 hover:underline">{p.settlement.provider}</Link> · {p.settlement.status === 'closed' ? 'cerrada' : 'abierta'}</p></> : <Badge>Sin rendir</Badge>}</Td>
         </tr>)}

@@ -41,9 +41,11 @@ class SalesController extends Controller
             'payments.*.paymentMethodId' => ['required', 'string', 'uuid'],
             'payments.*.amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
             'payments.*.reference' => ['nullable', 'string', 'max:80'],
+            'payments.*.payerName' => ['nullable', 'string', 'max:120'],
+            'payments.*.payerPhone' => ['nullable', 'string', 'regex:/^[\d\s()+-]{6,30}$/'],
             'expectedTotal' => ['required', ...Input::decimal(Input::MONEY, 'Total inválido')],
             'authorization' => ['nullable', 'array'],
-        ], ['lines.required' => 'Agregá al menos un artículo', 'lines.min' => 'Agregá al menos un artículo', 'lines.*.variantId.distinct' => 'El artículo está repetido']);
+        ], ['payments.*.payerPhone.regex' => 'Teléfono inválido', 'lines.required' => 'Agregá al menos un artículo', 'lines.min' => 'Agregá al menos un artículo', 'lines.*.variantId.distinct' => 'El artículo está repetido']);
         $details = [];
         foreach ($input['lines'] as $i => $line) {
             if (Money::of($line['quantity'])->isZero()) {
@@ -207,6 +209,8 @@ class SalesController extends Controller
                 'kind' => $p->kind,
                 'amount' => Money::round($p->amount),
                 'reference' => $p->reference,
+                'payerName' => $p->payer_name,
+                'payerPhone' => $p->payer_phone,
             ])->all(),
             'void' => $sale->status === 'voided' ? [
                 'at' => Dates::iso($sale->voided_at),

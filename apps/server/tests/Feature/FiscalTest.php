@@ -124,6 +124,31 @@ class FiscalTest extends TestCase
         $this->assertStringNotContainsString('PRIVATE KEY', $audit);
     }
 
+    public function test_el_cajero_factura_sin_ver_la_configuracion_fiscal(): void
+    {
+        [$owner, $sale] = $this->prepare();
+        $me = $owner->get('/auth/me')->body;
+        $cashier = $this->addEmployee($owner, $this->roleByTemplate($owner, 'cashier')['id'], $me['branchIds'])['client'];
+        $this->assertSame(403, $cashier->get('/fiscal/settings')->status);
+        $this->assertSame([['environment' => 'homologacion', 'pointOfSale' => 3, 'ready' => true]], $cashier->get('/fiscal/status')->body);
+        Http::preventStrayRequests();
+        Http::fake(function ($request) {
+            $xml = $request->body();
+            if (str_contains($xml, '<loginCms')) {
+                return $this->ticket();
+            }
+            if (str_contains($xml, '<FECompUltimoAutorizado')) {
+                return $this->response('FECompUltimoAutorizado', '<CbteNro>4</CbteNro>');
+            }
+
+            return $this->response('FECAESolicitar', '<FeDetResp><FECAEDetResponse><Resultado>A</Resultado><CAE>12345678901299</CAE><CAEFchVto>20261105</CAEFchVto></FECAEDetResponse></FeDetResp>');
+        });
+        $res = $cashier->post("/sales/{$sale}/invoice", $this->body());
+        $this->assertSame(200, $res->status, json_encode($res->body));
+        $this->assertSame(5, $res->body['number']);
+        $this->assertSame($res->body['id'], $cashier->get("/fiscal/invoices?saleId={$sale}")->body[0]['id']);
+    }
+
     public function test_timeout_conserva_numero_y_recupera_cae_mediante_consulta(): void
     {
         [$owner, $sale] = $this->prepare();

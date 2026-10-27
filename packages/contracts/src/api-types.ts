@@ -364,7 +364,7 @@ export interface SaleDto {
   changeGiven: string;
   discountAuthorizedBy: string | null;
   lines: SaleLineDto[];
-  payments: Array<{ paymentMethodId: string; name: string; kind: PaymentKind; amount: string; reference: string | null }>;
+  payments: Array<{ paymentMethodId: string; name: string; kind: PaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null }>;
   void: { at: string; byName: string; authorizedByName: string | null; reason: string } | null;
   returns: Array<{
     id: string;

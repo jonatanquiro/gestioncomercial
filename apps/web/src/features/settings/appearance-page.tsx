@@ -7,6 +7,7 @@ import { Alert, Card, PageHeader, Spinner } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { Forbidden } from '@/features/layout/app-layout';
 import { errorMessage, http } from '@/lib/api';
+import { SettingsTabs } from '@/features/settings/settings-tabs';
 import { useCan } from '@/lib/session';
 import { appearanceStyle, DEFAULT_APPEARANCE } from './appearance';
 
@@ -28,6 +29,7 @@ function AppearanceForm({ tenant }: { tenant: TenantDto }) {
   const save = useMutation({ mutationFn: () => http.put<TenantDto>('/tenant/appearance', appearanceSchema.parse(form)), onSuccess: data => { client.setQueryData(['tenant'], data); toast('Apariencia guardada para este comercio'); }, onError: err => setError(errorMessage(err)) });
   return <>
     <PageHeader title="Apariencia del kiosco" description="Tu logo, tus colores y una forma cómoda de trabajar. Se aplica a todos los usuarios de este comercio." />
+      <SettingsTabs />
     <form onSubmit={e => { e.preventDefault(); setError(''); save.mutate(); }} className="grid gap-6 lg:grid-cols-2">
       <Card className="space-y-5 p-6">{error && <Alert>{error}</Alert>}
         <Field label="Logo (PNG, JPEG o WebP; hasta 250 KB)">{p => <Input {...p} type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { const file = e.target.files?.[0]; if (!file) return; if (file.size > 250000) return setError('El logo debe pesar hasta 250 KB'); setError(''); const reader = new FileReader(); reader.onload = () => set('logoData', String(reader.result)); reader.onerror = () => setError('No se pudo leer el logo'); reader.readAsDataURL(file); }} />}</Field>
