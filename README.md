@@ -78,6 +78,8 @@ Reiniciar Apache, poner `APP_URL=http://localhost:8080` en `.env` y entrar a htt
 
 También se puede instalar en una subcarpeta, por ejemplo `https://celenial.com.ar/gestion-comercial`. Ver [la guía de despliegue en Ferozo](docs/despliegue-ferozo.md) y el generador de paquetes `scripts/preparar-ferozo.ps1`. El código privado y `.env` se guardan fuera de la raíz pública.
 
+Si el hosting no deja crear disparadores (en phpMyAdmin aparece un error en un `CREATE TRIGGER`), el sistema funciona igual, pero esas tablas quedan protegidas solo por el programa ([ADR 0011](docs/adr/0011-disparadores-opcionales-en-hosting.md)). Para llevar una base de la PC, exportarla sin disparadores (`mysqldump --skip-triggers`).
+
 ### Correos
 
 Con `MAIL_MAILER=log`, los correos (por ejemplo, el de recuperación de contraseña) se escriben en `apps/server/storage/logs/laravel.log`. Para verlos como correo real se puede usar Mailpit, configurando `MAIL_MAILER=smtp`, `MAIL_HOST=127.0.0.1` y `MAIL_PORT=1025`.
@@ -219,4 +221,7 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0003 · Sesiones y autenticación](docs/adr/0003-sesiones-y-autenticacion.md)
 - [0004 · Estrategia de pruebas](docs/adr/0004-pruebas.md)
 - [0008 · Rendiciones, apariencia y primera integración fiscal](docs/adr/0008-rendiciones-apariencia-y-fiscal.md)
+- [0009 · Despliegue en la raíz o en una subcarpeta](docs/adr/0009-despliegue-subcarpeta.md)
+- [0010 · Ingreso con nombre de usuario o email](docs/adr/0010-ingreso-con-usuario.md)
+- [0011 · Disparadores opcionales en hostings que no los permiten](docs/adr/0011-disparadores-opcionales-en-hosting.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

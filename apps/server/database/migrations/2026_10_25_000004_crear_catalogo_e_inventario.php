@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Triggers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -248,9 +249,9 @@ return new class extends Migration
         }
 
         foreach (self::APPEND_ONLY as $table) {
-            DB::unprepared("CREATE TRIGGER {$table}_no_update BEFORE UPDATE ON {$table} FOR EACH ROW
+            Triggers::create("CREATE TRIGGER {$table}_no_update BEFORE UPDATE ON {$table} FOR EACH ROW
                 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite UPDATE'");
-            DB::unprepared("CREATE TRIGGER {$table}_no_delete BEFORE DELETE ON {$table} FOR EACH ROW
+            Triggers::create("CREATE TRIGGER {$table}_no_delete BEFORE DELETE ON {$table} FOR EACH ROW
                 SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite DELETE'");
         }
 
