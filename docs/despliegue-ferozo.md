@@ -123,3 +123,21 @@ Si aparece un error 500, revisar el registro privado `storage/logs/laravel.log` 
 ## Actualizaciones
 
 Respaldar base y archivos antes de actualizar. Preparar nuevos paquetes, conservar el `.env`, `APP_KEY` y `storage` del servidor, y aplicar las migraciones pendientes. El procedimiento de exportar una base local completa corresponde a la instalación inicial: **no importar esa base encima de una instalación que ya recibe ventas**. Sin SSH, coordinar la ejecución de las migraciones con soporte.
+
+### Subir por FTP sin ZIP
+
+`scripts/subir-ferozo.mjs` sube por FTPS el último paquete de `dist/`, solo con los archivos que cambiaron desde la subida anterior, y borra los que ya no existen. Nunca sube `.env` ni `storage/`. Los datos de acceso van en `%USERPROFILE%\.ferozo.env`, fuera del repositorio:
+
+```dotenv
+FTP_HOST=c2652367.ferozo.com
+FTP_USER=ftp@c2652367.ferozo.com
+FTP_PASSWORD="CONTRASEÑA_FTP"
+```
+
+```powershell
+powershell -File scripts/preparar-ferozo.ps1   # paquete nuevo en dist/
+node scripts/subir-ferozo.mjs                  # muestra qué subiría, sin tocar el hosting
+node scripts/subir-ferozo.mjs --confirmar      # sube
+```
+
+El registro de lo subido queda en `dist/ferozo-subidos.json`. Si se sube algo a mano por el administrador de archivos, borrar ese registro para que la próxima subida mande todo. Las migraciones no viajan por FTP: si el script avisa que hay migraciones nuevas, la base se actualiza aparte.
