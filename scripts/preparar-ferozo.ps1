@@ -21,12 +21,15 @@ foreach ($archivo in @('artisan', 'composer.json', 'composer.lock')) {
 
 # La instalación local queda intacta. Se quitan las dependencias de desarrollo solo de la copia.
 Push-Location $privado
+# Composer y PHP escriben avisos normales por stderr: en Windows PowerShell 5.1, con 'Stop', eso corta
+# el script. Acá decide solo el código de salida.
+$ErrorActionPreference = 'Continue'
 try {
     & composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-scripts
     if ($LASTEXITCODE -ne 0) { throw 'No se pudieron preparar las dependencias PHP.' }
     & php artisan package:discover --ansi
     if ($LASTEXITCODE -ne 0) { throw 'No se pudo preparar Laravel.' }
-} finally { Pop-Location }
+} finally { Pop-Location; $ErrorActionPreference = 'Stop' }
 
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $plantilla = [IO.File]::ReadAllText((Join-Path $repo 'apps/server/.env.example'))
