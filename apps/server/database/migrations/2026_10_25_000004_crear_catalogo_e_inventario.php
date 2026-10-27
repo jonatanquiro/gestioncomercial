@@ -249,10 +249,10 @@ return new class extends Migration
         }
 
         foreach (self::APPEND_ONLY as $table) {
-            Triggers::create("CREATE TRIGGER {$table}_no_update BEFORE UPDATE ON {$table} FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite UPDATE'");
-            Triggers::create("CREATE TRIGGER {$table}_no_delete BEFORE DELETE ON {$table} FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite DELETE'");
+            Triggers::create("{$table}_no_update", fn () => DB::unprepared("CREATE TRIGGER {$table}_no_update BEFORE UPDATE ON {$table} FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite UPDATE'"));
+            Triggers::create("{$table}_no_delete", fn () => DB::unprepared("CREATE TRIGGER {$table}_no_delete BEFORE DELETE ON {$table} FOR EACH ROW
+                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '{$table} es de solo agregado: no se permite DELETE'"));
         }
 
         // Los comercios que ya existían reciben las categorías iniciales de su rubro.
