@@ -62,8 +62,12 @@ class FiscalController extends Controller
                     throw AppError::validation([['path' => 'cuit', 'message' => 'El CUIT no coincide con el certificado propio. Si es una delegación, elegí certificado delegado.']]);
                 }
             }
+            // ARCA da un solo ticket vigente por certificado: se conserva si no cambian el certificado, la clave ni el CUIT.
+            $sameCredentials = $s && $s->cuit === $cuit && $certificate !== null && $s->certificate_enc && Crypt::decryptString($s->certificate_enc) === $certificate
+                && $s->private_key_enc && Crypt::decryptString($s->private_key_enc) === $key;
+            $ticket = $sameCredentials ? ['ticket_enc' => $s->ticket_enc, 'ticket_expires_at' => $s->ticket_expires_at] : ['ticket_enc' => null, 'ticket_expires_at' => null];
             $s ??= new FiscalSetting;
-            $s->forceFill(['environment' => $v['environment'], 'cuit' => $cuit, 'point_of_sale' => $v['pointOfSale'], 'credential_mode' => $v['credentialMode'], 'issuer_metadata' => ['grossIncomeNumber' => $v['grossIncomeNumber'] ?? null, 'activityStartDate' => $v['activityStartDate'] ?? null], 'certificate_enc' => $certificate ? Crypt::encryptString($certificate) : null, 'private_key_enc' => $key ? Crypt::encryptString($key) : null, 'ticket_enc' => null, 'ticket_expires_at' => null])->save();
+            $s->forceFill(['environment' => $v['environment'], 'cuit' => $cuit, 'point_of_sale' => $v['pointOfSale'], 'credential_mode' => $v['credentialMode'], 'issuer_metadata' => ['grossIncomeNumber' => $v['grossIncomeNumber'] ?? null, 'activityStartDate' => $v['activityStartDate'] ?? null], 'certificate_enc' => $certificate ? Crypt::encryptString($certificate) : null, 'private_key_enc' => $key ? Crypt::encryptString($key) : null, ...$ticket])->save();
             $this->record($actor, 'fiscal.settings_updated', $s->id, ['environment' => $s->environment, 'cuit' => $cuit, 'pointOfSale' => $s->point_of_sale, 'certificateLoaded' => (bool) $certificate]);
 
             return $this->settingDto($s);

@@ -52,6 +52,32 @@ class FiscalTest extends TestCase
         return Http::response('<Envelope><Body><loginCmsResponse><loginCmsReturn><![CDATA[<loginTicketResponse><header><expirationTime>'.now()->addHours(12)->toIso8601String().'</expirationTime></header><credentials><token>test-token</token><sign>test-sign</sign></credentials></loginTicketResponse>]]></loginCmsReturn></loginCmsResponse></Body></Envelope>');
     }
 
+    public function test_sin_puntos_de_venta_y_guardar_la_configuracion_conserva_el_ticket(): void
+    {
+        [$owner] = $this->prepare();
+        Http::preventStrayRequests();
+        Http::fake(fn ($request) => str_contains($request->body(), '<loginCms')
+            ? $this->ticket()
+            : $this->response('FEParamGetPtosVenta', '<Errors><Err><Code>602</Code><Msg>Sin Resultados</Msg></Err></Errors>'));
+        $check = $owner->post('/fiscal/check', ['environment' => 'homologacion']);
+        $this->assertSame(200, $check->status, json_encode($check->body));
+        $this->assertSame([], $check->body['pointsOfSale']);
+        // Cambiar el punto de venta no pide otro ticket: ARCA no lo daría hasta que venza el anterior.
+        $this->assertSame(200, $owner->put('/fiscal/settings', ['environment' => 'homologacion', 'cuit' => '20123456786', 'pointOfSale' => 7, 'credentialMode' => 'own'])->status);
+        $this->assertSame(200, $owner->post('/fiscal/check', ['environment' => 'homologacion'])->status);
+        Http::assertSentCount(3);
+    }
+
+    public function test_ticket_vigente_en_otro_sistema_se_informa_claro(): void
+    {
+        [$owner] = $this->prepare();
+        Http::preventStrayRequests();
+        Http::fake(fn () => Http::response('<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Body><soapenv:Fault><faultcode>ns1:coe.alreadyAuthenticated</faultcode><faultstring>El CEE ya posee un TA valido para el acceso al WSN solicitado</faultstring></soapenv:Fault></soapenv:Body></soapenv:Envelope>', 500));
+        $check = $owner->post('/fiscal/check', ['environment' => 'homologacion']);
+        $this->assertSame(409, $check->status);
+        $this->assertSame('ARCA_TICKET_IN_USE', $check->body['code']);
+    }
+
     public function test_emite_cae_sin_exponer_credenciales_y_reintento_no_duplica(): void
     {
         [$owner, $sale] = $this->prepare();

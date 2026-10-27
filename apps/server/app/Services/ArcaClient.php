@@ -35,7 +35,10 @@ class ArcaClient
     public function check(FiscalSetting $setting): array
     {
         $result = $this->call($setting, 'FEParamGetPtosVenta');
-        self::assertNoErrors($result);
+        // 602 "Sin Resultados": la cuenta no tiene puntos de venta de web services (habitual en homologación).
+        if (! self::onlyError($result, '602')) {
+            self::assertNoErrors($result);
+        }
         $points = [];
         foreach ($result->xpath('.//*[local-name()="PtoVenta"]') as $point) {
             $points[] = ['number' => (int) self::value($point, 'Nro'), 'type' => self::value($point, 'EmisionTipo'), 'blocked' => self::value($point, 'Bloqueado'), 'closedOn' => self::value($point, 'FchBaja')];
@@ -100,6 +103,9 @@ class ArcaClient
         // Nunca se incorporan las credenciales de la solicitud a los errores o al registro.
         $xml = self::xml($response->body());
         $fault = self::value($xml, 'faultstring');
+        if (preg_match('/ya posee un TA v[aá]lido/i', $fault)) {
+            throw AppError::conflict('ARCA_TICKET_IN_USE', 'ARCA ya entregó un acceso vigente para este certificado y no da otro hasta que venza (hasta 12 horas). Pasa si el mismo certificado se usa en otro sistema o en otro comercio: usá un certificado exclusivo para cada uno.');
+        }
         if ($fault) {
             throw AppError::badRequest('ARCA_FAULT', 'ARCA: '.mb_substr($fault, 0, 500));
         }
@@ -141,6 +147,14 @@ class ArcaClient
             $messages = array_map(fn ($e) => self::value($e, 'Code').': '.self::value($e, 'Msg'), $errors);
             throw AppError::badRequest('ARCA_REJECTED', mb_substr(implode(' · ', $messages), 0, 1000));
         }
+    }
+
+    /** La respuesta trae exactamente un error y es el código indicado. */
+    public static function onlyError(SimpleXMLElement $xml, string $code): bool
+    {
+        $errors = $xml->xpath('.//*[local-name()="Errors"]/*[local-name()="Err"]');
+
+        return count($errors) === 1 && self::value($errors[0], 'Code') === $code;
     }
 
     public static function escape(string $value): string
