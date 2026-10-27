@@ -1,8 +1,10 @@
 import type { Appearance } from '@gc/contracts';
 import type { CSSProperties } from 'react';
 
-export const DEFAULT_APPEARANCE: Appearance = { logoData: null, primaryColor: '#2563eb', menuColor: '#ffffff', font: 'system', navigation: 'side', textSize: 'normal', density: 'normal' };
+export const DEFAULT_APPEARANCE: Appearance = { logoData: null, primaryColor: '#b8432a', menuColor: '#1f3b2d', font: 'archivo', navigation: 'side', textSize: 'normal', density: 'normal' };
 export const FONTS = { system: '"Segoe UI", system-ui, sans-serif', archivo: '"Archivo Variable", system-ui, sans-serif', serif: 'Georgia, "Times New Roman", serif' };
+/** Los títulos usan la tipografía del estilo, salvo que el comercio elija una serif. */
+const DISPLAY = '"Bricolage Grotesque Variable", "Archivo Variable", system-ui, sans-serif';
 
 function rgb(hex: string) { return [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16)); }
 function mix(hex: string, target: number, weight: number) { return `rgb(${rgb(hex).map(c => Math.round(c * (1 - weight) + target * weight)).join(', ')})`; }
@@ -17,6 +19,6 @@ export function appearanceStyle(value: Appearance): CSSProperties {
     '--color-brand-400': mix(primary, 255, .3), '--color-brand-500': mix(primary, 255, .1), '--color-brand-600': primary,
     '--color-brand-700': mix(primary, 0, .15), '--color-brand-800': mix(primary, 0, .3), '--color-brand-900': mix(primary, 0, .45),
     '--menu-background': value.menuColor, '--menu-foreground': foreground(value.menuColor),
-    '--font-sans': FONTS[value.font], '--font-display': FONTS[value.font],
+    '--font-sans': FONTS[value.font], '--font-display': value.font === 'serif' ? FONTS.serif : DISPLAY,
   } as CSSProperties;
 }

@@ -3,17 +3,17 @@ import type { ReactNode } from 'react';
 import { cn } from './cn';
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('rounded-xl border border-slate-200 bg-white', className)}>{children}</div>;
+  return <div className={cn('rounded-2xl border border-slate-200 bg-white shadow-sm', className)}>{children}</div>;
 }
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">{title}</h1>
+        <h1 className="font-display text-3xl font-bold text-slate-900 sm:text-4xl">{title}</h1>
         {description && <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">{description}</p>}
       </div>
-      {actions && <div className="flex gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
   );
 }
@@ -22,11 +22,11 @@ export function Alert({ kind = 'error', children }: { kind?: 'error' | 'success'
   const styles = {
     error: 'border-red-200 bg-red-50 text-red-800',
     success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-    info: 'border-sky-200 bg-sky-50 text-sky-800',
+    info: 'border-slate-200 bg-slate-100 text-slate-800',
   }[kind];
   const Icon = kind === 'success' ? CheckCircle2 : AlertCircle;
   return (
-    <div role={kind === 'error' ? 'alert' : 'status'} className={cn('flex gap-2 rounded-lg border px-3 py-2 text-sm', styles)}>
+    <div role={kind === 'error' ? 'alert' : 'status'} className={cn('flex gap-2 rounded-xl border px-4 py-3 text-sm', styles)}>
       <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
       <div>{children}</div>
     </div>
@@ -62,7 +62,7 @@ export function Table({ head, children }: { head: ReactNode; children: ReactNode
   return (
     <div className="overflow-x-auto rounded-[inherit]">
       <table className="w-full text-left text-sm">
-        <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <thead className="border-b-2 border-dashed border-slate-200 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
           <tr>{head}</tr>
         </thead>
         <tbody className="divide-y divide-slate-100 [&>tr:hover]:bg-brand-50/50">{children}</tbody>
@@ -89,10 +89,10 @@ export function Pager({ page, pageSize, total, onPage }: { page: number; pageSiz
         Página {page} de {pages} · {total} registros
       </span>
       <div className="flex gap-2">
-        <button className="h-8 rounded-lg border border-slate-300 bg-white px-3 font-semibold disabled:text-slate-400" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+        <button className="h-11 min-w-28 rounded-lg border border-slate-300 bg-white px-4 font-semibold disabled:text-slate-400" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           Anterior
         </button>
-        <button className="h-8 rounded-lg border border-slate-300 bg-white px-3 font-semibold disabled:text-slate-400" disabled={page >= pages} onClick={() => onPage(page + 1)}>
+        <button className="h-11 min-w-28 rounded-lg border border-slate-300 bg-white px-4 font-semibold disabled:text-slate-400" disabled={page >= pages} onClick={() => onPage(page + 1)}>
           Siguiente
         </button>
       </div>

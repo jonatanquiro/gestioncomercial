@@ -4,7 +4,7 @@ namespace App\Support;
 
 class Appearance
 {
-    public const DEFAULTS = ['logoData' => null, 'primaryColor' => '#2563eb', 'menuColor' => '#ffffff', 'font' => 'system', 'navigation' => 'side', 'textSize' => 'normal', 'density' => 'normal'];
+    public const DEFAULTS = ['logoData' => null, 'primaryColor' => '#b8432a', 'menuColor' => '#1f3b2d', 'font' => 'archivo', 'navigation' => 'side', 'textSize' => 'normal', 'density' => 'normal'];
 
     public static function validate(array $data): array
     {

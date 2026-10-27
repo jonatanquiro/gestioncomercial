@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { ActionMenu } from '@/components/ui/menu';
 import { Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -103,6 +104,7 @@ export function ProductsPage() {
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active');
   const [dialog, setDialog] = useState<{ mode: 'new' } | { mode: 'edit' | 'history'; product: ProductDto } | null>(null);
+  const [deactivating, setDeactivating] = useState<ProductDto | null>(null);
   const categories = useQuery({ ...categoriesQuery, enabled: allowed });
   const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE), status });
   if (search.trim()) params.set('q', search.trim());
@@ -220,18 +222,17 @@ export function ProductsPage() {
                   <Td>{p.status === 'active' ? <Badge tone="green">Activo</Badge> : <Badge>Inactivo</Badge>}</Td>
                   <Td className="text-right whitespace-nowrap">
                     {can('products.update') && (
-                      <Button size="sm" variant="ghost" onClick={() => setDialog({ mode: 'edit', product: p })}>
+                      <Button size="sm" variant="subtle" onClick={() => setDialog({ mode: 'edit', product: p })}>
                         Editar
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ mode: 'history', product: p })}>
-                      Historial
-                    </Button>
-                    {can('products.deactivate') && (
-                      <Button size="sm" variant="ghost" loading={toggle.isPending && toggle.variables?.id === p.id} onClick={() => toggle.mutate(p)}>
-                        {p.status === 'active' ? 'Desactivar' : 'Reactivar'}
-                      </Button>
-                    )}
+                    <ActionMenu
+                      label={`Más acciones de ${p.name}`}
+                      items={[
+                        { label: 'Historial de precios', onSelect: () => setDialog({ mode: 'history', product: p }) },
+                        { label: p.status === 'active' ? 'Desactivar' : 'Reactivar', danger: p.status === 'active', hidden: !can('products.deactivate'), onSelect: () => (p.status === 'active' ? setDeactivating(p) : toggle.mutate(p)) },
+                      ]}
+                    />
                   </Td>
                 </tr>
               );
@@ -240,6 +241,16 @@ export function ProductsPage() {
         )}
         {products.data && <Pager page={page} pageSize={PAGE_SIZE} total={products.data.total} onPage={setPage} />}
       </Card>
+      <Dialog open={deactivating !== null} onOpenChange={(o) => !o && setDeactivating(null)} title={`Desactivar ${deactivating?.name ?? ''}`} description="Deja de aparecer para vender. Se puede reactivar cuando quieras.">
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setDeactivating(null)}>
+            Volver
+          </Button>
+          <Button variant="danger" loading={toggle.isPending} onClick={() => deactivating && toggle.mutate(deactivating, { onSettled: () => setDeactivating(null) })}>
+            Desactivar
+          </Button>
+        </div>
+      </Dialog>
       <Dialog
         open={dialog !== null}
         onOpenChange={(o) => !o && setDialog(null)}

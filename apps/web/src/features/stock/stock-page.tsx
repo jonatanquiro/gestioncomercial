@@ -1,12 +1,13 @@
 import { type Paginated, type StockOperationResult, type StockRowDto, stockAdjustmentSchema, stockWasteSchema } from '@gc/contracts';
 import { dec, formatArs } from '@gc/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { type FormEvent, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { categoriesQuery, newClientUuid, warehousesQuery, zodFieldErrors } from '@/features/catalog/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { ActionMenu } from '@/components/ui/menu';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -111,7 +112,7 @@ function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowD
           Cancelar
         </Button>
         <Button type="submit" variant={operation === 'waste' ? 'danger' : 'primary'} loading={save.isPending}>
-          {operation === 'adjust' ? 'Ajustar stock' : 'Registrar baja'}
+          {operation === 'adjust' ? 'Ajustar stock' : 'Registrar merma o vencido'}
         </Button>
       </div>
     </form>
@@ -120,6 +121,7 @@ function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowD
 
 export function StockPage() {
   const can = useCan();
+  const navigate = useNavigate();
   const allowed = can('stock.read');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -230,22 +232,17 @@ export function StockPage() {
                 )}
                 <Td className="text-right whitespace-nowrap">
                   {can('stock.adjust') && (
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ row: r, operation: 'adjust' })}>
+                    <Button size="sm" variant="subtle" onClick={() => setDialog({ row: r, operation: 'adjust' })}>
                       Ajustar
                     </Button>
                   )}
-                  {can('stock.waste') && (
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ row: r, operation: 'waste' })}>
-                      Baja
-                    </Button>
-                  )}
-                  <Link
-                    to="/app/stock/movimientos"
-                    search={{ productId: r.productId }}
-                    className="inline-flex h-8 items-center rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    Movimientos
-                  </Link>
+                  <ActionMenu
+                    label={`Más acciones de ${r.name}`}
+                    items={[
+                      { label: 'Merma o vencido', hidden: !can('stock.waste'), onSelect: () => setDialog({ row: r, operation: 'waste' }) },
+                      { label: 'Ver movimientos', onSelect: () => void navigate({ to: '/app/stock/movimientos', search: { productId: r.productId } }) },
+                    ]}
+                  />
                 </Td>
               </tr>
             ))}

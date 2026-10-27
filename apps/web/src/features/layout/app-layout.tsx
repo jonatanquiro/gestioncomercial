@@ -9,7 +9,7 @@ import { errorMessage, http } from '@/lib/api';
 import { TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 import { appearanceStyle, DEFAULT_APPEARANCE } from '@/features/settings/appearance';
-import { SETTINGS_TABS } from '@/features/settings/settings-tabs';
+import { PAYMENTS_TABS, type SectionTab, SETTINGS_TABS } from '@/features/settings/settings-tabs';
 
 interface NavItem {
   to: string;
@@ -17,7 +17,7 @@ interface NavItem {
   icon: ComponentType<{ className?: string }>;
   anyOf?: PermissionCode[];
   /** Entrada que agrupa varias pantallas: abre la primera permitida y queda marcada en todas. */
-  sections?: typeof SETTINGS_TABS;
+  sections?: SectionTab[];
 }
 
 /** Las secciones agrupan solo funciones implementadas y respetan los permisos del usuario. */
@@ -26,8 +26,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/vender', label: 'Vender', icon: ShoppingCart, anyOf: ['sales.create'] },
     { to: '/app/caja', label: 'Caja', icon: Wallet, anyOf: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
     { to: '/app/ventas', label: 'Ventas', icon: Receipt, anyOf: ['sales.read_own', 'sales.read_all'] },
-    { to: '/app/cobros', label: 'Cobros', icon: ArrowRightLeft, anyOf: ['cash.read_all'] },
-    { to: '/app/rendiciones', label: 'Rendición de cobros', icon: ClipboardList, anyOf: ['cash.read_all'] },
+    { to: '/app/cobros', label: 'Cobros', icon: ArrowRightLeft, anyOf: ['cash.read_all'], sections: PAYMENTS_TABS },
   ] },
   { id: 'catalogo', label: 'Catálogo', items: [
     { to: '/app/productos', label: 'Productos', icon: Package, anyOf: ['products.read'] },
@@ -123,31 +122,31 @@ export function AppLayout() {
   return (
     <div className="flex min-h-full flex-col">
       <header ref={header} className="relative z-30">
-        <div className="bg-slate-950 text-white">
+        <div data-tenant-header>
           <div className="mx-auto flex min-h-20 max-w-[1440px] items-center justify-between gap-4 px-4 py-4 sm:px-8 lg:px-12">
             <Link to="/app" onClick={closeMenus} className="flex shrink-0 items-center gap-3" aria-label="Gestión Comercial, inicio">
               <img src={appearance.logoData || `${import.meta.env.BASE_URL}icon.svg`} alt="" className={appearance.logoData ? 'h-10 max-w-24 rounded object-contain' : 'size-9'} />
-              <span className="font-display text-sm font-semibold leading-tight tracking-tight sm:text-base">Gestión<span className="block text-brand-300">Comercial.</span></span>
+              <span className="font-display text-sm font-semibold leading-tight tracking-tight sm:text-base">Gestión<span className="block opacity-70">Comercial.</span></span>
             </Link>
-            <div className="ml-auto flex min-w-0 items-center gap-3 sm:ml-6 sm:mr-auto sm:border-l sm:border-white/15 sm:pl-6">
-              <Store className="hidden size-4 shrink-0 text-brand-300 sm:block" aria-hidden />
+            <div className="ml-auto flex min-w-0 items-center gap-3 sm:ml-6 sm:mr-auto sm:border-l sm:border-current/20 sm:pl-6">
+              <Store className="hidden size-4 shrink-0 opacity-70 sm:block" aria-hidden />
               <div className="min-w-0">
-                <p className="hidden text-[10px] font-medium uppercase tracking-[0.18em] text-slate-400 sm:block">Tu espacio de trabajo</p>
+                <p className="hidden text-[10px] font-medium uppercase tracking-[0.18em] opacity-60 sm:block">Tu comercio</p>
                 {others.length > 0 ? (
-                  <select aria-label="Comercio activo" className="max-w-[35vw] rounded border border-white/20 bg-slate-900 px-2 py-1 text-sm text-white sm:max-w-72" value={me.tenant?.id ?? ''} onChange={(e) => void switchTenant(e.target.value)}>
+                  <select aria-label="Comercio activo" className="max-w-[35vw] rounded border border-current/30 bg-transparent px-2 py-1 font-display text-base font-semibold sm:max-w-72 [&>option]:text-slate-900" value={me.tenant?.id ?? ''} onChange={(e) => void switchTenant(e.target.value)}>
                     {me.tenant && <option value={me.tenant.id}>{me.tenant.tradeName}</option>}
                     {others.map((m) => <option key={m.tenantId} value={m.tenantId}>{m.tenantName}</option>)}
                   </select>
-                ) : <p className="max-w-[32vw] truncate text-sm font-medium sm:max-w-80">{me.tenant?.tradeName}</p>}
+                ) : <p className="max-w-[32vw] truncate font-display text-base font-semibold sm:max-w-80 sm:text-lg">{me.tenant?.tradeName}</p>}
               </div>
               {me.tenant && me.tenant.status !== 'active' && <span className="hidden sm:block"><Badge tone={me.tenant.status === 'trial' ? 'brand' : 'red'}>{TENANT_STATUS_LABELS[me.tenant.status] ?? me.tenant.status}</Badge></span>}
             </div>
-            <Link to="/app/cuenta" onClick={closeMenus} className="hidden items-center gap-3 rounded-lg px-2 py-1 hover:bg-white/5 sm:flex">
-              <div className="text-right"><p className="text-sm font-medium">{me.user.name}</p><p className="text-xs text-slate-400">{me.role?.name}</p></div>
-              <span className="flex size-9 items-center justify-center rounded-full border border-white/20 bg-white/5 text-sm text-brand-200" aria-hidden>{me.user.name.slice(0, 1).toUpperCase()}</span>
+            <Link to="/app/cuenta" onClick={closeMenus} className="hidden items-center gap-3 rounded-lg px-2 py-1 hover:bg-current/10 sm:flex">
+              <div className="text-right"><p className="text-sm font-medium">{me.user.name}</p><p className="text-xs opacity-60">{me.role?.name}</p></div>
+              <span className="flex size-9 items-center justify-center rounded-full border border-current/30 bg-current/10 text-sm font-semibold" aria-hidden>{me.user.name.slice(0, 1).toUpperCase()}</span>
             </Link>
-            <button onClick={() => void logout()} className="hidden rounded-lg p-2.5 text-slate-400 hover:bg-white/5 hover:text-white sm:block" aria-label="Salir"><LogOut className="size-4" /></button>
-            <button className="shrink-0 rounded-lg border border-white/20 p-2 lg:hidden" onClick={() => setOpen(!open)} aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={open} aria-controls="mobile-navigation">
+            <button onClick={() => void logout()} className="hidden rounded-lg p-2.5 opacity-70 hover:bg-current/10 hover:opacity-100 sm:block" aria-label="Salir"><LogOut className="size-4" /></button>
+            <button className="shrink-0 rounded-lg border border-current/30 p-2.5 lg:hidden" onClick={() => setOpen(!open)} aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={open} aria-controls="mobile-navigation">
               {open ? <X className="size-5" /> : <Menu className="size-5" />}
             </button>
           </div>
@@ -182,13 +181,12 @@ export function AppLayout() {
         )}
       </header>
       <div className="flex min-w-0 flex-1">
-        {appearance.navigation === 'side' && <aside data-tenant-menu className="sticky top-0 hidden max-h-[calc(100dvh-5rem)] w-60 shrink-0 self-start overflow-y-auto border-r border-slate-200 px-3 pb-6 pt-4 lg:block" aria-label="Navegación principal">
+        {appearance.navigation === 'side' && <div data-tenant-menu className="hidden w-60 shrink-0 lg:block"><aside className="sticky top-0 max-h-dvh overflow-y-auto px-3 pb-6 pt-4" aria-label="Navegación principal">
           <Link to="/app" activeOptions={{ exact: true }} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><Home className="size-4" />Inicio</Link>
           {groups.map(group => <div key={group.id} className="mt-5"><p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest">{group.label}</p>{group.items.map(item => <Link key={item.to} to={item.to} className={`side-nav-link ${inSections(item) ? 'side-nav-active' : ''}`} activeProps={{ className: 'side-nav-active' }}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}</div>)}
-        </aside>}
+        </aside></div>}
         <main className={`mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 ${appearance.navigation === 'top' ? 'lg:px-12' : 'lg:px-8'} lg:py-10`}><Outlet /></main>
       </div>
-      <footer className="mx-auto flex w-full max-w-[1440px] flex-wrap justify-between gap-2 px-4 pb-5 pt-8 text-[11px] text-slate-500 sm:px-8 lg:px-12"><span>Gestión Comercial · Hecho para tu negocio</span><span>{me.tenant?.tradeName}</span></footer>
     </div>
   );
 }

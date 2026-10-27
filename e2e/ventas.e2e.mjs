@@ -130,7 +130,8 @@ try {
   await page.getByRole('link', { name: 'Ventas', exact: true }).click();
   await page.getByRole('link', { name: '1', exact: true }).click();
   await page.getByRole('heading', { name: 'Venta N° 1' }).waitFor();
-  await page.getByRole('button', { name: 'Anular' }).click();
+  await page.getByRole('button', { name: 'Más acciones de la venta' }).click();
+  await page.getByRole('menuitem', { name: 'Anular venta' }).click();
   await dialog().getByLabel('Motivo').fill('Cobrada dos veces');
   await dialog().getByRole('button', { name: 'Anular venta' }).click();
   await page.getByText(/Motivo: Cobrada dos veces/).waitFor();
@@ -171,6 +172,18 @@ try {
   await dialog().getByLabel('N° de operación 1').fill('778899');
   await dialog().getByRole('button', { name: 'Confirmar venta' }).click();
   await page.getByText('Venta N° 4 cobrada').waitFor();
+
+  step('Cantidad por código: 3* y escanear carga tres de una vez');
+  await scanner.fill('3*');
+  await scanner.press('Enter');
+  await page.getByText('× 3', { exact: true }).waitFor();
+  await scanner.fill(gaseosa);
+  await scanner.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Gaseosa 500 ml"]')?.textContent === '3');
+  await scanner.fill(`2*${gaseosa}`);
+  await scanner.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Gaseosa 500 ml"]')?.textContent === '5');
+  await page.getByRole('button', { name: 'Cancelar la venta' }).click();
 
   step('Caja: retiro y cierre ciego con diferencia');
   if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();

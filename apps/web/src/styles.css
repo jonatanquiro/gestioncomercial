@@ -1,41 +1,53 @@
 @import "tailwindcss";
 
-/* Paleta compartida por comercios, plataforma y acceso. */
+/*
+ * Estilo «Almacén de barrio»: papel crema, tinta cálida, menú verde almacén y acento tomate.
+ * Los neutros reemplazan la escala slate para que todo el sistema tome el mismo tono; cada
+ * comercio puede cambiar el color principal y el del menú desde Apariencia.
+ */
 @theme {
-  --color-slate-50: #f5f7fa;
-  --color-slate-100: #eef2f8;
-  --color-slate-200: #dfe6f0;
-  --color-slate-300: #c8d2e1;
-  --color-slate-400: #8b9bb3;
-  --color-slate-500: #61728b;
-  --color-slate-600: #4a5a73;
-  --color-slate-700: #35445d;
-  --color-slate-800: #22314a;
-  --color-slate-900: #14213a;
-  --color-slate-950: #0b1426;
+  --color-white: #fffdf8;
+  --color-slate-50: #f7f3ea;
+  --color-slate-100: #efe8da;
+  --color-slate-200: #e4dac6;
+  --color-slate-300: #cdbfa5;
+  --color-slate-400: #a09379;
+  --color-slate-500: #776c58;
+  --color-slate-600: #5d5444;
+  --color-slate-700: #463f33;
+  --color-slate-800: #302b23;
+  --color-slate-900: #201d17;
+  --color-slate-950: #14120e;
 
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-200: #bfdbfe;
-  --color-brand-300: #93c5fd;
-  --color-brand-400: #60a5fa;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-brand-800: #1e40af;
-  --color-brand-900: #1e3a8a;
+  --color-brand-50: #fbf0ec;
+  --color-brand-100: #f6ddd5;
+  --color-brand-200: #ecbcae;
+  --color-brand-300: #df9480;
+  --color-brand-400: #cf6c52;
+  --color-brand-500: #c1553a;
+  --color-brand-600: #b8432a;
+  --color-brand-700: #9c3923;
+  --color-brand-800: #812f1d;
+  --color-brand-900: #652517;
 
-  --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-  --font-display: "Archivo Variable", "Segoe UI", sans-serif;
+  --color-almacen-700: #1f3b2d;
+  --color-almacen-800: #172d22;
 
-  --radius-lg: 0.625rem;
-  --radius-xl: 0.875rem;
-  --radius-2xl: 1.25rem;
+  --font-sans: "Archivo Variable", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Archivo Variable", "Segoe UI", sans-serif;
+
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.375rem;
+
+  --shadow-xs: 0 1px 0 rgb(32 29 23 / 0.06);
+  --shadow-sm: 0 1px 2px rgb(32 29 23 / 0.08), 0 1px 0 rgb(32 29 23 / 0.04);
 }
 
 html, body, #root { height: 100%; }
 html { font-size: 16px; }
 body { @apply bg-slate-50 text-slate-900 antialiased; font-feature-settings: "tnum" 1; }
+h1, h2, h3, .font-display { letter-spacing: -0.02em; }
 
 button:not(:disabled), select:not(:disabled), input[type="checkbox"]:not(:disabled) { cursor: pointer; }
 input[type="checkbox"] { accent-color: var(--color-brand-600); }
@@ -54,7 +66,12 @@ input[type="checkbox"] { accent-color: var(--color-brand-600); }
 [data-tenant-menu] .top-nav-active { border-color: var(--menu-foreground); }
 [data-tenant-menu] :focus-visible { outline-color: var(--menu-foreground); }
 .side-nav-link { @apply mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors; }
-.side-nav-active { background: color-mix(in srgb, var(--menu-foreground) 10%, transparent); font-weight: 600; }
+.side-nav-active { background: color-mix(in srgb, var(--menu-foreground) 12%, transparent); font-weight: 600; box-shadow: inset 3px 0 0 var(--color-brand-400); }
+[data-tenant-header] { background: var(--menu-background, #1f3b2d); color: var(--menu-foreground, #fffdf8); }
+
+/* Tarjeta tipo ticket: borde punteado como el corte del papel. */
+.ticket { @apply relative rounded-2xl border border-slate-200 bg-white shadow-sm; }
+.ticket-cut { border-top: 2px dashed var(--color-slate-200); }
 html[data-density="compact"] td, html[data-density="compact"] th { padding-top: .5rem; padding-bottom: .5rem; }
 
 /* Ticket de 80 mm: al imprimir se ve solo el ticket. */

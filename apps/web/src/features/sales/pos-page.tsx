@@ -253,9 +253,12 @@ function Counter({ register }: { register: RegisterDto }) {
   const existing = editing && editing.index === null ? cart.lines.find((l) => l.product.variantId === editing.product.variantId) : undefined;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_26rem]">
+    <div className={`grid gap-6 lg:grid-cols-[1fr_26rem] ${cart.lines.length > 0 ? 'pb-28 lg:pb-0' : ''}`}>
       <div className="space-y-4">
-        <ProductPicker inputRef={scanner} autoFocus onlyStock={false} onPick={add} label="Escaneá o buscá un artículo" inputClassName="h-14 text-lg" />
+        <div>
+          <ProductPicker inputRef={scanner} autoFocus multiplier onlyStock={false} onPick={add} label="Escaneá o buscá un artículo" inputClassName="h-14 text-lg" />
+          <p className="mt-1.5 text-xs text-slate-500">Para cargar varios: escribí <kbd className="rounded border border-slate-300 bg-white px-1 font-sans">12*</kbd> y escaneá.</p>
+        </div>
         {notice && <Alert kind="info">{notice}</Alert>}
         {favorites.data && favorites.data.length > 0 ? (
           <section aria-label="Más vendidos">
@@ -380,6 +383,17 @@ function Counter({ register }: { register: RegisterDto }) {
           )}
         </div>
       </Card>
+      {cart.lines.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-20 flex items-center gap-4 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-4px_16px_rgb(32_29_23/0.08)] backdrop-blur lg:hidden">
+          <div className="min-w-0">
+            <p className="text-xs text-slate-500">{cart.lines.length === 1 ? '1 artículo' : `${cart.lines.length} artículos`}</p>
+            <p className="font-display text-2xl font-bold tabular-nums">{formatArs(total)}</p>
+          </div>
+          <Button className="h-14 flex-1 text-lg" disabled={!allValid} onClick={() => setCheckout(true)}>
+            Cobrar
+          </Button>
+        </div>
+      )}
       {editing && (
         <LineDialog
           key={`${editing.product.variantId}-${editing.index}`}

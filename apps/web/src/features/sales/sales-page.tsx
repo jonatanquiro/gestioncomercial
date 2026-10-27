@@ -8,6 +8,7 @@ import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { ActionMenu } from '@/components/ui/menu';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -71,7 +72,7 @@ export function SalesPage() {
             {sales.data.items.map((s) => (
               <tr key={s.id}>
                 <Td>
-                  <Link to="/app/ventas/$id" params={{ id: s.id }} className="font-semibold text-brand-700 hover:underline">
+                  <Link to="/app/ventas/$id" params={{ id: s.id }} className="-my-2 inline-flex min-h-10 min-w-10 items-center font-semibold text-brand-700 hover:underline">
                     {s.number}
                   </Link>
                 </Td>
@@ -133,11 +134,7 @@ export function SaleDetailPage() {
                 Devolución
               </Button>
             )}
-            {s.status === 'confirmed' && s.returns.length === 0 && can('sales.create', 'sales.void') && (
-              <Button variant="danger" onClick={() => setVoiding(true)}>
-                Anular
-              </Button>
-            )}
+            <ActionMenu label="Más acciones de la venta" text="Más" items={[{ label: 'Anular venta', danger: true, hidden: !(s.status === 'confirmed' && s.returns.length === 0 && can('sales.create', 'sales.void')), onSelect: () => setVoiding(true) }]} />
           </>
         }
       />

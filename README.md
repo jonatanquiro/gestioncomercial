@@ -3,6 +3,7 @@
 SaaS multiempresa de gestión comercial para comercios minoristas de Argentina: punto de venta, inventario, caja, compras, cuentas corrientes y factura electrónica ARCA, con venta sin conexión (PWA).
 
 El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendición de cobros, apariencia por comercio y primera integración ARCA para bienes en pesos, en PHP + MySQL.** Incluye:
+- inicio con el resumen del día: lo vendido, el efectivo en caja, los cobros sin rendir y el stock bajo, según los permisos de cada usuario;
 - registro de comercios, sesiones y recuperación de contraseña;
 - sucursales, empleados, roles y permisos;
 - auditoría y aislamiento entre comercios;
@@ -10,14 +11,14 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - productos y servicios con varios códigos de barras y códigos de pack, categorías iniciales según el rubro, marcas e historial de precios y costos;
 - stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
 - cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo;
-- punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados y ticket interno de 80 mm;
+- punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados, nombre y teléfono opcionales de quien transfiere o paga con QR, «cantidad * código» (por ejemplo `12*` y escanear), barra fija para cobrar en el celular y ticket interno de 80 mm;
 - caja por turnos: apertura con fondo, retiros e ingresos, arqueos, cierre ciego con diferencia y totales por medio de pago;
 - historial de ventas con anulación en el turno y devoluciones parciales, con movimientos inversos de stock y caja.
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
-- logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior por comercio;
+- estilo propio «Almacén de barrio» (papel crema, menú verde almacén y acento tomate) con logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior configurables por comercio;
 - cambio individual de plan desde la plataforma, con control de límites y conservación de fechas;
-- configuración de certificados ARCA por comercio y ambiente, CSR, autenticación WSAA y solicitud/consulta de CAE para facturas A/B/C de bienes en ARS sin otros tributos (ver alcance fiscal más abajo).
+- configuración de certificados ARCA por comercio y ambiente, CSR, autenticación WSAA y solicitud/consulta de CAE para facturas A/B/C de bienes en ARS sin otros tributos, que se emiten desde la venta o al terminar de cobrar; el permiso «Emitir facturas electrónicas» deja facturar sin administrar certificados (ver alcance fiscal más abajo).
 
 Si ya tenías instalada una versión anterior, después de actualizar el código corré `php artisan migrate` (o `iniciar.bat`): crea las tablas nuevas, les carga a los comercios existentes las categorías de su rubro y les crea "Caja 1" en cada sucursal y los medios de pago habituales.
 

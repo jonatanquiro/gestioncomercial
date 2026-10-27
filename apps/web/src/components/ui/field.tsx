@@ -38,7 +38,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return (
     <input
       ref={ref}
-      className={cn(control, 'h-10', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
+      className={cn(control, 'h-11', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
       {...props}
     />
   );
@@ -48,7 +48,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   return (
     <select
       ref={ref}
-      className={cn(control, 'h-10 pr-8', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
+      className={cn(control, 'h-11 pr-8', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
       {...props}
     />
   );

@@ -1,30 +1,65 @@
 import type { PermissionCode, TenantDto } from '@gc/contracts';
+import { formatArs } from '@gc/domain';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowDownRight, ArrowUpRight, Boxes, Package, ShoppingCart, Wallet } from 'lucide-react';
-import { Alert, Badge, Card, Spinner } from '@/components/ui/misc';
+import { ArrowRight, ArrowUpRight, Boxes, Package, Receipt, ShoppingCart, Wallet } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Alert, Card } from '@/components/ui/misc';
 import { errorMessage, http } from '@/lib/api';
-import { formatCuit, TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 
+type Today = {
+  date: string;
+  sales?: { scope: 'all' | 'own'; count: number; total: string; cash: string; electronic: string };
+  cash?: { openShifts: number; expected: string };
+  payments?: { unsettledCount: number; unsettledAmount: string; missingReference: number };
+  stock?: { lowCount: number; lowNames: string[] };
+};
+
 const SHORTCUTS = [
-  { to: '/app/vender', title: 'Nueva venta', description: 'Al mostrador, sin vueltas.', icon: ShoppingCart, permissions: ['sales.create'] },
-  { to: '/app/caja', title: 'Mi caja', description: 'Turnos, movimientos y cierre.', icon: Wallet, permissions: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
-  { to: '/app/productos', title: 'Productos', description: 'Tu catálogo, precios y códigos.', icon: Package, permissions: ['products.read'] },
-  { to: '/app/stock', title: 'Inventario', description: 'Existencias y movimientos.', icon: Boxes, permissions: ['stock.read'] },
-] satisfies { to: string; title: string; description: string; icon: typeof Boxes; permissions: PermissionCode[] }[];
+  { to: '/app/caja', title: 'Caja', icon: Wallet, permissions: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
+  { to: '/app/ventas', title: 'Ventas', icon: Receipt, permissions: ['sales.read_own', 'sales.read_all'] },
+  { to: '/app/productos', title: 'Productos', icon: Package, permissions: ['products.read'] },
+  { to: '/app/stock', title: 'Stock', icon: Boxes, permissions: ['stock.read'] },
+] satisfies { to: string; title: string; icon: typeof Boxes; permissions: PermissionCode[] }[];
+
+/** Tarjeta tipo ticket: título, número grande y detalle debajo del corte. */
+function TicketStat({ label, value, detail, to, tone }: { label: string; value: ReactNode; detail: ReactNode; to?: string; tone?: 'alert' }) {
+  const body = (
+    <>
+      <div className="p-5 pb-4">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">{label}</p>
+        <p className={`mt-2 font-display text-3xl font-bold tabular-nums ${tone === 'alert' ? 'text-brand-700' : 'text-slate-900'}`}>{value}</p>
+      </div>
+      <div className="ticket-cut flex items-center justify-between gap-2 px-5 py-3 text-xs text-slate-600">
+        <span className="min-w-0">{detail}</span>
+        {to && <ArrowRight className="size-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" aria-hidden />}
+      </div>
+    </>
+  );
+  return to ? (
+    <Link to={to} className="ticket group block transition-colors hover:border-brand-300">
+      {body}
+    </Link>
+  ) : (
+    <div className="ticket">{body}</div>
+  );
+}
 
 function Usage({ label, used, limit }: { label: string; used: number; limit?: number }) {
   const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm text-slate-500">{label}</span>
-        <span><span className="font-display text-xl font-semibold">{used}</span>{limit !== undefined && <span className="text-xs text-slate-500"> / {limit}</span>}</span>
+      <div className="flex items-baseline justify-between gap-3 text-sm">
+        <span className="text-slate-600">{label}</span>
+        <span className="font-semibold">
+          {used}
+          {limit !== undefined && <span className="font-normal text-slate-500"> de {limit}</span>}
+        </span>
       </div>
       {limit !== undefined && (
-        <div className="mt-3 h-1 rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuenow={used} aria-valuemax={Math.max(used, limit)} aria-label={label}>
-          <div className={`h-1 rounded-full ${pct >= 100 ? 'bg-orange-600' : 'bg-brand-500'}`} style={{ width: `${pct}%` }} />
+        <div className="mt-2 h-1.5 rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuenow={used} aria-valuemax={Math.max(used, limit)} aria-label={label}>
+          <div className={`h-1.5 rounded-full ${pct >= 100 ? 'bg-brand-600' : 'bg-almacen-700'}`} style={{ width: `${pct}%` }} />
         </div>
       )}
     </div>
@@ -35,49 +70,99 @@ export function HomePage() {
   const me = useMe();
   const can = useCan();
   const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => http.get<TenantDto>('/tenant') });
+  const canSeeToday = can('sales.read_own', 'sales.read_all', 'cash.read_all', 'stock.read');
+  const today = useQuery({ queryKey: ['dashboard', 'today'], queryFn: () => http.get<Today>('/dashboard/today'), enabled: canSeeToday, refetchInterval: 60_000 });
   const shortcuts = SHORTCUTS.filter((item) => can(...item.permissions));
   const date = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Buenos_Aires' }).format(new Date());
+  const t = today.data;
 
   return (
     <>
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-5">
-        <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500"><span className="size-1.5 rounded-full bg-brand-600" aria-hidden />Panel de tu comercio</p>
-        <p className="text-xs text-slate-500 first-letter:uppercase">{date}</p>
-      </div>
-      <section className="mb-10 grid items-end gap-7 lg:grid-cols-[1.3fr_1fr]">
+      <section className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-3 text-sm text-slate-500">Hola, {me.user.name.split(' ')[0]}.</p>
-          <h1 className="font-display text-4xl leading-[1.1] font-semibold tracking-[-0.045em] text-slate-900 sm:text-5xl lg:text-[3.5rem]">Todo listo para<br /><span className="text-brand-600">un buen día.</span></h1>
+          <p className="text-sm text-slate-500 first-letter:uppercase">{date}</p>
+          <h1 className="mt-1 font-display text-4xl font-bold text-slate-900 sm:text-5xl">Hola, {me.user.name.split(' ')[0]}.</h1>
         </div>
-        <p className="max-w-sm text-sm leading-relaxed text-slate-500 lg:mb-1 lg:ml-auto">Tu mostrador, tu caja y tus productos.<br />Elegí por dónde querés empezar.</p>
+        {can('sales.create') && (
+          <Link to="/app/vender" className="group inline-flex h-16 items-center gap-3 rounded-2xl bg-brand-600 px-7 font-display text-xl font-bold text-white shadow-sm transition-colors hover:bg-brand-700">
+            <ShoppingCart className="size-6" aria-hidden />
+            Nueva venta
+            <ArrowUpRight className="size-5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden />
+          </Link>
+        )}
       </section>
+
+      {today.error && (
+        <div className="mb-6">
+          <Alert>{errorMessage(today.error)}</Alert>
+        </div>
+      )}
+      {t && (
+        <section aria-label="Resumen de hoy" className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {t.sales && (
+            <TicketStat
+              label={t.sales.scope === 'all' ? 'Vendido hoy' : 'Vendiste hoy'}
+              value={formatArs(t.sales.total)}
+              to="/app/ventas"
+              detail={
+                <>
+                  {t.sales.count === 1 ? '1 venta' : `${t.sales.count} ventas`} · efectivo {formatArs(t.sales.cash)} · otros {formatArs(t.sales.electronic)}
+                </>
+              }
+            />
+          )}
+          {t.cash && <TicketStat label="Efectivo en caja" value={formatArs(t.cash.expected)} to="/app/caja" detail={t.cash.openShifts === 0 ? 'No hay cajas abiertas' : t.cash.openShifts === 1 ? '1 caja abierta · según el sistema' : `${t.cash.openShifts} cajas abiertas · según el sistema`} />}
+          {t.payments && (
+            <TicketStat
+              label="Cobros sin rendir"
+              value={t.payments.unsettledCount}
+              tone={t.payments.missingReference > 0 ? 'alert' : undefined}
+              to="/app/cobros"
+              detail={
+                <>
+                  {formatArs(t.payments.unsettledAmount)} en transferencias, QR y tarjetas
+                  {t.payments.missingReference > 0 && <span className="font-semibold text-brand-700"> · {t.payments.missingReference} sin N° de operación</span>}
+                </>
+              }
+            />
+          )}
+          {t.stock && (
+            <TicketStat
+              label="Stock bajo el mínimo"
+              value={t.stock.lowCount}
+              tone={t.stock.lowCount > 0 ? 'alert' : undefined}
+              to="/app/stock"
+              detail={t.stock.lowCount === 0 ? 'Todo en orden' : `${t.stock.lowNames.join(', ')}${t.stock.lowCount > t.stock.lowNames.length ? ` y ${t.stock.lowCount - t.stock.lowNames.length} más` : ''}`}
+            />
+          )}
+        </section>
+      )}
+
       {shortcuts.length > 0 && (
-        <section aria-label="Accesos rápidos" className="mb-10 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {shortcuts.map((item, index) => (
-            <Link key={item.to} to={item.to} className={`group relative flex min-h-40 flex-col justify-between overflow-hidden rounded-xl border p-4 transition-colors sm:min-h-48 sm:p-6 ${item.to === '/app/vender' ? 'border-slate-950 bg-slate-950 text-white hover:bg-slate-900' : 'border-slate-200 bg-white hover:border-brand-300'}`}>
-              <div className="flex items-start justify-between"><item.icon className={`size-6 ${item.to === '/app/vender' ? 'text-brand-300' : 'text-slate-600'}`} aria-hidden /><span className="font-display text-[11px] text-slate-400">0{index + 1}</span></div>
-              <div className="mt-7"><h2 className="flex items-center justify-between gap-2 font-display text-base font-semibold tracking-tight sm:text-lg">{item.title}<ArrowUpRight className="size-4 shrink-0 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" aria-hidden /></h2><p className={`mt-1 text-xs ${item.to === '/app/vender' ? 'text-slate-300' : 'text-slate-500'}`}>{item.description}</p></div>
+        <section aria-label="Accesos rápidos" className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {shortcuts.map((item) => (
+            <Link key={item.to} to={item.to} className="group flex h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 font-semibold shadow-xs transition-colors hover:border-brand-300">
+              <span className="flex size-9 items-center justify-center rounded-xl bg-almacen-700 text-white">
+                <item.icon className="size-5" aria-hidden />
+              </span>
+              {item.title}
+              <ArrowRight className="ml-auto size-4 text-slate-400 transition-transform group-hover:translate-x-0.5" aria-hidden />
             </Link>
           ))}
         </section>
       )}
-      {tenant.isLoading && <Spinner />}
-      {tenant.error && <Alert>{errorMessage(tenant.error)}</Alert>}
-      {tenant.data && (
-        <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
-          <Card className="p-6 sm:p-7">
-            <div className="mb-6 flex items-center justify-between"><h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500">Tu comercio</h2><ArrowDownRight className="size-4 text-slate-400" aria-hidden /></div>
-            <h3 className="font-display text-2xl font-semibold tracking-tight">{tenant.data.tradeName}</h3>
-            <div className="mt-3"><Badge tone={tenant.data.status === 'active' ? 'green' : tenant.data.status === 'trial' ? 'brand' : 'slate'}>{TENANT_STATUS_LABELS[tenant.data.status] ?? tenant.data.status}</Badge></div>
-            <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-slate-100 pt-5 text-sm"><div><dt className="text-xs text-slate-500">CUIT</dt><dd className="mt-1 font-medium">{formatCuit(tenant.data.cuit) || 'Sin cargar'}</dd></div><div><dt className="text-xs text-slate-500">Tu rol</dt><dd className="mt-1 font-medium">{me.role?.name}</dd></div></dl>
-            {can('settings.manage') && <Link to="/app/configuracion" className="mt-6 inline-flex items-center gap-2 text-xs font-semibold text-brand-700 hover:underline">Administrar comercio<ArrowUpRight className="size-3.5" aria-hidden /></Link>}
-          </Card>
-          <Card className="p-6 sm:p-7">
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500">Tu plan</h2><span className="text-sm font-semibold text-slate-900">{tenant.data.plan?.name ?? 'Sin plan'}</span></div>
-            <div className="space-y-6"><Usage label="Sucursales activas" used={tenant.data.usage.branches} limit={tenant.data.plan?.limits.max_branches} /><Usage label="Usuarios activos" used={tenant.data.usage.users} limit={tenant.data.plan?.limits.max_users} /></div>
-            <p className="mt-7 border-t border-slate-100 pt-4 text-xs leading-relaxed text-slate-500">¿Necesitás más capacidad? Consultá con la administración de la plataforma.</p>
-          </Card>
-        </div>
+
+      {tenant.data?.plan && (
+        <Card className="max-w-xl p-6">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Tu plan</h2>
+            <span className="text-sm font-semibold">{tenant.data.plan.name}</span>
+          </div>
+          <div className="space-y-4">
+            <Usage label="Sucursales activas" used={tenant.data.usage.branches} limit={tenant.data.plan.limits.max_branches} />
+            <Usage label="Usuarios activos" used={tenant.data.usage.users} limit={tenant.data.plan.limits.max_users} />
+          </div>
+        </Card>
       )}
     </>
   );

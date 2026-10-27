@@ -12,6 +12,7 @@ import { paymentMethodsQuery } from '@/features/sales/queries';
 import { errorMessage, http } from '@/lib/api';
 import { formatDateTime, parseDecimalInput, toInputDecimal } from '@/lib/format';
 import { useCan } from '@/lib/session';
+import { PAYMENTS_TABS, SectionTabs } from '@/features/settings/settings-tabs';
 
 type Summary = { id: string; provider: string; methodName: string; fromDate: string; toDate: string; status: 'open' | 'closed' };
 type Item = { id: string; saleId: string | null; saleNumber: number | null; reference: string | null; externalId: string | null; expected: string | null; gross: string | null; fees: string | null; net: string | null; creditedOn: string | null; status: 'pending' | 'confirmed' | 'observed'; notes: string | null; reviewedBy: string | null; cashierName: string; registerName: string; saleChanged: boolean };
@@ -37,7 +38,8 @@ export function SettlementsPage() {
   if (!allowed) return <Forbidden />;
   if (selected) return <SettlementDetail id={selected} onBack={() => { setSelected(null); if (search.id) void navigate({ to: '/app/rendiciones', search: {} }); }} />;
   return <>
-    <PageHeader title="Rendición de cobros" description="Compará lo registrado en ventas con los movimientos de Mercado Pago, Ualá, bancos o terminales." actions={<Button onClick={() => setCreating(true)}>Nueva rendición</Button>} />
+    <PageHeader title="Rendiciones" description="Compará lo registrado en ventas con los movimientos de Mercado Pago, Ualá, bancos o terminales." actions={<Button onClick={() => setCreating(true)}>Nueva rendición</Button>} />
+    <SectionTabs tabs={PAYMENTS_TABS} label="Secciones de cobros" />
     <div className="mb-5"><Alert kind="info">Creá un medio de pago distinto para cada cuenta o terminal (por ejemplo, «MP · QR» y «Ualá · Débito») en Administración → Cajas y medios de pago. La rendición controla cobros; no modifica ventas ni el saldo del cajón.</Alert></div>
     <Card>{list.isLoading && <Spinner />}{list.error && <Alert>{errorMessage(list.error)}</Alert>}{list.data?.length === 0 && <EmptyState>Todavía no hay rendiciones.</EmptyState>}
       {!!list.data?.length && <Table head={<><Th>Proveedor / cuenta</Th><Th>Período de ventas</Th><Th>Estado</Th><Th /></>}>{list.data.map(s => <tr key={s.id}><Td><p className="font-semibold">{s.provider}</p><p className="text-xs text-slate-500">{s.methodName}</p></Td><Td>{s.fromDate} → {s.toDate}</Td><Td><Badge tone={s.status === 'closed' ? 'green' : 'amber'}>{s.status === 'closed' ? 'Cerrada' : 'Abierta'}</Badge></Td><Td><Button size="sm" variant="secondary" onClick={() => setSelected(s.id)}>Ver rendición</Button></Td></tr>)}</Table>}

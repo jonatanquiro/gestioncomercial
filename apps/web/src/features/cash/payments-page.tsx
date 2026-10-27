@@ -13,6 +13,7 @@ import { paymentMethodsQuery, registersQuery } from '@/features/sales/queries';
 import { errorMessage, http } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
 import { useCan } from '@/lib/session';
+import { PAYMENTS_TABS, SectionTabs } from '@/features/settings/settings-tabs';
 
 type ItemStatus = 'pending' | 'confirmed' | 'observed';
 type Payment = { id: string; saleId: string; saleNumber: number; confirmedAt: string; registerName: string; cashierName: string; paymentMethodId: string; methodName: string; kind: PaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null; saleChanged: boolean; duplicateReference: boolean; settlement: { id: string; provider: string; status: 'open' | 'closed'; itemStatus: ItemStatus } | null };
@@ -44,6 +45,7 @@ export function PaymentsPage() {
   if (!allowed) return <Forbidden />;
   return <>
     <PageHeader title="Cobros" description="Transferencias, QR y tarjetas registrados en las ventas, con su estado de rendición." actions={<Button disabled={!selectedMethod || !from || !to} title={selectedMethod ? undefined : 'Elegí un medio de pago y las fechas'} onClick={() => setCreating(true)}>Crear rendición</Button>} />
+    <SectionTabs tabs={PAYMENTS_TABS} label="Secciones de cobros" />
     <Card>
       <div className="grid gap-3 border-b border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Ventas desde">{(p) => <Input {...p} type="date" value={from} onChange={(e) => filter(setFrom)(e.target.value)} />}</Field>
@@ -61,7 +63,7 @@ export function PaymentsPage() {
       {list.data?.items.length === 0 && <EmptyState>No hay cobros con estos filtros.</EmptyState>}
       {!!list.data?.items.length && <Table head={<><Th>Venta</Th><Th>Medio de pago</Th><Th>N° de operación</Th><Th className="text-right">Importe</Th><Th>Rendición</Th></>}>
         {list.data.items.map((p) => <tr key={p.id}>
-          <Td><Link to="/app/ventas/$id" params={{ id: p.saleId }} className="font-semibold text-brand-700 hover:underline">Venta {p.saleNumber}</Link><p className="text-xs text-slate-500">{formatDateTime(p.confirmedAt)}</p><p className="text-xs text-slate-500">{p.cashierName} · {p.registerName}</p></Td>
+          <Td><Link to="/app/ventas/$id" params={{ id: p.saleId }} className="-my-2 inline-flex min-h-10 items-center font-semibold text-brand-700 hover:underline">Venta {p.saleNumber}</Link><p className="text-xs text-slate-500">{formatDateTime(p.confirmedAt)}</p><p className="text-xs text-slate-500">{p.cashierName} · {p.registerName}</p></Td>
           <Td>{p.methodName}<p className="text-xs text-slate-500">{PAYMENT_KIND_LABELS[p.kind]}</p></Td>
           <Td>{p.reference ?? <Badge tone="amber">Sin N° de operación</Badge>}{(p.payerName || p.payerPhone) && <p className="mt-1 text-xs text-slate-600">{[p.payerName, p.payerPhone].filter(Boolean).join(' · ')}</p>}{p.duplicateReference && <p className="mt-1 text-xs font-semibold text-red-700">Repetido en otro cobro</p>}{p.saleChanged && <p className="mt-1 text-xs font-semibold text-red-700">Venta anulada o con devolución</p>}</Td>
           <Td className="text-right font-semibold">{formatArs(p.amount)}</Td>

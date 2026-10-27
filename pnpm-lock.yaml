@@ -20,6 +20,9 @@ importers:
       '@fontsource-variable/archivo':
         specifier: 5.2.5
         version: 5.2.5
+      '@fontsource-variable/bricolage-grotesque':
+        specifier: 5.2.8
+        version: 5.2.8
       '@gc/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -325,6 +328,9 @@ packages:
 
   '@fontsource-variable/archivo@5.2.5':
     resolution: {integrity: sha512-4zmMu6xCPNNMrIiUxYyXNuUp8Ay2pkUUcsz611vMCQGkIA933KOWhRtexEGn4slAwlL+vC1V68xDU+FGxucF1A==}
+
+  '@fontsource-variable/bricolage-grotesque@5.2.8':
+    resolution: {integrity: sha512-sfPWF+R0z2EV7xFrrtcQC/cDcTLPM0ifBnR9EEUDFrB2bUQiGdcikgxONOf8rdRaOpk7BKduNI1/OoxdJzGZFA==}
 
   '@hookform/resolvers@6.0.0':
     resolution: {integrity: sha512-6iBzQnB+YwAveVc8HUi6QYLITn5X+xNKRMFIcNXHZlvp2aTI7yWbj4n/JodXxirMCcBc4VCjb2aYAJh4x07mVw==}
@@ -1921,6 +1927,8 @@ snapshots:
   '@exodus/bytes@1.16.0': {}
 
   '@fontsource-variable/archivo@5.2.5': {}
+
+  '@fontsource-variable/bricolage-grotesque@5.2.8': {}
 
   '@hookform/resolvers@6.0.0(ajv@8.20.0)(react-hook-form@7.91.0(@types/react@19.3.0)(react@19.2.0))(zod@4.6.7)':
     dependencies:

@@ -57,7 +57,7 @@ try {
   await dialog().getByLabel('Stock inicial').fill('10');
   await shot('10-alta-producto');
   await dialog().getByRole('button', { name: 'Crear producto' }).click();
-  await page.getByRole('cell', { name: /Alfajor de chocolate/ }).waitFor();
+  await page.getByRole('cell', { name: /^Alfajor de chocolate/ }).waitFor();
   await page.getByRole('cell', { name: '$ 1.250,00' }).waitFor();
 
   step('Un código repetido se rechaza con el nombre del producto que lo tiene');
@@ -71,7 +71,7 @@ try {
 
   step('Búsqueda por código de barras');
   await page.getByLabel('Buscar por nombre, código de barras o código interno').fill(packCode);
-  await page.getByRole('cell', { name: /Alfajor de chocolate/ }).waitFor();
+  await page.getByRole('cell', { name: /^Alfajor de chocolate/ }).waitFor();
   await shot('11-productos');
 
   step('Ajuste de stock con motivo');
@@ -89,15 +89,17 @@ try {
   await row.getByText('8', { exact: true }).waitFor();
 
   step('Baja por merma');
-  await row.getByRole('button', { name: 'Baja' }).click();
+  await row.getByRole('button', { name: /Más acciones de/ }).click();
+  await row.getByRole('menuitem', { name: 'Merma o vencido' }).click();
   await dialog().getByLabel('Cantidad que se da de baja').fill('4');
   await dialog().getByLabel('Detalle').fill('Se aplastaron');
-  await dialog().getByRole('button', { name: 'Registrar baja' }).click();
+  await dialog().getByRole('button', { name: 'Registrar merma o vencido' }).click();
   await row.getByText('Bajo mínimo').waitFor();
   await shot('12-stock');
 
   step('Historial de movimientos');
-  await row.getByRole('link', { name: 'Movimientos' }).click();
+  await row.getByRole('button', { name: /Más acciones de/ }).click();
+  await row.getByRole('menuitem', { name: 'Ver movimientos' }).click();
   await page.getByRole('heading', { name: 'Movimientos · Alfajor de chocolate' }).waitFor();
   await page.getByRole('cell', { name: 'Se aplastaron' }).waitFor();
   await page.getByRole('cell', { name: 'Conteo de góndola' }).waitFor();
