@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\Triggers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -271,9 +272,9 @@ return new class extends Migration
         DB::statement("ALTER TABLE tenants ADD CONSTRAINT tenants_tax_condition_ck CHECK (tax_condition IN ('responsable_inscripto', 'monotributo', 'exento'))");
 
         // La auditoría no se puede modificar ni borrar, tampoco desde la consola de la base.
-        DB::unprepared("CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW
+        Triggers::create("CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW
             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_log es de solo agregado: no se permite UPDATE'");
-        DB::unprepared("CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW
+        Triggers::create("CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW
             SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_log es de solo agregado: no se permite DELETE'");
     }
 

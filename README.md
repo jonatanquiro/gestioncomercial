@@ -97,7 +97,7 @@ El sistema funciona en la raíz de un sitio o dentro de una subcarpeta, con la m
    ```
 
 6. **Crear `sistemas/gestion-comercial/.env`** a partir de `.env.example`, con `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://celenial.com.ar/gestion-comercial` (sin barra final: se usa en los enlaces de los correos), `SESSION_SECURE_COOKIE=true`, los datos de la base y un servidor de correo real. `APP_KEY`: generarla en la PC con `php artisan key:generate --show` y pegarla.
-7. **Crear las tablas:** desde la terminal del hosting, `php artisan migrate --force` dentro de `sistemas/gestion-comercial`. Sin terminal: correr `migrate` en la PC contra una base vacía, exportarla desde phpMyAdmin e importarla en la del hosting.
+7. **Crear las tablas.** Si el hosting no deja crear disparadores (en phpMyAdmin aparece un error en un `CREATE TRIGGER`), el sistema funciona igual, pero esas tablas quedan protegidas solo por el programa ([ADR 0010](docs/adr/0010-disparadores-opcionales-en-hosting.md)). Para llevar una base de la PC, exportarla sin disparadores: `mysqldump --skip-triggers --no-tablespaces -P 3307 -u root gestioncomercial > base.sql`. Para crearla de cero: desde la terminal del hosting, `php artisan migrate --force` dentro de `sistemas/gestion-comercial`. Sin terminal: correr `migrate` en la PC contra una base vacía, exportarla sin disparadores como se indica arriba e importarla en la del hosting.
 8. Dar permiso de escritura a `storage/` y `bootstrap/cache/`.
 9. Entrar a `https://celenial.com.ar/gestion-comercial` y registrar un comercio de prueba.
 
@@ -247,4 +247,5 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0004 · Estrategia de pruebas](docs/adr/0004-pruebas.md)
 - [0008 · Rendiciones, apariencia y primera integración fiscal](docs/adr/0008-rendiciones-apariencia-y-fiscal.md)
 - [0009 · Publicar en la raíz o en una subcarpeta](docs/adr/0009-publicar-en-subcarpeta.md)
+- [0010 · Disparadores opcionales en hostings que no los permiten](docs/adr/0010-disparadores-opcionales-en-hosting.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL
