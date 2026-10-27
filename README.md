@@ -61,7 +61,7 @@ Si Composer avisa que falta una extensión de PHP (por ejemplo `fileinfo` o `zip
 
 ### Con Apache de XAMPP, sin `php artisan serve`
 
-La aplicación tiene que quedar en la **raíz** de un sitio, no en una subcarpeta como `http://localhost/gestioncomercial`. Agregar un VirtualHost en `C:\xampp\apache\conf\extra\httpd-vhosts.conf`:
+Apache tiene que servir la carpeta `apps/server/public` (no la raíz del repositorio). La forma más simple es un VirtualHost en `C:\xampp\apache\conf\extra\httpd-vhosts.conf`:
 
 ```apache
 Listen 8080
@@ -75,6 +75,35 @@ Listen 8080
 ```
 
 Reiniciar Apache, poner `APP_URL=http://localhost:8080` en `.env` y entrar a http://localhost:8080.
+
+### Publicar en un hosting, en una subcarpeta (por ejemplo `https://celenial.com.ar/gestion-comercial`)
+
+El sistema funciona en la raíz de un sitio o dentro de una subcarpeta, con la misma compilación: Laravel detecta la carpeta y se la pasa a la web (ver [ADR 0009](docs/adr/0009-publicar-en-subcarpeta.md)). En un hosting compartido como Ferozo, el código queda **fuera** de `public_html` y en la carpeta pública va solo el contenido de `public/`:
+
+```
+/ (carpeta de la cuenta del hosting)
+├─ sistemas/gestion-comercial/   ← apps/server completo, con vendor/ y .env (no se puede pedir desde el navegador)
+└─ public_html/gestion-comercial/ ← el contenido de apps/server/public, más sistema.php
+```
+
+1. **PHP 8.2 o más nuevo** en el panel del hosting, con `pdo_mysql`, `mbstring`, `intl` y `fileinfo`.
+2. **Base de datos:** crear una base MySQL y un usuario propio con contraseña.
+3. **En la PC**, dentro de `apps/server`: `composer install --no-dev --optimize-autoloader` (el hosting no necesita Composer: se sube `vendor/` ya armado).
+4. **Subir por FTP** `apps/server` entero, menos `public/`, a `sistemas/gestion-comercial/`. Subir el contenido de `apps/server/public` (incluido `.htaccess`) a `public_html/gestion-comercial/`.
+5. **Crear `public_html/gestion-comercial/sistema.php`**, que le dice a `index.php` dónde quedó el resto (no se versiona):
+
+   ```php
+   <?php return __DIR__.'/../../sistemas/gestion-comercial';
+   ```
+
+6. **Crear `sistemas/gestion-comercial/.env`** a partir de `.env.example`, con `APP_ENV=production`, `APP_DEBUG=false`, `APP_URL=https://celenial.com.ar/gestion-comercial` (sin barra final: se usa en los enlaces de los correos), `SESSION_SECURE_COOKIE=true`, los datos de la base y un servidor de correo real. `APP_KEY`: generarla en la PC con `php artisan key:generate --show` y pegarla.
+7. **Crear las tablas:** desde la terminal del hosting, `php artisan migrate --force` dentro de `sistemas/gestion-comercial`. Sin terminal: correr `migrate` en la PC contra una base vacía, exportarla desde phpMyAdmin e importarla en la del hosting.
+8. Dar permiso de escritura a `storage/` y `bootstrap/cache/`.
+9. Entrar a `https://celenial.com.ar/gestion-comercial` y registrar un comercio de prueba.
+
+Para actualizar: volver a subir los archivos que cambiaron (siempre `public/spa` completo después de `pnpm build`), sin pisar `.env` ni `sistema.php`, y correr `php artisan migrate --force`.
+
+Las cookies de sesión quedan limitadas a la carpeta del sistema (`/gestion-comercial/`), así no se mezclan con otros sistemas del mismo dominio.
 
 ### Correos
 
@@ -217,4 +246,5 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0003 · Sesiones y autenticación](docs/adr/0003-sesiones-y-autenticacion.md)
 - [0004 · Estrategia de pruebas](docs/adr/0004-pruebas.md)
 - [0008 · Rendiciones, apariencia y primera integración fiscal](docs/adr/0008-rendiciones-apariencia-y-fiscal.md)
+- [0009 · Publicar en la raíz o en una subcarpeta](docs/adr/0009-publicar-en-subcarpeta.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

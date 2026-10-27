@@ -26,7 +26,9 @@ export default defineConfig({
     },
   },
   // La web compilada la sirve Laravel desde apps/server/public/spa (sin Node en el servidor).
-  base: '/spa/',
+  // Rutas relativas: el CSS encuentra las fuentes al lado suyo y Laravel completa las de index.html
+  // con la ruta base del sitio, para que funcione en la raíz o en una subcarpeta (ver docs/adr/0009).
+  base: './',
   server: {
     port: 5173,
     proxy: { '/api': 'http://localhost:8000' },

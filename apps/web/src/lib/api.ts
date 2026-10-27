@@ -1,4 +1,5 @@
 import type { ApiError } from '@gc/contracts';
+import { BASE_PATH } from './base';
 
 /** Error de la API con el formato único { code, message, details, requestId }. */
 export class ApiRequestError extends Error {
@@ -35,7 +36,7 @@ export async function api<T>(method: Method, path: string, body?: unknown): Prom
   }
   let res: Response;
   try {
-    res = await fetch(`/api/v1${path}`, {
+    res = await fetch(`${BASE_PATH}/api/v1${path}`, {
       method,
       headers,
       credentials: 'same-origin',

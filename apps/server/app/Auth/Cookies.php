@@ -52,8 +52,16 @@ final class Cookies
         return [$token, self::csrf($token)];
     }
 
+    /** Las cookies valen solo para la carpeta del sistema (por ejemplo /gestion-comercial), no para todo el dominio. */
+    private static function path(): string
+    {
+        $base = rtrim(request()->getBasePath(), '/');
+
+        return $base === '' ? '/' : $base.'/';
+    }
+
     private static function make(string $name, string $value, int $maxAgeSeconds, bool $httpOnly): Cookie
     {
-        return Cookie::create($name, $value, time() + $maxAgeSeconds, '/', null, (bool) config('session.secure'), $httpOnly, true, Cookie::SAMESITE_LAX);
+        return Cookie::create($name, $value, time() + $maxAgeSeconds, self::path(), null, (bool) config('session.secure'), $httpOnly, true, Cookie::SAMESITE_LAX);
     }
 }
