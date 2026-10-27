@@ -10,6 +10,8 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\ReferenceProduct;
+use App\Models\Sale;
+use App\Models\SaleLine;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Models\VariantCost;
@@ -77,6 +79,20 @@ class ProductsController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         return $this->json($this->dto($id, $this->actor($request)));
+    }
+
+    /** Accesos rápidos del punto de venta: los artículos activos más vendidos de los últimos 30 días. */
+    public function favorites(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $recent = Sale::where('status', 'confirmed')->where('confirmed_at', '>=', now()->subDays(30))->select('id');
+        $ranking = SaleLine::whereIn('sale_id', $recent)->groupBy('variant_id')->selectRaw('variant_id, COUNT(*) AS n')
+            ->orderByDesc('n')->orderBy('variant_id')->limit(24)->pluck('variant_id');
+        $productIds = ProductVariant::whereIn('id', $ranking)->pluck('product_id', 'id');
+        $products = Product::whereIn('id', $productIds->values())->where('status', 'active')->get()->keyBy('id');
+        $ordered = $ranking->map(fn ($variantId) => $products[$productIds[$variantId] ?? ''] ?? null)->filter()->take(12)->values();
+
+        return $this->json($this->dtos($ordered, $actor));
     }
 
     /** Búsqueda exacta por código de barras o SKU (lector del POS y de los formularios de stock). */

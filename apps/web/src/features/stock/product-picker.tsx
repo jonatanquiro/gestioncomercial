@@ -14,6 +14,7 @@ export function ProductPicker({
   onlyStock = true,
   inputRef,
   autoFocus,
+  inputClassName,
 }: {
   onPick: (p: ProductDto, quantityFactor: string) => void;
   label?: string;
@@ -21,6 +22,7 @@ export function ProductPicker({
   onlyStock?: boolean;
   inputRef?: Ref<HTMLInputElement>;
   autoFocus?: boolean;
+  inputClassName?: string;
 }) {
   const [term, setTerm] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -61,13 +63,13 @@ export function ProductPicker({
 
   return (
     <div className="relative">
-      <Input ref={inputRef} autoFocus={autoFocus} type="search" autoComplete="off" aria-label={label} placeholder={label} value={term} onChange={(e) => (setTerm(e.target.value), setMessage(null))} onKeyDown={(e) => void onKeyDown(e)} />
+      <Input ref={inputRef} autoFocus={autoFocus} className={inputClassName} type="search" autoComplete="off" aria-label={label} placeholder={label} value={term} onChange={(e) => (setTerm(e.target.value), setMessage(null))} onKeyDown={(e) => void onKeyDown(e)} />
       {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
       {q.length >= 2 && options.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg" role="listbox">
           {options.map((p) => (
             <li key={p.id}>
-              <button type="button" className="flex w-full justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-brand-50" onClick={() => pick(p)}>
+              <button type="button" className="flex w-full justify-between gap-3 px-3 py-3 text-left text-sm hover:bg-brand-50" onClick={() => pick(p)}>
                 <span className="font-medium">{p.name}</span>
                 <span className="text-xs text-slate-500">{p.sku ?? p.barcodes[0]?.code ?? ''}</span>
               </button>

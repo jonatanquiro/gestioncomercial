@@ -101,6 +101,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
 
     Route::get('products', [ProductsController::class, 'index'])->middleware('perm:products.read');
     Route::get('products/lookup', [ProductsController::class, 'lookup'])->middleware('perm:products.read');
+    Route::get('products/favorites', [ProductsController::class, 'favorites'])->middleware('perm:products.read');
     Route::get('products/reference', [ProductsController::class, 'reference'])->middleware('perm:products.create');
     Route::get('products/reference/search', [ProductsController::class, 'referenceSearch'])->middleware('perm:products.create');
     Route::post('products/reference/add', [ProductsController::class, 'addFromReference'])->middleware('perm:products.create');

@@ -72,11 +72,14 @@ try {
     await scanner.fill(code);
     await scanner.press('Enter');
   }
-  await page.getByRole('row', { name: /Gaseosa 500 ml/ }).waitFor();
-  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Alfajor triple"]')?.value === '2');
-  assert.equal(await page.getByLabel('Cantidad de Alfajor triple').inputValue(), '2');
-  await page.getByLabel('Descuento de Gaseosa 500 ml').fill('10');
-  await page.getByLabel('Descuento de Gaseosa 500 ml').press('Enter');
+  await page.getByRole('listitem', { name: 'Gaseosa 500 ml' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Alfajor triple"]')?.textContent === '2');
+  await page.getByRole('button', { name: 'Sumar uno de Alfajor triple' }).click();
+  await page.getByRole('button', { name: 'Restar uno de Alfajor triple' }).click();
+  assert.equal(await page.getByLabel('Cantidad de Alfajor triple').textContent(), '2');
+  await page.getByLabel('Cantidad de Gaseosa 500 ml').click();
+  await dialog().getByLabel('Descuento %').fill('10');
+  await dialog().getByLabel('Descuento %').press('Enter');
   await page.getByLabel('Total de la venta').getByText('$ 3.400,99').waitFor();
   await shot('20-venta');
 
@@ -97,13 +100,13 @@ try {
   step('Pago combinado: débito con número de operación y el resto en efectivo');
   await scanner.fill(alfajor);
   await scanner.press('Enter');
-  await page.getByRole('row', { name: /Alfajor triple/ }).waitFor();
+  await page.getByRole('listitem', { name: 'Alfajor triple' }).waitFor();
   await page.getByRole('button', { name: 'Cobrar (F2)' }).click();
-  await dialog().getByLabel('Medio de pago 1').selectOption({ label: 'Débito' });
+  await dialog().getByRole('button', { name: 'Débito', exact: true }).click();
   await dialog().getByLabel('Importe 1').fill('1000');
   await dialog().getByLabel('N° de operación 1').fill('004512');
   await dialog().getByRole('button', { name: 'Pagar el resto con otro medio' }).click();
-  await dialog().getByLabel('Medio de pago 2').selectOption({ label: 'Efectivo' });
+  await dialog().getByRole('button', { name: 'Efectivo', exact: true }).click();
   assert.equal(await dialog().getByLabel('Importe 2').inputValue(), '250,5');
   await dialog().getByRole('button', { name: 'Confirmar venta' }).click();
   await page.getByText('Venta N° 2 cobrada').waitFor();
@@ -113,7 +116,7 @@ try {
   for (let i = 0; i < 20; i++) {
     await scanner.fill(i % 2 ? gaseosa : alfajor);
     await scanner.press('Enter');
-    await page.getByLabel(`Cantidad de ${i % 2 ? 'Gaseosa 500 ml' : 'Alfajor triple'}`).and(page.locator(`[value="${Math.floor(i / 2) + 1}"]`)).waitFor();
+    await page.waitForFunction(([name, n]) => document.querySelector(`[aria-label="Cantidad de ${name}"]`)?.textContent === n, [i % 2 ? 'Gaseosa 500 ml' : 'Alfajor triple', String(Math.floor(i / 2) + 1)]);
   }
   await page.keyboard.press('F2');
   await dialog().getByLabel('Importe 1').press('Enter');
@@ -149,6 +152,25 @@ try {
   const byName = Object.fromEntries(stock.body.items.map((r) => [r.name, r.onHand]));
   assert.equal(byName['Alfajor triple'], '39.000'); // 50 − 2 − 1 − 10 + 2 (anulación)
   assert.equal(byName['Gaseosa 500 ml'], '1.000'); // 10 − 1 − 10 + 1 (anulación) + 1 (devolución)
+
+  step('Venta táctil: más vendidos, queso por importe y débito con botones');
+  assert.equal((await api('POST', '/products', { ...product('Queso de máquina', '9000', `${stamp}9`, '5'), saleMode: 'weight', barcodes: [] })).status, 201);
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
+  await page.getByRole('link', { name: 'Vender', exact: true }).click();
+  await page.getByRole('region', { name: 'Más vendidos' }).getByRole('button', { name: /Alfajor triple/ }).click();
+  await scanner.fill('Queso');
+  await page.getByRole('listbox').getByRole('button', { name: /Queso de máquina/ }).click();
+  await dialog().getByLabel('O el importe que pide el cliente ($)').fill('2000');
+  assert.equal(await dialog().getByLabel('Cantidad (kg)').inputValue(), '0,222');
+  await dialog().getByText('$ 1.998,00').waitFor();
+  await dialog().getByRole('button', { name: 'Agregar' }).click();
+  await page.getByLabel('Total de la venta').getByText('$ 3.248,50').waitFor();
+  await shot('22-venta-tactil');
+  await page.getByRole('button', { name: 'Cobrar (F2)' }).click();
+  await dialog().getByRole('button', { name: 'Débito', exact: true }).click();
+  await dialog().getByLabel('N° de operación 1').fill('778899');
+  await dialog().getByRole('button', { name: 'Confirmar venta' }).click();
+  await page.getByText('Venta N° 4 cobrada').waitFor();
 
   step('Caja: retiro y cierre ciego con diferencia');
   if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();

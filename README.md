@@ -10,7 +10,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - productos y servicios con varios códigos de barras y códigos de pack, categorías iniciales según el rubro, marcas e historial de precios y costos;
 - stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
 - cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo;
-- punto de venta con lector de códigos, descuentos con tope y autorización por PIN, pagos combinados con vuelto y ticket interno de 80 mm;
+- punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados y ticket interno de 80 mm;
 - caja por turnos: apertura con fondo, retiros e ingresos, arqueos, cierre ciego con diferencia y totales por medio de pago;
 - historial de ventas con anulación en el turno y devoluciones parciales, con movimientos inversos de stock y caja.
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
