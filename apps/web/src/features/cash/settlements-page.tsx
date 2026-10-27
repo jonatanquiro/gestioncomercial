@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatArs } from '@gc/domain';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
@@ -23,7 +23,9 @@ export function SettlementsPage() {
   const allowed = useCan()('cash.read_all');
   const client = useQueryClient();
   const toast = useToast();
-  const [selected, setSelected] = useState<string | null>(null);
+  const search = useSearch({ from: '/app/rendiciones' });
+  const navigate = useNavigate();
+  const [selected, setSelected] = useState<string | null>(search.id ?? null);
   const [creating, setCreating] = useState(false);
   const [method, setMethod] = useState('');
   const [provider, setProvider] = useState('');
@@ -33,7 +35,7 @@ export function SettlementsPage() {
   const methods = useQuery({ ...paymentMethodsQuery, enabled: allowed });
   const create = useMutation({ mutationFn: () => http.post<Detail>('/settlements', { paymentMethodId: method, provider, fromDate: from, toDate: to }), onSuccess: async (data) => { await client.invalidateQueries({ queryKey: ['settlements'] }); setSelected(data.id); setCreating(false); toast('Rendición creada'); } });
   if (!allowed) return <Forbidden />;
-  if (selected) return <SettlementDetail id={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <SettlementDetail id={selected} onBack={() => { setSelected(null); if (search.id) void navigate({ to: '/app/rendiciones', search: {} }); }} />;
   return <>
     <PageHeader title="Rendición de cobros" description="Compará lo registrado en ventas con los movimientos de Mercado Pago, Ualá, bancos o terminales." actions={<Button onClick={() => setCreating(true)}>Nueva rendición</Button>} />
     <div className="mb-5"><Alert kind="info">Creá un medio de pago distinto para cada cuenta o terminal (por ejemplo, «MP · QR» y «Ualá · Débito») en Administración → Cajas y medios de pago. La rendición controla cobros; no modifica ventas ni el saldo del cajón.</Alert></div>

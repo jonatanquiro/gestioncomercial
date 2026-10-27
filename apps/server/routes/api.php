@@ -9,6 +9,7 @@ use App\Http\Controllers\EmployeesController;
 use App\Http\Controllers\FiscalController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\PaymentMethodsController;
+use App\Http\Controllers\PaymentsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\PricesController;
@@ -64,6 +65,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::post('fiscal/check', [FiscalController::class, 'check'])->middleware('perm:fiscal.manage');
     Route::get('fiscal/invoices', [FiscalController::class, 'invoices'])->middleware('perm:fiscal.manage');
     Route::post('sales/{id}/invoice', [FiscalController::class, 'issue'])->middleware('perm:fiscal.manage');
+    Route::get('payments', [PaymentsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::get('settlements', [SettlementsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::post('settlements', [SettlementsController::class, 'store'])->middleware('perm:cash.read_all');
     Route::get('settlements/{id}', [SettlementsController::class, 'show'])->middleware('perm:cash.read_all');

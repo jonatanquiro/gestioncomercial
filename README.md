@@ -13,6 +13,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - punto de venta con lector de códigos, descuentos con tope y autorización por PIN, pagos combinados con vuelto y ticket interno de 80 mm;
 - caja por turnos: apertura con fondo, retiros e ingresos, arqueos, cierre ciego con diferencia y totales por medio de pago;
 - historial de ventas con anulación en el turno y devoluciones parciales, con movimientos inversos de stock y caja.
+- listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
 - logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior por comercio;
 - cambio individual de plan desde la plataforma, con control de límites y conservación de fechas;
@@ -138,6 +139,8 @@ Los comprobantes autorizados tienen impresión con CAE y QR generado localmente.
 Referencias oficiales: [WSAA y asociación de certificados](https://www.afip.gob.ar/ws/documentacion/wsaa.asp), [manuales WSFE](https://www.afip.gob.ar/fe/ayuda/webservice.asp), [especificaciones del QR](https://www.afip.gob.ar/fe/qr/).
 
 ### Rendición de transferencias, QR y tarjetas
+
+En **Operación → Cobros** (`/app/cobros`), con permiso `cash.read_all`, se consultan uno por uno los cobros que no son en efectivo. Se filtran por fechas de venta, tipo, medio de pago, caja, estado de rendición y búsqueda por N° de operación, venta o importe. Se señalan los cobros sin N° de operación, los que repiten el N° de otro cobro del mismo medio en ventas vigentes y los de ventas anuladas o con devolución. Con un medio de pago y fechas elegidos, **Crear rendición** abre la rendición de ese período. La pantalla solo consulta: la verificación se hace en la rendición.
 
 En **Operación → Rendición de cobros** (`/app/rendiciones`), con permiso `cash.read_all`:
 

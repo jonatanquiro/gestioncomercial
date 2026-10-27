@@ -9,3 +9,6 @@ coverage/
 apps/web/dist/
 *.tsbuildinfo
 .rnd
+
+# Certificados, claves y tickets de ARCA: nunca se versionan.
+certificados/

@@ -10,6 +10,7 @@ import { BranchesPage } from '@/features/branches/branches-page';
 import { CashPage, ShiftPage } from '@/features/cash/cash-page';
 import { CashSetupPage } from '@/features/cash/setup-page';
 import { SettlementsPage } from '@/features/cash/settlements-page';
+import { PaymentsPage } from '@/features/cash/payments-page';
 import { CategoriesPage } from '@/features/catalog/categories-page';
 import { PricesPage } from '@/features/catalog/prices-page';
 import { ProductsPage } from '@/features/catalog/products-page';
@@ -120,7 +121,8 @@ const saleDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'ven
 const cashRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja', component: CashPage });
 const shiftRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja/$id', component: ShiftPage });
 const cashSetupRoute = createRoute({ getParentRoute: () => appRoute, path: 'cajas', component: CashSetupPage });
-const settlementsRoute = createRoute({ getParentRoute: () => appRoute, path: 'rendiciones', component: SettlementsPage });
+const settlementsRoute = createRoute({ getParentRoute: () => appRoute, path: 'rendiciones', component: SettlementsPage, validateSearch: z.object({ id: z.string().uuid().optional().catch(undefined) }) });
+const paymentsRoute = createRoute({ getParentRoute: () => appRoute, path: 'cobros', component: PaymentsPage });
 
 const platformLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: '/plataforma/login', component: PlatformLoginPage });
 
@@ -152,6 +154,7 @@ const routeTree = rootRoute.addChildren([
     shiftRoute,
     cashSetupRoute,
     settlementsRoute,
+    paymentsRoute,
     productsRoute,
     referenceCatalogRoute,
     categoriesRoute,

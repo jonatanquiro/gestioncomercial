@@ -1,7 +1,7 @@
 import type { PermissionCode, TenantDto } from '@gc/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { Boxes, Building2, ChevronDown, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
+import { ArrowRightLeft, Boxes, Building2, ChevronDown, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -23,6 +23,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/vender', label: 'Vender', icon: ShoppingCart, anyOf: ['sales.create'] },
     { to: '/app/caja', label: 'Caja', icon: Wallet, anyOf: ['cash.open', 'cash.close', 'cash.count', 'cash.read_all'] },
     { to: '/app/ventas', label: 'Ventas', icon: Receipt, anyOf: ['sales.read_own', 'sales.read_all'] },
+    { to: '/app/cobros', label: 'Cobros', icon: ArrowRightLeft, anyOf: ['cash.read_all'] },
     { to: '/app/rendiciones', label: 'Rendición de cobros', icon: ClipboardList, anyOf: ['cash.read_all'] },
   ] },
   { id: 'catalogo', label: 'Catálogo', items: [
