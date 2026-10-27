@@ -26,7 +26,7 @@ class IsolationTest extends TestCase
 
     /** Únicos archivos que pueden consultar sin el filtro automático por comercio. */
     private const BYPASS_ALLOWED = [
-        'app/Services/AuthService.php',          // membresías del propio usuario, siempre por user_id
+        'app/Services/AuthService.php',          // membresías por user_id (las propias, o si alguien trabaja en otro comercio)
         'app/Http/Controllers/PlatformController.php', // panel de plataforma
         'app/Tenancy/TenantContext.php',
         'app/Tenancy/BelongsToTenant.php',
@@ -109,6 +109,7 @@ class IsolationTest extends TestCase
             '/branches/{id}' => ['name' => 'Hackeada', 'address' => null, 'status' => 'active'],
             '/roles/{id}' => ['name' => 'Hackeado', 'permissions' => []],
             '/employees/{membershipId}' => ['roleId' => $this->bIds['role'], 'branchIds' => [$this->bIds['branch']], 'status' => 'inactive'],
+            '/employees/{membershipId}/password' => ['password' => 'clave-de-otro-comercio-1'],
             '/categories/{id}' => ['name' => 'Hackeada', 'status' => 'inactive'],
             '/products/{id}' => self::productUpdate($this->b['client']->get('/products/'.$this->bIds['product'])->body, ['name' => 'Hackeado']),
             '/products/{id}/status' => ['status' => 'inactive'],

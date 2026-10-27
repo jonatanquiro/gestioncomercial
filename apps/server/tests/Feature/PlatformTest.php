@@ -159,9 +159,9 @@ class PlatformTest extends TestCase
 
         // Antes de aceptar la invitación no hay contraseña que sirva.
         $owner = $this->client();
-        $this->assertSame(401, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(401, $owner->post('/auth/login', ['login' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
         $this->assertSame(200, $owner->post('/auth/reset-password', ['token' => $query['token'], 'password' => self::PASSWORD])->status);
-        $this->assertSame(200, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $owner->post('/auth/login', ['login' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
 
         $me = $owner->get('/auth/me')->body;
         $this->assertSame($tenantId, $me['tenant']['id']);
@@ -202,7 +202,7 @@ class PlatformTest extends TestCase
         $this->assertFalse($res->body['invitationSent']);
         Mail::assertNotSent(OwnerInvitationMail::class);
         $owner = $this->client();
-        $this->assertSame(200, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => $password])->status);
+        $this->assertSame(200, $owner->post('/auth/login', ['login' => $input['ownerEmail'], 'password' => $password])->status);
         $me = $owner->get('/auth/me')->body;
         $this->assertSame($res->body['id'], $me['tenant']['id']);
         $this->assertSame('Propietario', $me['role']['name']);
@@ -220,7 +220,7 @@ class PlatformTest extends TestCase
         $this->assertSame(400, $res->status);
         $this->assertSame('ownerPassword', $res->body['details'][0]['path']);
         $owner = $this->client();
-        $this->assertSame(200, $owner->post('/auth/login', ['email' => $existing['email'], 'password' => $existing['password']])->status);
+        $this->assertSame(200, $owner->post('/auth/login', ['login' => $existing['email'], 'password' => $existing['password']])->status);
         $this->assertCount(1, $owner->get('/auth/me')->body['memberships']);
     }
 

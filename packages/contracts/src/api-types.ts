@@ -25,7 +25,7 @@ export interface MembershipSummary {
 }
 
 export interface MeResponse {
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string | null; username: string | null };
   tenant: { id: string; tradeName: string; status: string; businessTypeCode: string } | null;
   role: { id: string; name: string } | null;
   permissions: PermissionCode[];
@@ -71,7 +71,10 @@ export interface EmployeeDto {
   membershipId: string;
   userId: string;
   name: string;
-  email: string;
+  email: string | null;
+  username: string | null;
+  /** Trabaja solo en este comercio: el comercio puede ponerle una contraseña nueva. */
+  canSetPassword: boolean;
   roleId: string;
   roleName: string;
   status: 'active' | 'inactive';

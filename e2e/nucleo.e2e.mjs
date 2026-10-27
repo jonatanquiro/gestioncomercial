@@ -14,7 +14,8 @@ const SHOTS = process.env.E2E_SCREENSHOTS_DIR;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const stamp = Date.now();
 const owner = { name: 'Dueña Prueba', email: `duena.${stamp}@example.com`, password: 'Kiosco-Prueba-2026' };
-const cashier = { name: 'Cajero Prueba', email: `cajero.${stamp}@example.com`, password: 'Cajero-Prueba-2026' };
+// El cajero no tiene email: ingresa con su nombre de usuario (ADR 0010).
+const cashier = { name: 'Cajero Prueba', login: `cajero.${stamp}`, password: 'Cajero-Prueba-2026' };
 const tradeName = `Kiosco E2E ${stamp}`;
 const invited = { name: 'Dueño Invitado', email: `invitado.${stamp}@example.com`, password: 'Almacen-Prueba-2026', tradeName: `Almacén E2E ${stamp}` };
 
@@ -27,7 +28,7 @@ const step = (name) => console.log(`• ${name}`);
 
 async function login(user) {
   await page.goto(`${BASE}/login`);
-  await page.getByLabel('Email').fill(user.email);
+  await page.getByLabel('Email o usuario').fill(user.login ?? user.email);
   await page.getByLabel('Contraseña').fill(user.password);
   await page.getByRole('button', { name: 'Ingresar' }).click();
   await page.waitForURL(`${BASE}/app`);
@@ -84,16 +85,16 @@ try {
   await page.getByRole('button', { name: 'Nuevo empleado' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nombre y apellido').fill(cashier.name);
-  await dialog.getByLabel('Email').fill(cashier.email);
+  await dialog.getByLabel('Nombre de usuario').fill(cashier.login);
   await dialog.getByLabel('Contraseña inicial').fill(cashier.password);
   await dialog.getByLabel('Rol').selectOption({ label: 'Cajero' });
   await dialog.getByLabel('Casa central').check();
   await dialog.getByRole('button', { name: 'Crear empleado' }).click();
   await dialog.waitFor({ state: 'detached' });
-  await page.getByRole('cell', { name: cashier.email }).waitFor();
-  await page.getByPlaceholder('Buscar por nombre, email o rol').fill('cajero');
+  await page.getByRole('cell', { name: cashier.login }).waitFor();
+  await page.getByPlaceholder('Buscar por nombre, usuario, email o rol').fill('cajero');
   await page.getByRole('cell', { name: owner.email }).waitFor({ state: 'detached' });
-  await page.getByRole('cell', { name: cashier.email }).waitFor();
+  await page.getByRole('cell', { name: cashier.login }).waitFor();
   await shot('02-empleados');
   await logout();
 

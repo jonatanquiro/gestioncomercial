@@ -50,6 +50,7 @@ Route::middleware(['csrf.double', 'auth.user:any'])->group(function () {
     Route::get('auth/me', [AuthController::class, 'me']);
     Route::post('auth/switch-tenant', [AuthController::class, 'switchTenant']);
     Route::post('auth/change-password', [AuthController::class, 'changePassword']);
+    Route::put('auth/username', [AuthController::class, 'updateUsername']);
     Route::get('auth/sessions', [AuthController::class, 'sessions']);
     Route::delete('auth/sessions/{id}', [AuthController::class, 'revokeSession']);
 });
@@ -91,6 +92,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
         Route::get('employees', [EmployeesController::class, 'index']);
         Route::post('employees', [EmployeesController::class, 'store']);
         Route::put('employees/{membershipId}', [EmployeesController::class, 'update']);
+        Route::put('employees/{membershipId}/password', [EmployeesController::class, 'setPassword']);
     });
 
     Route::get('audit', [AuditController::class, 'index'])->middleware('perm:audit.read');

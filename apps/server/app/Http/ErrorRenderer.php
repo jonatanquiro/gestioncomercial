@@ -19,6 +19,7 @@ final class ErrorRenderer
     /** Mensajes para claves únicas conocidas (MySQL informa el nombre de la clave en el error 1062). */
     private const UNIQUE_MESSAGES = [
         'users_email_uq' => 'Ese email ya está registrado',
+        'users_username_uq' => 'Ese nombre de usuario ya está en uso',
         'tenants_cuit_active_uq' => 'Ya hay un comercio registrado con ese CUIT',
         'branches_tenant_name_uq' => 'Ya existe una sucursal con ese nombre',
         'roles_tenant_name_uq' => 'Ya existe un rol con ese nombre',

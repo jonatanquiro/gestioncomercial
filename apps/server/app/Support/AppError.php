@@ -29,7 +29,7 @@ class AppError extends RuntimeException
 
     public static function invalidCredentials(): self
     {
-        return new self(401, 'INVALID_CREDENTIALS', 'Email o contraseña incorrectos');
+        return new self(401, 'INVALID_CREDENTIALS', 'Usuario o contraseña incorrectos');
     }
 
     public static function forbidden(?string $permission = null): self

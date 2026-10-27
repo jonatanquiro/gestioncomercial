@@ -14,6 +14,18 @@ const optionalText = (max: number) =>
 
 export const emailSchema = z.string().trim().toLowerCase().pipe(z.email('Email inválido')).pipe(z.string().max(254));
 
+/** Nombre de usuario para ingresar sin email (ADR 0010). Sin @, para distinguirlo del email. */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'El usuario debe tener al menos 3 caracteres')
+  .max(30, 'El usuario no puede superar 30 caracteres')
+  .regex(/^[a-z0-9][a-z0-9._-]*$/, 'Usá letras sin acentos, números, punto, guion o guion bajo, empezando por letra o número');
+
+const optionalEmail = emailSchema.optional().nullable().or(z.literal('').transform(() => null));
+const optionalUsername = usernameSchema.optional().nullable().or(z.literal('').transform(() => null));
+
 export const passwordSchema = z
   .string()
   .min(10, 'La contraseña debe tener al menos 10 caracteres')
@@ -54,7 +66,7 @@ export const registerTenantSchema = z.object({
 export type RegisterTenantInput = z.infer<typeof registerTenantSchema>;
 
 export const loginSchema = z.object({
-  email: emailSchema,
+  login: z.string().trim().toLowerCase().min(1, 'Obligatorio').max(254),
   password: z.string().min(1, 'Obligatorio').max(128),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -105,7 +117,7 @@ export const updateTenantSchema = z.object({
   taxCondition: taxConditionSchema,
   address: optionalText(200),
   phone: optionalText(40),
-  email: emailSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  email: optionalEmail,
   settings: tenantSettingsSchema,
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
@@ -120,13 +132,16 @@ export const updateBranchSchema = createBranchSchema.extend({
 
 // ---------- Usuarios y roles ----------
 
-export const createEmployeeSchema = z.object({
-  name: trimmed(120),
-  email: emailSchema,
-  password: passwordSchema,
-  roleId: uuidSchema,
-  branchIds: z.array(uuidSchema).min(1, 'Elegí al menos una sucursal').max(100),
-});
+export const createEmployeeSchema = z
+  .object({
+    name: trimmed(120),
+    username: optionalUsername,
+    email: optionalEmail,
+    password: passwordSchema,
+    roleId: uuidSchema,
+    branchIds: z.array(uuidSchema).min(1, 'Elegí al menos una sucursal').max(100),
+  })
+  .refine((v) => v.username || v.email, { path: ['username'], message: 'Indicá un nombre de usuario o un email' });
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 
 export const updateMembershipSchema = z.object({
@@ -135,6 +150,11 @@ export const updateMembershipSchema = z.object({
   status: z.enum(['active', 'inactive']),
 });
 export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
+
+/** Contraseña que el comercio le pone a alguien que trabaja solo ahí (por ejemplo, sin email). */
+export const setEmployeePasswordSchema = z.object({ password: passwordSchema });
+
+export const updateUsernameSchema = z.object({ username: optionalUsername });
 
 export const roleSchema = z.object({
   name: trimmed(60),

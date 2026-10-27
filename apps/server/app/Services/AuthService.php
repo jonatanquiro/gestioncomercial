@@ -72,13 +72,14 @@ class AuthService
     }
 
     /** @return array{id: string, token: string} */
-    public function login(string $email, string $password, Client $client): array
+    public function login(string $login, string $password, Client $client): array
     {
-        $key = "login:{$client->ip}:{$email}";
+        $key = "login:{$client->ip}:{$login}";
         Throttle::consume($key, 10, 15 * self::MIN);
         Throttle::consume("login-ip:{$client->ip}", 50, 15 * self::MIN);
 
-        $user = User::where('email', $email)->first();
+        // Los nombres de usuario no admiten @: así se distingue un email de un usuario (ADR 0010).
+        $user = User::where(str_contains($login, '@') ? 'email' : 'username', $login)->first();
         $ok = $this->passwords->verify($user?->status === 'active' ? $user->password_hash : null, $password);
         if (! $user || ! $ok) {
             $this->audit->record([
@@ -89,7 +90,7 @@ class AuthService
                 'action' => 'auth.login_failed',
                 'entityType' => 'user',
                 'entityId' => $user?->id,
-                'after' => ['email' => $email],
+                'after' => ['login' => $login],
                 'ip' => $client->ip,
                 'requestId' => $client->requestId,
             ]);
@@ -208,6 +209,34 @@ class AuthService
         });
     }
 
+    public function updateUsername(Actor $actor, ?string $username): void
+    {
+        DB::transaction(function () use ($actor, $username) {
+            $user = User::whereKey($actor->userId)->lockForUpdate()->firstOrFail();
+            if ($username === null && $user->email === null) {
+                throw AppError::validation([['path' => 'username', 'message' => 'Sin email, el nombre de usuario es la única forma de ingresar']]);
+            }
+            if ($username !== null && User::where('username', $username)->whereKeyNot($user->id)->exists()) {
+                throw AppError::conflict('USERNAME_IN_USE', 'Ese nombre de usuario ya está en uso');
+            }
+            $before = $user->username;
+            $user->forceFill(['username' => $username])->save();
+            $this->audit->record([
+                'tenantId' => null,
+                'actorType' => 'user',
+                'actorId' => $actor->userId,
+                'actorName' => $actor->userName,
+                'action' => 'auth.username_changed',
+                'entityType' => 'user',
+                'entityId' => $actor->userId,
+                'before' => ['username' => $before],
+                'after' => ['username' => $username],
+                'ip' => $actor->ip,
+                'requestId' => $actor->requestId,
+            ]);
+        });
+    }
+
     public function switchTenant(Actor $actor, string $tenantId): void
     {
         $allowed = $this->userMemberships($actor->userId)
@@ -249,7 +278,7 @@ class AuthService
         $current = $list->first(fn ($m) => $m->tenant_id === $actor->tenantId && $m->status === 'active');
 
         return [
-            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email],
+            'user' => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'username' => $user->username],
             'tenant' => $current ? [
                 'id' => $current->tenant_id,
                 'tradeName' => $current->trade_name,
@@ -287,6 +316,28 @@ class AuthService
         if (! $this->sessions->revoke($sessionId, $actor->userId)) {
             throw AppError::notFound('Sesión');
         }
+    }
+
+    /**
+     * De la lista, quienes solo son miembros de este comercio: el comercio puede ponerles una
+     * contraseña nueva sin afectar su acceso a otro comercio. No devuelve datos de otros comercios.
+     *
+     * @param  list<string>  $userIds
+     * @return list<string>
+     */
+    public function usersOnlyIn(string $tenantId, array $userIds): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+        $elsewhere = Membership::withoutGlobalScope('tenant')
+            ->whereIn('user_id', $userIds)
+            ->where('tenant_id', '<>', $tenantId)
+            ->distinct()
+            ->pluck('user_id')
+            ->all();
+
+        return array_values(array_diff($userIds, $elsewhere));
     }
 
     private function defaultTenant(string $userId): ?string
