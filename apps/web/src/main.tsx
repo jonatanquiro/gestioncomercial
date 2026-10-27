@@ -4,8 +4,10 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ToastProvider } from '@/components/ui/toast';
 import { ApiRequestError } from '@/lib/api';
+import { setupInstall } from '@/lib/install';
 import { createAppRouter } from './app/router';
 import '@fontsource-variable/archivo';
+import '@fontsource-variable/bricolage-grotesque';
 import './styles.css';
 
 const queryClient = new QueryClient({
@@ -18,6 +20,7 @@ const queryClient = new QueryClient({
   },
 });
 
+setupInstall();
 const router = createAppRouter(queryClient);
 
 createRoot(document.getElementById('root')!).render(

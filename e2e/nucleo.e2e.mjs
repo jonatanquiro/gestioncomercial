@@ -14,11 +14,12 @@ const SHOTS = process.env.E2E_SCREENSHOTS_DIR;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const stamp = Date.now();
 const owner = { name: 'Dueña Prueba', email: `duena.${stamp}@example.com`, password: 'Kiosco-Prueba-2026' };
-const cashier = { name: 'Cajero Prueba', email: `cajero.${stamp}@example.com`, password: 'Cajero-Prueba-2026' };
+// El cajero no tiene email: ingresa con su nombre de usuario (ADR 0010).
+const cashier = { name: 'Cajero Prueba', login: `cajero.${stamp}`, password: 'Cajero-Prueba-2026' };
 const tradeName = `Kiosco E2E ${stamp}`;
 const invited = { name: 'Dueño Invitado', email: `invitado.${stamp}@example.com`, password: 'Almacen-Prueba-2026', tradeName: `Almacén E2E ${stamp}` };
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: process.env.E2E_BROWSER_CHANNEL });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -27,7 +28,7 @@ const step = (name) => console.log(`• ${name}`);
 
 async function login(user) {
   await page.goto(`${BASE}/login`);
-  await page.getByLabel('Email').fill(user.email);
+  await page.getByLabel('Email o usuario').fill(user.login ?? user.email);
   await page.getByLabel('Contraseña').fill(user.password);
   await page.getByRole('button', { name: 'Ingresar' }).click();
   await page.waitForURL(`${BASE}/app`);
@@ -79,25 +80,27 @@ try {
   await shot('01-inicio');
 
   step('Alta de empleado con rol Cajero en Casa central');
+  if (await page.getByRole('button', { name: 'Administración', exact: true }).isVisible()) await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByRole('link', { name: 'Empleados' }).click();
   await page.getByRole('button', { name: 'Nuevo empleado' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Nombre y apellido').fill(cashier.name);
-  await dialog.getByLabel('Email').fill(cashier.email);
+  await dialog.getByLabel('Nombre de usuario').fill(cashier.login);
   await dialog.getByLabel('Contraseña inicial').fill(cashier.password);
   await dialog.getByLabel('Rol').selectOption({ label: 'Cajero' });
   await dialog.getByLabel('Casa central').check();
   await dialog.getByRole('button', { name: 'Crear empleado' }).click();
   await dialog.waitFor({ state: 'detached' });
-  await page.getByRole('cell', { name: cashier.email }).waitFor();
-  await page.getByPlaceholder('Buscar por nombre, email o rol').fill('cajero');
+  await page.getByRole('cell', { name: cashier.login }).waitFor();
+  await page.getByPlaceholder('Buscar por nombre, usuario, email o rol').fill('cajero');
   await page.getByRole('cell', { name: owner.email }).waitFor({ state: 'detached' });
-  await page.getByRole('cell', { name: cashier.email }).waitFor();
+  await page.getByRole('cell', { name: cashier.login }).waitFor();
   await shot('02-empleados');
   await logout();
 
   step('El cajero no ve ni puede abrir la administración de empleados');
   await login(cashier);
+  if (await page.getByRole('button', { name: 'Administración', exact: true }).isVisible()) await page.getByRole('button', { name: 'Administración', exact: true }).click();
   assert.equal(await page.getByRole('link', { name: 'Empleados' }).count(), 0);
   await page.goto(`${BASE}/app/empleados`);
   await page.getByText('No tenés permiso para ver esta sección').waitFor();
@@ -108,6 +111,7 @@ try {
 
   step('La auditoría registra el alta del empleado');
   await login(owner);
+  if (await page.getByRole('button', { name: 'Administración', exact: true }).isVisible()) await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByRole('link', { name: 'Auditoría' }).click();
   await page.getByRole('cell', { name: 'Alta de empleado' }).first().waitFor();
   await shot('04-auditoria');
@@ -138,6 +142,12 @@ try {
     await page.waitForURL(`${BASE}/plataforma`);
     await page.getByPlaceholder('Buscar por nombre o CUIT').fill(tradeName);
     const row = page.getByRole('row').filter({ hasText: tradeName });
+    step('La plataforma reasigna el plan de un comercio');
+    await row.getByRole('button', { name: 'Cambiar plan' }).click();
+    await page.getByRole('dialog').getByLabel('Nuevo plan').selectOption('profesional');
+    await page.getByRole('dialog').getByLabel('Motivo del cambio').fill('Ampliación solicitada en prueba E2E');
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirmar cambio de plan' }).click();
+    await row.getByText('Profesional', { exact: false }).waitFor();
     await row.getByRole('button', { name: 'Suspender' }).click();
     await page.getByRole('dialog').getByLabel('Motivo').fill('Prueba E2E');
     await page.getByRole('dialog').getByRole('button', { name: 'Suspender' }).click();
@@ -151,6 +161,7 @@ try {
     await dialog.getByLabel('Rubro').selectOption('almacen');
     await dialog.getByLabel('Nombre del dueño').fill(invited.name);
     await dialog.getByLabel('Email del dueño').fill(invited.email);
+    await dialog.getByLabel('Contraseña inicial del dueño (opcional)').fill(invited.password);
     await dialog.getByRole('button', { name: 'Crear comercio' }).click();
     await dialog.waitFor({ state: 'detached' });
     await page.getByPlaceholder('Buscar por nombre o CUIT').fill(invited.tradeName);
@@ -164,14 +175,11 @@ try {
     assert.equal(blocked, 403);
     await shot('06-suspendido');
 
-    if (mailpit) {
-      step('El dueño del comercio dado de alta elige su contraseña con la invitación y entra');
-      await page.context().clearCookies();
-      await choosePassword(await mailText(mailpit, invited.email), invited.password);
-      await login(invited);
-      await page.getByText(invited.tradeName).first().waitFor();
-      await shot('07-invitado');
-    }
+    step('El dueño del comercio dado de alta entra con la contraseña definida desde plataforma');
+    await page.context().clearCookies();
+    await login(invited);
+    await page.getByText(invited.tradeName).first().waitFor();
+    await shot('07-invitado');
   } else {
     step('Panel de plataforma omitido (faltan variables E2E_PLATFORM_*)');
   }

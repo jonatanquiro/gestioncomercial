@@ -2,7 +2,7 @@ import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAt
 import { cn } from './cn';
 
 const control =
-  'block w-full rounded-lg border bg-white px-3 text-sm text-slate-900 shadow-xs placeholder:text-slate-400 disabled:bg-slate-100';
+  'block w-full rounded-lg border bg-white px-3 text-sm text-slate-900 shadow-xs transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/10 disabled:bg-slate-100';
 
 interface FieldProps {
   label: string;
@@ -38,7 +38,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return (
     <input
       ref={ref}
-      className={cn(control, 'h-10', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
+      className={cn(control, 'h-11', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
       {...props}
     />
   );
@@ -48,7 +48,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   return (
     <select
       ref={ref}
-      className={cn(control, 'h-10 pr-8', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
+      className={cn(control, 'h-11 pr-8', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
       {...props}
     />
   );

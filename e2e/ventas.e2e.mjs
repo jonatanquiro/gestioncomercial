@@ -14,7 +14,7 @@ const owner = { name: 'Dueña Ventas', email: `ventas.${stamp}@example.com`, pas
 const alfajor = `779${String(stamp).slice(-10)}`;
 const gaseosa = `778${String(stamp).slice(-10)}`;
 
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: process.env.E2E_BROWSER_CHANNEL });
 const page = await browser.newPage({ viewport: { width: 1366, height: 900 } });
 // El diálogo de impresión del navegador no existe en la prueba: se registra que se pidió.
 await page.addInitScript(() => {
@@ -59,6 +59,7 @@ try {
   assert.equal((await api('POST', '/products', product('Gaseosa 500 ml', '999.99', gaseosa, '10'))).status, 201);
 
   step('La caja arranca cerrada y se abre con el fondo inicial');
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Vender', exact: true }).click();
   await page.getByText('Caja 1 está cerrada').waitFor();
   await page.getByLabel('Efectivo con el que arranca la caja').fill('10.000');
@@ -71,10 +72,14 @@ try {
     await scanner.fill(code);
     await scanner.press('Enter');
   }
-  await page.getByRole('row', { name: /Gaseosa 500 ml/ }).waitFor();
-  assert.equal(await page.getByLabel('Cantidad de Alfajor triple').inputValue(), '2');
-  await page.getByLabel('Descuento de Gaseosa 500 ml').fill('10');
-  await page.getByLabel('Descuento de Gaseosa 500 ml').press('Enter');
+  await page.getByRole('listitem', { name: 'Gaseosa 500 ml' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Alfajor triple"]')?.textContent === '2');
+  await page.getByRole('button', { name: 'Sumar uno de Alfajor triple' }).click();
+  await page.getByRole('button', { name: 'Restar uno de Alfajor triple' }).click();
+  assert.equal(await page.getByLabel('Cantidad de Alfajor triple').textContent(), '2');
+  await page.getByLabel('Cantidad de Gaseosa 500 ml').click();
+  await dialog().getByLabel('Descuento %').fill('10');
+  await dialog().getByLabel('Descuento %').press('Enter');
   await page.getByLabel('Total de la venta').getByText('$ 3.400,99').waitFor();
   await shot('20-venta');
 
@@ -95,13 +100,13 @@ try {
   step('Pago combinado: débito con número de operación y el resto en efectivo');
   await scanner.fill(alfajor);
   await scanner.press('Enter');
-  await page.getByRole('row', { name: /Alfajor triple/ }).waitFor();
+  await page.getByRole('listitem', { name: 'Alfajor triple' }).waitFor();
   await page.getByRole('button', { name: 'Cobrar (F2)' }).click();
-  await dialog().getByLabel('Medio de pago 1').selectOption({ label: 'Débito' });
+  await dialog().getByRole('button', { name: 'Débito', exact: true }).click();
   await dialog().getByLabel('Importe 1').fill('1000');
   await dialog().getByLabel('N° de operación 1').fill('004512');
   await dialog().getByRole('button', { name: 'Pagar el resto con otro medio' }).click();
-  await dialog().getByLabel('Medio de pago 2').selectOption({ label: 'Efectivo' });
+  await dialog().getByRole('button', { name: 'Efectivo', exact: true }).click();
   assert.equal(await dialog().getByLabel('Importe 2').inputValue(), '250,5');
   await dialog().getByRole('button', { name: 'Confirmar venta' }).click();
   await page.getByText('Venta N° 2 cobrada').waitFor();
@@ -111,7 +116,7 @@ try {
   for (let i = 0; i < 20; i++) {
     await scanner.fill(i % 2 ? gaseosa : alfajor);
     await scanner.press('Enter');
-    await page.getByLabel(`Cantidad de ${i % 2 ? 'Gaseosa 500 ml' : 'Alfajor triple'}`).and(page.locator(`[value="${Math.floor(i / 2) + 1}"]`)).waitFor();
+    await page.waitForFunction(([name, n]) => document.querySelector(`[aria-label="Cantidad de ${name}"]`)?.textContent === n, [i % 2 ? 'Gaseosa 500 ml' : 'Alfajor triple', String(Math.floor(i / 2) + 1)]);
   }
   await page.keyboard.press('F2');
   await dialog().getByLabel('Importe 1').press('Enter');
@@ -121,15 +126,18 @@ try {
   assert.ok(seconds < 30, `la venta de 20 artículos tardó ${seconds} s`);
 
   step('Anulación de la venta 1 con motivo');
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Ventas', exact: true }).click();
   await page.getByRole('link', { name: '1', exact: true }).click();
   await page.getByRole('heading', { name: 'Venta N° 1' }).waitFor();
-  await page.getByRole('button', { name: 'Anular' }).click();
+  await page.getByRole('button', { name: 'Más acciones de la venta' }).click();
+  await page.getByRole('menuitem', { name: 'Anular venta' }).click();
   await dialog().getByLabel('Motivo').fill('Cobrada dos veces');
   await dialog().getByRole('button', { name: 'Anular venta' }).click();
   await page.getByText(/Motivo: Cobrada dos veces/).waitFor();
 
   step('Devolución parcial de la venta 3');
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Ventas', exact: true }).click();
   await page.getByRole('link', { name: '3', exact: true }).click();
   await page.getByRole('button', { name: 'Devolución' }).click();
@@ -146,7 +154,39 @@ try {
   assert.equal(byName['Alfajor triple'], '39.000'); // 50 − 2 − 1 − 10 + 2 (anulación)
   assert.equal(byName['Gaseosa 500 ml'], '1.000'); // 10 − 1 − 10 + 1 (anulación) + 1 (devolución)
 
+  step('Venta táctil: más vendidos, queso por importe y débito con botones');
+  assert.equal((await api('POST', '/products', { ...product('Queso de máquina', '9000', `${stamp}9`, '5'), saleMode: 'weight', barcodes: [] })).status, 201);
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
+  await page.getByRole('link', { name: 'Vender', exact: true }).click();
+  await page.getByRole('region', { name: 'Más vendidos' }).getByRole('button', { name: /Alfajor triple/ }).click();
+  await scanner.fill('Queso');
+  await page.getByRole('listbox').getByRole('button', { name: /Queso de máquina/ }).click();
+  await dialog().getByLabel('O el importe que pide el cliente ($)').fill('2000');
+  assert.equal(await dialog().getByLabel('Cantidad (kg)').inputValue(), '0,222');
+  await dialog().getByText('$ 1.998,00').waitFor();
+  await dialog().getByRole('button', { name: 'Agregar' }).click();
+  await page.getByLabel('Total de la venta').getByText('$ 3.248,50').waitFor();
+  await shot('22-venta-tactil');
+  await page.getByRole('button', { name: 'Cobrar (F2)' }).click();
+  await dialog().getByRole('button', { name: 'Débito', exact: true }).click();
+  await dialog().getByLabel('N° de operación 1').fill('778899');
+  await dialog().getByRole('button', { name: 'Confirmar venta' }).click();
+  await page.getByText('Venta N° 4 cobrada').waitFor();
+
+  step('Cantidad por código: 3* y escanear carga tres de una vez');
+  await scanner.fill('3*');
+  await scanner.press('Enter');
+  await page.getByText('× 3', { exact: true }).waitFor();
+  await scanner.fill(gaseosa);
+  await scanner.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Gaseosa 500 ml"]')?.textContent === '3');
+  await scanner.fill(`2*${gaseosa}`);
+  await scanner.press('Enter');
+  await page.waitForFunction(() => document.querySelector('[aria-label="Cantidad de Gaseosa 500 ml"]')?.textContent === '5');
+  await page.getByRole('button', { name: 'Cancelar la venta' }).click();
+
   step('Caja: retiro y cierre ciego con diferencia');
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Caja', exact: true }).click();
   await page.getByRole('link', { name: 'Ver turno' }).click();
   await page.getByRole('button', { name: 'Retiro' }).click();
@@ -165,6 +205,7 @@ try {
   await shot('23-cierre');
 
   step('Turno cerrado: ya no se puede operar');
+  if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Vender', exact: true }).click();
   await page.getByText('Caja 1 está cerrada').waitFor();
 

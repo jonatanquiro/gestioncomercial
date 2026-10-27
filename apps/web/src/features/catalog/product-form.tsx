@@ -1,6 +1,7 @@
 import {
   createProductSchema,
   type ProductDto,
+  type ReferenceProductDto,
   SALE_MODE_LABELS,
   SALE_MODES,
   type SaleMode,
@@ -86,6 +87,7 @@ export function ProductForm({ product, onDone }: { product?: ProductDto; onDone:
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [newBrand, setNewBrand] = useState<string | null>(null);
+  const [suggested, setSuggested] = useState<ReferenceProductDto | null>(null);
   const editing = product !== undefined;
   const seeCost = can('costs.read');
   const editCost = can('costs.update');
@@ -115,6 +117,29 @@ export function ProductForm({ product, onDone }: { product?: ProductDto; onDone:
     },
     onError: (err) => setError(errorMessage(err)),
   });
+
+  /**
+   * En un alta, al escanear un código que el comercio no tiene se completan nombre y marca con el
+   * catálogo de referencia (SEPA). Solo si el nombre está vacío: nunca pisa lo que se escribió.
+   */
+  async function suggestFrom(code: string) {
+    if (editing || form.name.trim() !== '' || !/^\d{8,14}$/.test(code.trim())) return;
+    let ref: ReferenceProductDto;
+    try {
+      ref = await http.get<ReferenceProductDto>(`/products/reference?code=${encodeURIComponent(code.trim())}`);
+    } catch {
+      return; // Sin sugerencia: se carga a mano como siempre.
+    }
+    setForm((f) => {
+      if (f.name.trim() !== '') return f;
+      const brand = ref.brandName ? (brands.data ?? []).find((b) => b.name.toLowerCase() === ref.brandName!.toLowerCase()) : undefined;
+      return { ...f, name: ref.name, brandId: brand?.id ?? f.brandId };
+    });
+    if (ref.brandName && !(brands.data ?? []).some((b) => b.name.toLowerCase() === ref.brandName!.toLowerCase()) && !form.brandId) {
+      setNewBrand(ref.brandName);
+    }
+    setSuggested(ref);
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -154,6 +179,11 @@ export function ProductForm({ product, onDone }: { product?: ProductDto; onDone:
   return (
     <form onSubmit={submit} className="space-y-5" noValidate>
       {error && <Alert>{error}</Alert>}
+      {suggested && (
+        <Alert kind="info">
+          Completamos los datos con el catálogo de Precios Claros{suggested.presentation ? ` (${suggested.presentation})` : ''}. Revisalos y poné tu precio.
+        </Alert>
+      )}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="sm:col-span-2">
           <Field label="Nombre" error={errors.name}>
@@ -264,7 +294,12 @@ export function ProductForm({ product, onDone }: { product?: ProductDto; onDone:
                   aria-invalid={errors[`barcodes.${i}.code`] ? true : undefined}
                   onChange={(e) => set('barcodes', form.barcodes.map((x, j) => (j === i ? { ...x, code: e.target.value } : x)))}
                   // El lector termina con Enter: no tiene que enviar el formulario.
-                  onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    void suggestFrom(b.code);
+                  }}
+                  onBlur={() => void suggestFrom(b.code)}
                 />
                 {errors[`barcodes.${i}.code`] && <p className="mt-1 text-sm text-red-600">{errors[`barcodes.${i}.code`]}</p>}
               </div>

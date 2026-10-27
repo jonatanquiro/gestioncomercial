@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Auth\Actor;
+use App\Models\FiscalInvoice;
 use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductVariant;
@@ -175,6 +176,8 @@ class SalesService
                 'amount' => Money::round($p['amount']),
                 'status' => $p['method']->kind === 'cash' ? 'cash' : 'confirmed',
                 'reference' => $p['reference'],
+                'payer_name' => $p['payerName'],
+                'payer_phone' => $p['payerPhone'],
                 'confirmed_by' => $p['method']->kind === 'cash' ? null : $actor->userId,
             ]);
             if ($p['method']->kind === 'cash') {
@@ -198,7 +201,7 @@ class SalesService
      * de cada pago en efectivo ya tiene el vuelto descontado, así la suma de los pagos
      * registrados es siempre igual al total de la venta.
      *
-     * @return array{0: list<array{method: PaymentMethod, amount: BigDecimal, reference: ?string}>, 1: BigDecimal}
+     * @return array{0: list<array{method: PaymentMethod, amount: BigDecimal, reference: ?string, payerName: ?string, payerPhone: ?string}>, 1: BigDecimal}
      */
     private function payments(array $input, BigDecimal $total): array
     {
@@ -216,7 +219,9 @@ class SalesService
                 throw AppError::validation([['path' => "payments.{$i}.reference", 'message' => "Cargá el número de operación de {$method->name}"]]);
             }
             $amount = BigDecimal::of(Money::round($p['amount']));
-            $payments[] = ['method' => $method, 'amount' => $amount, 'reference' => $reference];
+            // El efectivo no guarda datos de quien paga.
+            $payer = fn (string $key) => $method->kind === 'cash' ? null : (trim((string) ($p[$key] ?? '')) ?: null);
+            $payments[] = ['method' => $method, 'amount' => $amount, 'reference' => $reference, 'payerName' => $payer('payerName'), 'payerPhone' => $payer('payerPhone')];
             $paid = $paid->plus($amount);
             if ($method->kind !== 'cash') {
                 $nonCash = $nonCash->plus($amount);
@@ -252,6 +257,7 @@ class SalesService
 
         return DB::transaction(function () use ($actor, $saleId, $reason, $authorizedBy) {
             $sale = Sale::whereKey($saleId)->lockForUpdate()->first();
+            $this->assertNoFiscalVoucher($saleId);
             if ($sale->status !== 'confirmed') {
                 throw AppError::conflict('SALE_ALREADY_VOIDED', 'La venta ya está anulada');
             }
@@ -327,6 +333,7 @@ class SalesService
     private function confirmReturn(Actor $actor, string $saleId, Register $register, array $input, ?string $authorizedBy): SaleReturn
     {
         $sale = Sale::whereKey($saleId)->lockForUpdate()->first();
+        $this->assertNoFiscalVoucher($saleId);
         if ($sale->status !== 'confirmed') {
             throw AppError::conflict('SALE_VOIDED', 'La venta está anulada: no admite devoluciones');
         }
@@ -406,6 +413,13 @@ class SalesService
         ]);
 
         return $saleReturn;
+    }
+
+    private function assertNoFiscalVoucher(string $saleId): void
+    {
+        if (FiscalInvoice::where('sale_id', $saleId)->where('environment', 'produccion')->whereIn('status', ['pending', 'authorized'])->exists()) {
+            throw AppError::conflict('FISCAL_CREDIT_NOTE_REQUIRED', 'La venta tiene un comprobante fiscal real o pendiente. Requiere resolver su estado y la nota de crédito fiscal antes de anular o devolver. Este módulo todavía no emite notas de crédito.');
+        }
     }
 
     private function record(Actor $actor, string $action, string $saleId, array $after, ?array $before = null): void

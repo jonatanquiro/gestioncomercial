@@ -13,6 +13,8 @@ use App\Models\Plan;
 use App\Models\PlanFeature;
 use App\Models\PlanLimit;
 use App\Models\PlatformUser;
+use App\Models\Product;
+use App\Models\Register;
 use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\User;
@@ -173,8 +175,8 @@ class PlatformController extends Controller
 
     /**
      * Alta manual de un comercio (mismas reglas que platformCreateTenantSchema). Si el email del
-     * dueño no tiene cuenta, se crea una sin contraseña utilizable y se le envía una invitación
-     * para elegirla; si ya tiene cuenta, el comercio se suma a los suyos.
+     * dueño no tiene cuenta, se usa la contraseña indicada o se lo invita por correo.
+     * Si ya tiene cuenta, el comercio se suma a los suyos sin cambiar su contraseña.
      */
     public function createTenant(Request $request): JsonResponse
     {
@@ -190,23 +192,36 @@ class PlatformController extends Controller
             'planCode' => ['required', 'string', 'max:40', Rule::exists('plans', 'code')->where('active', true)],
             'ownerName' => ['required', 'string', 'max:120'],
             'ownerEmail' => ['required', 'string', 'email', 'max:254'],
-        ], ['planCode.exists' => 'Plan inexistente o inactivo']);
+            'ownerPassword' => ['nullable', 'string', 'min:10', 'max:128'],
+        ], ['planCode.exists' => 'Plan inexistente o inactivo', ...Input::passwordMessages('ownerPassword')]);
+        $password = $input['ownerPassword'] ?? null;
+        unset($input['ownerPassword']);
         $input['legalName'] = $input['legalName'] ?? null;
         $input['cuit'] = Input::optionalCuit($input['cuit'] ?? null);
         $client = Client::from($request);
         $token = Tokens::random();
 
-        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token) {
+        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token, $password) {
             $owner = User::where('email', $input['ownerEmail'])->lockForUpdate()->first();
             if ($owner && $owner->status !== 'active') {
                 throw AppError::conflict('USER_INACTIVE', 'Ese email pertenece a un usuario desactivado');
             }
-            $invited = $owner === null;
+            if ($owner && $password !== null) {
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => 'Ese email ya tiene cuenta. Dejá la contraseña vacía para conservar su acceso actual.']]);
+            }
+            $invited = $owner === null && $password === null;
+            try {
+                $hash = $owner ? null : $this->passwords->hash($password ?? Tokens::random());
+            } catch (AppError $e) {
+                if ($e->errorCode !== 'VALIDATION_ERROR') {
+                    throw $e;
+                }
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => $e->details[0]['message']]]);
+            }
             $owner ??= User::create([
                 'email' => $input['ownerEmail'],
                 'name' => $input['ownerName'],
-                // Nadie conoce esta contraseña: el dueño elige la suya con la invitación.
-                'password_hash' => $this->passwords->hash(Tokens::random()),
+                'password_hash' => $hash,
                 'password_changed_at' => Carbon::now(),
             ]);
             $tenantId = $this->provisioning->create($owner->id, $owner->name, $input, $client, [
@@ -237,7 +252,7 @@ class PlatformController extends Controller
             }
         }
 
-        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent], 201);
+        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent, 'ownerPasswordSet' => $password !== null], 201);
     }
 
     public function setTenantStatus(Request $request, string $id): JsonResponse
@@ -275,6 +290,39 @@ class PlatformController extends Controller
     public function plans(): JsonResponse
     {
         return $this->json(Plan::with(['limits', 'features'])->orderBy('sort_order')->get()->map(fn (Plan $p) => $this->planDto($p))->all());
+    }
+
+    public function changeTenantPlan(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['planCode' => ['required', 'string', 'max:40'], 'expectedPlanCode' => ['present', 'nullable', 'string', 'max:40'], 'reason' => ['required', 'string', 'max:300']]);
+        $this->context->withoutTenant(fn () => DB::transaction(function () use ($actor, $v, $id) {
+            $tenant = Tenant::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($tenant->status === 'cancelled') {
+                throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+            }
+            $subscription = Subscription::where('tenant_id', $id)->where('status', '<>', 'cancelled')->lockForUpdate()->first() ?? throw AppError::notFound('Suscripción vigente');
+            $previous = Plan::find($subscription->plan_id);
+            if ($previous?->code !== ($v['expectedPlanCode'] ?? null)) {
+                throw AppError::conflict('PLAN_CHANGED', 'Otra persona cambió el plan. Actualizá la lista y volvé a intentarlo.');
+            }
+            $plan = Plan::where('code', $v['planCode'])->where('active', true)->lockForUpdate()->first() ?? throw AppError::notFound('Plan activo');
+            if ($plan->id === $subscription->plan_id) {
+                throw AppError::badRequest('PLAN_UNCHANGED', 'Elegí un plan diferente');
+            }
+            $usage = ['max_branches' => Branch::where('tenant_id', $id)->where('status', 'active')->count(), 'max_users' => Membership::where('tenant_id', $id)->where('status', 'active')->count(), 'max_products' => Product::where('tenant_id', $id)->where('status', 'active')->count(), 'max_registers' => Register::where('tenant_id', $id)->where('status', 'active')->count()];
+            $limits = $plan->limitMap();
+            $labels = ['max_branches' => 'sucursales', 'max_users' => 'usuarios', 'max_products' => 'productos', 'max_registers' => 'cajas'];
+            foreach ($usage as $key => $used) {
+                if (isset($limits[$key]) && $used > $limits[$key]) {
+                    throw AppError::conflict('PLAN_USAGE_EXCEEDED', "El comercio tiene {$used} {$labels[$key]} activos y el plan permite {$limits[$key]}. Reducí el uso antes de cambiarlo.");
+                }
+            }
+            $subscription->forceFill(['plan_id' => $plan->id])->save();
+            $this->audit->record(['tenantId' => $id, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => 'Plataforma: '.$actor->name, 'action' => 'platform.tenant_plan_changed', 'entityType' => 'tenant', 'entityId' => $id, 'before' => ['planCode' => $previous?->code], 'after' => ['planCode' => $plan->code, 'reason' => $v['reason'], 'usage' => $usage], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        }));
+
+        return $this->json(['ok' => true]);
     }
 
     public function updatePlan(Request $request, string $id): JsonResponse

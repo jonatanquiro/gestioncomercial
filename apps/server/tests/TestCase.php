@@ -78,7 +78,7 @@ abstract class TestCase extends BaseTestCase
         $res = $owner->post('/employees', ['name' => 'Empleado Prueba', 'email' => $email, 'password' => self::PASSWORD, 'roleId' => $roleId, 'branchIds' => $branchIds]);
         $this->assertSame(201, $res->status, 'Alta de empleado falló: '.json_encode($res->body));
         $client = $this->client();
-        $this->assertSame(200, $client->post('/auth/login', ['email' => $email, 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $client->post('/auth/login', ['login' => $email, 'password' => self::PASSWORD])->status);
 
         return ['client' => $client, 'email' => $email, 'membershipId' => $res->body['membershipId']];
     }

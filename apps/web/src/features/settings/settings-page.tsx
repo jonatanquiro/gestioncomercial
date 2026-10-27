@@ -11,6 +11,7 @@ import { Alert, Card, PageHeader, Spinner } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatCuit, parseDecimalInput } from '@/lib/format';
+import { SettingsTabs } from '@/features/settings/settings-tabs';
 import { useCan } from '@/lib/session';
 
 type FormIn = z.input<typeof updateTenantSchema>;
@@ -143,6 +144,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Configuración" description="Datos del negocio y parámetros de funcionamiento." />
+      <SettingsTabs />
       {tenant.isLoading && <Spinner />}
       {tenant.error && <Alert>{errorMessage(tenant.error)}</Alert>}
       {tenant.data && <SettingsForm tenant={tenant.data} />}

@@ -10,7 +10,7 @@ export function formatCuit(cuit: string | null | undefined) {
 }
 
 export const TENANT_STATUS_LABELS: Record<string, string> = {
-  trial: 'Prueba',
+  trial: 'Período de prueba',
   active: 'Activo',
   past_due: 'Pago vencido',
   suspended: 'Suspendido',

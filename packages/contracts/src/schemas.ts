@@ -14,6 +14,18 @@ const optionalText = (max: number) =>
 
 export const emailSchema = z.string().trim().toLowerCase().pipe(z.email('Email inválido')).pipe(z.string().max(254));
 
+/** Nombre de usuario para ingresar sin email (ADR 0010). Sin @, para distinguirlo del email. */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'El usuario debe tener al menos 3 caracteres')
+  .max(30, 'El usuario no puede superar 30 caracteres')
+  .regex(/^[a-z0-9][a-z0-9._-]*$/, 'Usá letras sin acentos, números, punto, guion o guion bajo, empezando por letra o número');
+
+const optionalEmail = emailSchema.optional().nullable().or(z.literal('').transform(() => null));
+const optionalUsername = usernameSchema.optional().nullable().or(z.literal('').transform(() => null));
+
 export const passwordSchema = z
   .string()
   .min(10, 'La contraseña debe tener al menos 10 caracteres')
@@ -54,7 +66,7 @@ export const registerTenantSchema = z.object({
 export type RegisterTenantInput = z.infer<typeof registerTenantSchema>;
 
 export const loginSchema = z.object({
-  email: emailSchema,
+  login: z.string().trim().toLowerCase().min(1, 'Obligatorio').max(254),
   password: z.string().min(1, 'Obligatorio').max(128),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -90,6 +102,14 @@ export const tenantSettingsSchema = z.object({
 });
 export type TenantSettings = z.infer<typeof tenantSettingsSchema>;
 
+export const appearanceSchema = z.object({
+  logoData: z.string().max(350000).nullable(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), menuColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  font: z.enum(['system', 'archivo', 'serif']), navigation: z.enum(['side', 'top']),
+  textSize: z.enum(['normal', 'large']), density: z.enum(['normal', 'compact']),
+});
+export type Appearance = z.infer<typeof appearanceSchema>;
+
 export const updateTenantSchema = z.object({
   tradeName: trimmed(120),
   legalName: optionalText(160),
@@ -97,7 +117,7 @@ export const updateTenantSchema = z.object({
   taxCondition: taxConditionSchema,
   address: optionalText(200),
   phone: optionalText(40),
-  email: emailSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  email: optionalEmail,
   settings: tenantSettingsSchema,
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
@@ -112,13 +132,16 @@ export const updateBranchSchema = createBranchSchema.extend({
 
 // ---------- Usuarios y roles ----------
 
-export const createEmployeeSchema = z.object({
-  name: trimmed(120),
-  email: emailSchema,
-  password: passwordSchema,
-  roleId: uuidSchema,
-  branchIds: z.array(uuidSchema).min(1, 'Elegí al menos una sucursal').max(100),
-});
+export const createEmployeeSchema = z
+  .object({
+    name: trimmed(120),
+    username: optionalUsername,
+    email: optionalEmail,
+    password: passwordSchema,
+    roleId: uuidSchema,
+    branchIds: z.array(uuidSchema).min(1, 'Elegí al menos una sucursal').max(100),
+  })
+  .refine((v) => v.username || v.email, { path: ['username'], message: 'Indicá un nombre de usuario o un email' });
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 
 export const updateMembershipSchema = z.object({
@@ -127,6 +150,11 @@ export const updateMembershipSchema = z.object({
   status: z.enum(['active', 'inactive']),
 });
 export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
+
+/** Contraseña que el comercio le pone a alguien que trabaja solo ahí (por ejemplo, sin email). */
+export const setEmployeePasswordSchema = z.object({ password: passwordSchema });
+
+export const updateUsernameSchema = z.object({ username: optionalUsername });
 
 export const roleSchema = z.object({
   name: trimmed(60),
@@ -146,7 +174,7 @@ export const setTenantStatusSchema = z.object({
   reason: trimmed(300),
 });
 
-/** Alta manual de un comercio desde la plataforma. El dueño recibe una invitación para elegir su contraseña. */
+/** Alta manual: contraseña inicial opcional; sin ella se invita al dueño por correo. */
 export const platformCreateTenantSchema = z.object({
   tradeName: trimmed(120),
   legalName: optionalText(160),
@@ -156,6 +184,7 @@ export const platformCreateTenantSchema = z.object({
   planCode: trimmed(40),
   ownerName: trimmed(120),
   ownerEmail: emailSchema,
+  ownerPassword: z.union([passwordSchema, z.literal('')]).nullable().optional(),
 });
 export type PlatformCreateTenantInput = z.infer<typeof platformCreateTenantSchema>;
 
@@ -240,6 +269,20 @@ export const createProductSchema = z.object({
   initialStock: quantitySchema.nullable(),
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
+
+/** Alta de varios productos del catálogo de referencia (SEPA), cada uno con su precio. */
+export const addReferenceProductsSchema = z.object({
+  categoryId: uuidSchema.nullable(),
+  items: z
+    .array(z.object({
+      code: z.string().trim().regex(/^\d{6,14}$/, 'Código inválido'),
+      price: moneySchema,
+      initialStock: quantitySchema.refine((v) => Number.isInteger(Number(v)), 'En la venta por unidad, la cantidad tiene que ser entera').nullable().optional(),
+    }))
+    .min(1, 'Elegí al menos un producto')
+    .max(100, 'Hasta 100 productos por vez'),
+});
+export type AddReferenceProductsInput = z.infer<typeof addReferenceProductsSchema>;
 
 export const updateProductSchema = z.object({ ...productBase, version: z.number().int().min(1) });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
@@ -330,7 +373,18 @@ export const createSaleSchema = z.object({
     .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, discountPercent: discountPercentSchema }))
     .min(1, 'Agregá al menos un artículo')
     .max(300),
-  payments: z.array(z.object({ paymentMethodId: uuidSchema, amount: positiveMoney, reference: optionalText(80) })).max(10),
+  payments: z
+    .array(
+      z.object({
+        paymentMethodId: uuidSchema,
+        amount: positiveMoney,
+        reference: optionalText(80),
+        /** Quién transfiere o paga con QR: lo piden muchos comercios para identificar el cobro. */
+        payerName: optionalText(120),
+        payerPhone: optionalText(30).refine((v) => !v || /^[\d\s()+-]{6,30}$/.test(v), 'Teléfono inválido'),
+      }),
+    )
+    .max(10),
   expectedTotal: moneySchema,
   authorization: pinAuthorizationSchema.nullable().optional(),
 });

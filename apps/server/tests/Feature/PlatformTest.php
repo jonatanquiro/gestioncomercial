@@ -159,9 +159,9 @@ class PlatformTest extends TestCase
 
         // Antes de aceptar la invitación no hay contraseña que sirva.
         $owner = $this->client();
-        $this->assertSame(401, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(401, $owner->post('/auth/login', ['login' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
         $this->assertSame(200, $owner->post('/auth/reset-password', ['token' => $query['token'], 'password' => self::PASSWORD])->status);
-        $this->assertSame(200, $owner->post('/auth/login', ['email' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $owner->post('/auth/login', ['login' => $input['ownerEmail'], 'password' => self::PASSWORD])->status);
 
         $me = $owner->get('/auth/me')->body;
         $this->assertSame($tenantId, $me['tenant']['id']);
@@ -189,6 +189,51 @@ class PlatformTest extends TestCase
         $this->assertCount(2, $tenantIds);
     }
 
+    public function test_crea_dueno_con_contrasena_inicial_sin_necesitar_correo(): void
+    {
+        $admin = $this->platformLogin();
+        // Los espacios forman parte de la contraseña: no deben recortarse.
+        $password = ' clave-inicial-del-kiosco ';
+        $input = $this->newTenantInput(['ownerPassword' => $password]);
+        $res = $admin->post('/platform/tenants', $input);
+        $this->assertSame(201, $res->status, json_encode($res->body));
+        $this->assertTrue($res->body['ownerPasswordSet']);
+        $this->assertFalse($res->body['ownerInvited']);
+        $this->assertFalse($res->body['invitationSent']);
+        Mail::assertNotSent(OwnerInvitationMail::class);
+        $owner = $this->client();
+        $this->assertSame(200, $owner->post('/auth/login', ['login' => $input['ownerEmail'], 'password' => $password])->status);
+        $me = $owner->get('/auth/me')->body;
+        $this->assertSame($res->body['id'], $me['tenant']['id']);
+        $this->assertSame('Propietario', $me['role']['name']);
+        $audit = $owner->get('/audit?entityType=tenant')->body;
+        $this->assertStringNotContainsString($password, json_encode($audit));
+        $this->assertStringNotContainsString('ownerPassword', json_encode($audit));
+    }
+
+    public function test_no_reemplaza_la_contrasena_de_un_dueno_existente(): void
+    {
+        ['input' => $existing] = $this->registerTenant();
+        $admin = $this->platformLogin();
+        $input = $this->newTenantInput(['ownerEmail' => $existing['email'], 'ownerPassword' => 'otra-clave-del-kiosco']);
+        $res = $admin->post('/platform/tenants', $input);
+        $this->assertSame(400, $res->status);
+        $this->assertSame('ownerPassword', $res->body['details'][0]['path']);
+        $owner = $this->client();
+        $this->assertSame(200, $owner->post('/auth/login', ['login' => $existing['email'], 'password' => $existing['password']])->status);
+        $this->assertCount(1, $owner->get('/auth/me')->body['memberships']);
+    }
+
+    public function test_valida_la_contrasena_inicial_antes_de_crear_el_comercio(): void
+    {
+        $admin = $this->platformLogin();
+        foreach (['corta', str_repeat('x', 129), '1234567890', 'password123'] as $password) {
+            $res = $admin->post('/platform/tenants', $this->newTenantInput(['ownerPassword' => $password]));
+            $this->assertSame(400, $res->status);
+            $this->assertSame('ownerPassword', $res->body['details'][0]['path']);
+        }
+    }
+
     public function test_valida_el_alta_manual(): void
     {
         $admin = $this->platformLogin();
@@ -202,5 +247,22 @@ class PlatformTest extends TestCase
         // Un usuario de comercio no puede usar la ruta de plataforma.
         ['client' => $owner] = $this->registerTenant();
         $this->assertSame(401, $owner->post('/platform/tenants', $this->newTenantInput())->status);
+    }
+
+    public function test_reasigna_plan_sin_reiniciar_prueba_y_controla_ediciones_simultaneas(): void
+    {
+        ['client' => $owner, 'tenantId' => $id] = $this->registerTenant();
+        $admin = $this->platformLogin();
+        $before = collect($admin->get('/platform/tenants?pageSize=100')->body['items'])->firstWhere('id', $id);
+        $this->assertSame(200, $admin->post("/platform/tenants/{$id}/plan", ['planCode' => 'multisucursal', 'expectedPlanCode' => 'inicial', 'reason' => 'Ampliación solicitada'])->status);
+        $this->assertSame('multisucursal', $owner->get('/tenant')->body['plan']['code']);
+        $after = collect($admin->get('/platform/tenants?pageSize=100')->body['items'])->firstWhere('id', $id);
+        $this->assertSame($before['trialEndsAt'], $after['trialEndsAt']);
+        $this->assertSame($before['subscriptionStatus'], $after['subscriptionStatus']);
+        $this->assertSame(409, $admin->post("/platform/tenants/{$id}/plan", ['planCode' => 'inicial', 'expectedPlanCode' => 'inicial', 'reason' => 'Edición desactualizada'])->status);
+        $this->assertSame(201, $owner->post('/branches', ['name' => 'Segunda sucursal', 'address' => null])->status);
+        $denied = $admin->post("/platform/tenants/{$id}/plan", ['planCode' => 'inicial', 'expectedPlanCode' => 'multisucursal', 'reason' => 'Baja de plan']);
+        $this->assertSame([409, 'PLAN_USAGE_EXCEEDED'], [$denied->status, $denied->body['code']]);
+        $this->assertContains('platform.tenant_plan_changed', array_column($owner->get('/audit?entityType=tenant')->body['items'], 'action'));
     }
 }

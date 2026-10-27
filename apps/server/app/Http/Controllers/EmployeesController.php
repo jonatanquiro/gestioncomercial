@@ -9,8 +9,10 @@ use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\AuthService;
 use App\Services\EntitlementsService;
 use App\Services\PasswordService;
+use App\Services\SessionService;
 use App\Support\AppError;
 use App\Support\Catalog;
 use App\Support\Dates;
@@ -26,10 +28,13 @@ class EmployeesController extends Controller
         private readonly PasswordService $passwords,
         private readonly EntitlementsService $entitlements,
         private readonly AuditService $audit,
+        private readonly AuthService $auth,
+        private readonly SessionService $sessions,
     ) {}
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $actor = $this->actor($request);
         $links = MembershipBranch::all()->groupBy('membership_id');
         $rows = Membership::query()
             ->join('users', 'users.id', '=', 'memberships.user_id')
@@ -38,15 +43,18 @@ class EmployeesController extends Controller
             })
             ->orderBy('users.name')
             ->get([
-                'memberships.id as membership_id', 'users.id as user_id', 'users.name', 'users.email',
+                'memberships.id as membership_id', 'users.id as user_id', 'users.name', 'users.email', 'users.username',
                 'roles.id as role_id', 'roles.name as role_name', 'memberships.status', 'memberships.created_at',
             ]);
+        $settable = array_flip($this->auth->usersOnlyIn($actor->tenantId, $rows->pluck('user_id')->unique()->values()->all()));
 
         return $this->json($rows->map(fn ($r) => [
             'membershipId' => $r->membership_id,
             'userId' => $r->user_id,
             'name' => $r->name,
             'email' => $r->email,
+            'username' => $r->username,
+            'canSetPassword' => isset($settable[$r->user_id]) && $r->user_id !== $actor->userId,
             'roleId' => $r->role_id,
             'roleName' => $r->role_name,
             'status' => $r->status,
@@ -60,13 +68,18 @@ class EmployeesController extends Controller
         $actor = $this->actor($request);
         $data = $this->body($request);
         $data['email'] = Input::email($data['email'] ?? null);
+        $data['username'] = Input::email($data['username'] ?? null);
         $input = Input::validate($data, [
             'name' => ['required', 'string', 'max:120'],
-            'email' => ['required', 'string', 'email', 'max:254'],
+            'username' => [...Input::usernameRules(), 'required_without:email'],
+            'email' => ['nullable', 'string', 'email', 'max:254'],
             'password' => Input::passwordRules(),
             'roleId' => ['required', 'string', 'uuid'],
             ...self::branchRules(),
-        ], Input::passwordMessages('password') + self::branchMessages());
+        ], Input::passwordMessages('password') + Input::usernameMessages('username') + self::branchMessages()
+            + ['username.required_without' => 'Indicá un nombre de usuario o un email']);
+        $input['email'] ??= null;
+        $input['username'] ??= null;
         $passwordHash = $this->passwords->hash($input['password']);
         $branchIds = array_values(array_unique($input['branchIds']));
 
@@ -76,8 +89,15 @@ class EmployeesController extends Controller
             $this->entitlements->assertBelowLimit('max_users', Membership::where('status', 'active')->count());
 
             // La identidad es global: si el email ya existe, se suma al comercio sin tocar su contraseña.
-            $existing = User::where('email', $input['email'])->first();
+            $existing = $input['email'] !== null ? User::where('email', $input['email'])->first() : null;
+            if ($existing && $input['username'] !== null && $input['username'] !== $existing->username) {
+                throw AppError::validation([['path' => 'username', 'message' => 'Ese email ya tiene cuenta: dejá el usuario vacío y la persona ingresa con su email']]);
+            }
+            if (! $existing && $input['username'] !== null && User::where('username', $input['username'])->exists()) {
+                throw AppError::conflict('USERNAME_IN_USE', 'Ese nombre de usuario ya está en uso');
+            }
             $user = $existing ?? User::create([
+                'username' => $input['username'],
                 'email' => $input['email'],
                 'name' => $input['name'],
                 'password_hash' => $passwordHash,
@@ -94,7 +114,7 @@ class EmployeesController extends Controller
                 'entityType' => 'membership',
                 'entityId' => $membership->id,
                 'after' => [
-                    'name' => $input['name'], 'email' => $input['email'], 'roleId' => $input['roleId'],
+                    'name' => $input['name'], 'email' => $input['email'], 'username' => $input['username'], 'roleId' => $input['roleId'],
                     'branchIds' => $input['branchIds'], 'existingUser' => $existing !== null,
                 ],
                 'ip' => $actor->ip,
@@ -162,6 +182,41 @@ class EmployeesController extends Controller
                 'entityId' => $membershipId,
                 'before' => $before,
                 'after' => ['roleId' => $input['roleId'], 'status' => $input['status'], 'branchIds' => $after],
+                'ip' => $actor->ip,
+                'requestId' => $actor->requestId,
+            ]);
+        });
+
+        return $this->json(['ok' => true]);
+    }
+
+    /** Contraseña nueva para alguien que trabaja solo en este comercio (por ejemplo, sin email). */
+    public function setPassword(Request $request, string $membershipId): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $input = Input::validate($this->body($request), ['password' => Input::passwordRules()], Input::passwordMessages('password'));
+        $passwordHash = $this->passwords->hash($input['password']);
+
+        DB::transaction(function () use ($actor, $membershipId, $passwordHash) {
+            $target = Membership::whereKey($membershipId)->first() ?? throw AppError::notFound('Empleado');
+            if ($target->user_id === $actor->userId) {
+                throw AppError::conflict('SELF_PASSWORD', 'Tu contraseña se cambia desde Mi cuenta');
+            }
+            $this->assertCanAssignRole($actor, $target->role_id);
+            if ($this->auth->usersOnlyIn($actor->tenantId, [$target->user_id]) === []) {
+                throw AppError::conflict('USER_IN_OTHER_TENANTS', 'Esa persona también trabaja en otro comercio: tiene que cambiar su contraseña desde Mi cuenta o recuperarla por email');
+            }
+            $user = User::whereKey($target->user_id)->lockForUpdate()->firstOrFail();
+            $user->forceFill(['password_hash' => $passwordHash, 'password_changed_at' => Carbon::now()])->save();
+            $this->sessions->revokeAll($user->id);
+            $this->audit->record([
+                'tenantId' => $actor->tenantId,
+                'actorType' => 'user',
+                'actorId' => $actor->userId,
+                'actorName' => $actor->userName,
+                'action' => 'membership.password_set',
+                'entityType' => 'membership',
+                'entityId' => $membershipId,
                 'ip' => $actor->ip,
                 'requestId' => $actor->requestId,
             ]);

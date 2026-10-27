@@ -121,6 +121,11 @@
       "label": "Vender sin conexión"
     },
     {
+      "code": "fiscal.issue",
+      "module": "Ventas",
+      "label": "Emitir facturas electrónicas"
+    },
+    {
       "code": "cash.open",
       "module": "Caja",
       "label": "Abrir caja"
@@ -290,6 +295,7 @@
         "sales.void",
         "sales.return",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.withdraw",
@@ -348,6 +354,7 @@
         "sales.void",
         "sales.return",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.withdraw",
@@ -398,6 +405,7 @@
         "sales.void",
         "sales.return",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.withdraw",
@@ -425,6 +433,7 @@
         "sales.discount",
         "sales.read_own",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.count",

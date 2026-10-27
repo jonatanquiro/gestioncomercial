@@ -8,6 +8,7 @@ import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { ActionMenu } from '@/components/ui/menu';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -17,6 +18,8 @@ import { useCan } from '@/lib/session';
 import { PinDialog } from './pin-dialog';
 import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQuery } from './queries';
 import { PrintTicket } from './ticket';
+import { InvoiceDialog, invoiceNumber, saleInvoicesQuery } from '@/features/fiscal/invoice-dialog';
+import { InvoicePrint } from '@/features/fiscal/invoice';
 
 const PAGE_SIZE = 25;
 
@@ -69,7 +72,7 @@ export function SalesPage() {
             {sales.data.items.map((s) => (
               <tr key={s.id}>
                 <Td>
-                  <Link to="/app/ventas/$id" params={{ id: s.id }} className="font-semibold text-brand-700 hover:underline">
+                  <Link to="/app/ventas/$id" params={{ id: s.id }} className="-my-2 inline-flex min-h-10 min-w-10 items-center font-semibold text-brand-700 hover:underline">
                     {s.number}
                   </Link>
                 </Td>
@@ -104,6 +107,10 @@ export function SaleDetailPage() {
   const [printing, setPrinting] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [invoicing, setInvoicing] = useState(false);
+  const canInvoice = can('fiscal.issue', 'fiscal.manage');
+  const invoices = useQuery({ ...saleInvoicesQuery(id), enabled: canInvoice });
+  const [printingInvoice, setPrintingInvoice] = useState<NonNullable<typeof invoices.data>[number] | null>(null);
 
   if (!can('sales.read_own', 'sales.read_all')) return <Forbidden />;
   if (sale.isLoading) return <Spinner />;
@@ -121,16 +128,13 @@ export function SaleDetailPage() {
             <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting(true)}>
               <Printer className="size-4" /> Reimprimir ticket
             </Button>
+            {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
             {s.status === 'confirmed' && can('sales.create', 'sales.return') && returnable && (
               <Button variant="secondary" onClick={() => setReturning(true)}>
                 Devolución
               </Button>
             )}
-            {s.status === 'confirmed' && s.returns.length === 0 && can('sales.create', 'sales.void') && (
-              <Button variant="danger" onClick={() => setVoiding(true)}>
-                Anular
-              </Button>
-            )}
+            <ActionMenu label="Más acciones de la venta" text="Más" items={[{ label: 'Anular venta', danger: true, hidden: !(s.status === 'confirmed' && s.returns.length === 0 && can('sales.create', 'sales.void')), onSelect: () => setVoiding(true) }]} />
           </>
         }
       />
@@ -183,6 +187,22 @@ export function SaleDetailPage() {
             <Line key={i} label={`${p.name}${p.reference ? ` · ${p.reference}` : ''}`} value={formatArs(p.amount)} />
           ))}
           {s.changeGiven !== '0.00' && <Line label="Vuelto entregado" value={formatArs(s.changeGiven)} />}
+          {s.payments.filter((p) => p.payerName || p.payerPhone).map((p, i) => (
+            <p key={`payer-${i}`} className="text-xs text-slate-500">
+              Pagó {[p.payerName, p.payerPhone].filter(Boolean).join(' · ')} ({p.name})
+            </p>
+          ))}
+          {invoices.data?.filter((i) => i.status === 'authorized').map((i) => (
+            <div key={i.id} className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200 pt-2">
+              <span>
+                {invoiceNumber(i)}
+                <span className="block text-xs text-slate-500">CAE {i.cae}{i.environment === 'homologacion' ? ' · prueba' : ''}</span>
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => setPrintingInvoice(i)}>
+                Imprimir
+              </Button>
+            </div>
+          ))}
         </Card>
       </div>
       {s.returns.length > 0 && (
@@ -219,6 +239,8 @@ export function SaleDetailPage() {
       {voiding && <VoidDialog sale={s} onClose={() => setVoiding(false)} />}
       {returning && <ReturnDialog sale={s} onClose={() => setReturning(false)} />}
       {printing && tenant.data && <PrintTicket sale={s} tenant={tenant.data} onDone={() => setPrinting(false)} />}
+      {invoicing && <InvoiceDialog sale={s} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => setInvoicing(false)} />}
+      {printingInvoice && <InvoicePrint invoice={printingInvoice} onClose={() => setPrintingInvoice(null)} />}
     </>
   );
 }

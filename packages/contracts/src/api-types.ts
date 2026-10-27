@@ -1,5 +1,5 @@
 import type { PermissionCode } from './permissions';
-import type { PaymentKind, SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
+import type { Appearance, PaymentKind, SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
 
 /** Formato único de error de la API. */
 export interface ApiError {
@@ -25,7 +25,7 @@ export interface MembershipSummary {
 }
 
 export interface MeResponse {
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string | null; username: string | null };
   tenant: { id: string; tradeName: string; status: string; businessTypeCode: string } | null;
   role: { id: string; name: string } | null;
   permissions: PermissionCode[];
@@ -45,6 +45,7 @@ export interface TenantDto {
   businessTypeCode: string;
   status: string;
   settings: TenantSettings;
+  appearance?: Appearance;
   plan: { code: string; name: string; limits: Record<string, number>; features: string[] } | null;
   usage: { branches: number; users: number };
 }
@@ -70,7 +71,10 @@ export interface EmployeeDto {
   membershipId: string;
   userId: string;
   name: string;
-  email: string;
+  email: string | null;
+  username: string | null;
+  /** Trabaja solo en este comercio: el comercio puede ponerle una contraseña nueva. */
+  canSetPassword: boolean;
   roleId: string;
   roleName: string;
   status: 'active' | 'inactive';
@@ -106,9 +110,11 @@ export interface SessionDto {
 
 export interface PlatformCreateTenantResult {
   id: string;
-  /** false si el email ya tenía cuenta: entra con su contraseña de siempre. */
+  /** Se invitó a un dueño nuevo a elegir su contraseña por correo. */
   ownerInvited: boolean;
   invitationSent: boolean;
+  /** El dueño nuevo puede ingresar directamente con la contraseña definida en el alta. */
+  ownerPasswordSet: boolean;
 }
 
 export interface PlatformTenantDto {
@@ -194,6 +200,22 @@ export interface ProductLookupDto {
   product: ProductDto;
   /** Unidades que representa el código leído (12 si es el código del pack). */
   quantityFactor: string;
+}
+
+/** Sugerencia del catálogo de referencia (datos abiertos de SEPA) para un código que el comercio no tiene. */
+export interface ReferenceProductDto {
+  code: string;
+  name: string;
+  brandName: string | null;
+  /** Contenido de la etiqueta, por ejemplo "500 g" o "2,25 l". */
+  presentation: string | null;
+  source: 'sepa';
+}
+
+/** Resultado de la búsqueda en el catálogo de referencia. */
+export interface ReferenceSearchItemDto extends ReferenceProductDto {
+  /** El comercio ya tiene un producto con este código. */
+  added: boolean;
 }
 
 export interface WarehouseDto {
@@ -345,7 +367,7 @@ export interface SaleDto {
   changeGiven: string;
   discountAuthorizedBy: string | null;
   lines: SaleLineDto[];
-  payments: Array<{ paymentMethodId: string; name: string; kind: PaymentKind; amount: string; reference: string | null }>;
+  payments: Array<{ paymentMethodId: string; name: string; kind: PaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null }>;
   void: { at: string; byName: string; authorizedByName: string | null; reason: string } | null;
   returns: Array<{
     id: string;

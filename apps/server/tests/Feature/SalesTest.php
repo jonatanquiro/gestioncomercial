@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Support\Money;
 use App\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\ApiClient;
@@ -34,6 +35,22 @@ class SalesTest extends TestCase
     private function cash(array $shop, string $amount): array
     {
         return ['paymentMethodId' => $shop['methods']['cash']['id'], 'amount' => $amount];
+    }
+
+    public function test_mas_vendidos_ordena_por_ventas_recientes_y_omite_inactivos(): void
+    {
+        $shop = $this->shop();
+        $owner = $shop['client'];
+        $this->assertSame([], $owner->get('/products/favorites')->body);
+        $pan = $this->createProduct($owner, ['name' => 'Pan', 'price' => '100']);
+        $queso = $this->createProduct($owner, ['name' => 'Queso', 'price' => '9000', 'saleMode' => 'weight']);
+        $baja = $this->createProduct($owner, ['name' => 'Discontinuado', 'price' => '50']);
+        foreach ([[$pan, '1'], [$pan, '2'], [$queso, '0.350'], [$baja, '1'], [$baja, '1'], [$baja, '1']] as [$p, $qty]) {
+            $total = Money::round(Money::of($p['price'])->multipliedBy($qty));
+            $this->assertSame(201, $this->sale($owner, $shop, [['variantId' => $p['variantId'], 'quantity' => $qty]], [$this->cash($shop, $total)], $total)->status);
+        }
+        $this->assertSame(200, $owner->post('/products/'.$baja['id'].'/status', ['status' => 'inactive', 'version' => $baja['version']])->status);
+        $this->assertSame(['Pan', 'Queso'], array_column($owner->get('/products/favorites')->body, 'name'));
     }
 
     public function test_venta_con_pagos_combinados_mueve_stock_y_caja(): void

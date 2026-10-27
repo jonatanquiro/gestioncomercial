@@ -11,6 +11,7 @@
 - **Contraseñas** con Argon2id (parámetros OWASP), un mínimo de 10 caracteres y una lista de contraseñas comunes.
 - **Bloqueo por intentos fallidos** por IP y por email.
 - **Administradores de plataforma** con email y contraseña. El TOTP obligatorio se quitó a pedido de Jona (ver `0007-plataforma-sin-totp.md`).
+- **Alta de dueños desde plataforma** (actualizado el 2026-10-26): el operador puede definir una contraseña inicial para una cuenta nueva, con las mismas reglas y hash que el registro, o dejarla vacía para enviar una invitación. El dueño queda con rol Propietario. No se permite reemplazar la contraseña de una cuenta existente mediante el alta de otro comercio. La contraseña no se incluye en auditorías ni respuestas.
 - **Recuperación de contraseña** con un token de un solo uso que vence en 30 minutos. Al usarlo se cierran todas las sesiones. La respuesta es la misma exista o no el email.
 
 ## Pendiente

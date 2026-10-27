@@ -1,46 +1,78 @@
 @import "tailwindcss";
 
 /*
- * Estilo "Mostrador": pensado para usar todo el día en el local.
- * Neutros cálidos (crema y grafito) en lugar de grises fríos, acento ámbar y letra Archivo.
- * La escala slate se redefine para que todas las pantallas tomen los neutros cálidos.
+ * Estilo «Almacén de barrio»: papel crema, tinta cálida, menú verde almacén y acento tomate.
+ * Los neutros reemplazan la escala slate para que todo el sistema tome el mismo tono; cada
+ * comercio puede cambiar el color principal y el del menú desde Apariencia.
  */
 @theme {
-  --color-slate-50: #faf7f2;
-  --color-slate-100: #f3eee6;
-  --color-slate-200: #e6dfd3;
-  --color-slate-300: #d3cabb;
-  --color-slate-400: #a39a8b;
-  --color-slate-500: #776e61;
-  --color-slate-600: #5b544a;
-  --color-slate-700: #45403a;
-  --color-slate-800: #2e2a25;
-  --color-slate-900: #1f1c18;
-  --color-slate-950: #151310;
+  --color-white: #fffdf8;
+  --color-slate-50: #f7f3ea;
+  --color-slate-100: #efe8da;
+  --color-slate-200: #e4dac6;
+  --color-slate-300: #cdbfa5;
+  --color-slate-400: #a09379;
+  --color-slate-500: #776c58;
+  --color-slate-600: #5d5444;
+  --color-slate-700: #463f33;
+  --color-slate-800: #302b23;
+  --color-slate-900: #201d17;
+  --color-slate-950: #14120e;
 
-  --color-brand-50: #fff8eb;
-  --color-brand-100: #fdebc8;
-  --color-brand-200: #fbd28d;
-  --color-brand-300: #f7b54f;
-  --color-brand-400: #f29d24;
-  --color-brand-500: #e8900c;
-  --color-brand-600: #c96f05;
-  --color-brand-700: #a85a06;
-  --color-brand-800: #85460a;
-  --color-brand-900: #6b390c;
+  --color-brand-50: #fbf0ec;
+  --color-brand-100: #f6ddd5;
+  --color-brand-200: #ecbcae;
+  --color-brand-300: #df9480;
+  --color-brand-400: #cf6c52;
+  --color-brand-500: #c1553a;
+  --color-brand-600: #b8432a;
+  --color-brand-700: #9c3923;
+  --color-brand-800: #812f1d;
+  --color-brand-900: #652517;
 
-  --font-sans: "Archivo Variable", "Archivo", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-almacen-700: #1f3b2d;
+  --color-almacen-800: #172d22;
 
-  --radius-lg: 0.375rem;
-  --radius-xl: 0.5rem;
-  --radius-2xl: 0.625rem;
+  --font-sans: "Archivo Variable", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Archivo Variable", "Segoe UI", sans-serif;
+
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.375rem;
+
+  --shadow-xs: 0 1px 0 rgb(32 29 23 / 0.06);
+  --shadow-sm: 0 1px 2px rgb(32 29 23 / 0.08), 0 1px 0 rgb(32 29 23 / 0.04);
 }
 
 html, body, #root { height: 100%; }
-html { font-size: 17px; }
+html { font-size: 16px; }
 body { @apply bg-slate-50 text-slate-900 antialiased; font-feature-settings: "tnum" 1; }
+h1, h2, h3, .font-display { letter-spacing: -0.02em; }
+
+button:not(:disabled), select:not(:disabled), input[type="checkbox"]:not(:disabled) { cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--color-brand-600); }
+::selection { background: var(--color-brand-100); color: var(--color-brand-900); }
 
 :focus-visible { @apply outline-2 outline-offset-2 outline-brand-600; }
+
+.top-nav-link {
+  @apply flex min-h-14 items-center gap-2 border-b-2 border-transparent px-5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900;
+}
+.top-nav-active { @apply border-brand-600 text-brand-700; }
+
+[data-tenant-menu] { background: var(--menu-background, white); color: var(--menu-foreground, #14213a); }
+[data-tenant-menu] a:not(.bg-brand-600), [data-tenant-menu] .top-nav-link { color: inherit; }
+[data-tenant-menu] a:not(.bg-brand-600):hover, [data-tenant-menu] .top-nav-link:hover { background: color-mix(in srgb, var(--menu-foreground) 8%, transparent); }
+[data-tenant-menu] .top-nav-active { border-color: var(--menu-foreground); }
+[data-tenant-menu] :focus-visible { outline-color: var(--menu-foreground); }
+.side-nav-link { @apply mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors; }
+.side-nav-active { background: color-mix(in srgb, var(--menu-foreground) 12%, transparent); font-weight: 600; box-shadow: inset 3px 0 0 var(--color-brand-400); }
+[data-tenant-header] { background: var(--menu-background, #1f3b2d); color: var(--menu-foreground, #fffdf8); }
+
+/* Tarjeta tipo ticket: borde punteado como el corte del papel. */
+.ticket { @apply relative rounded-2xl border border-slate-200 bg-white shadow-sm; }
+.ticket-cut { border-top: 2px dashed var(--color-slate-200); }
+html[data-density="compact"] td, html[data-density="compact"] th { padding-top: .5rem; padding-bottom: .5rem; }
 
 /* Ticket de 80 mm: al imprimir se ve solo el ticket. */
 #print-root { display: none; }
