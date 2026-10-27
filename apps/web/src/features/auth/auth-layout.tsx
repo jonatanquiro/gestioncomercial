@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { InstallAppButton } from '@/features/layout/install-button';
 import { publicFile } from '@/lib/base-path';
 
 export function AuthLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -31,6 +32,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
           <h1 className="font-display text-2xl font-semibold tracking-tight">{title}</h1>
           {subtitle && <p className="mt-1 text-slate-600">{subtitle}</p>}
           <div className="mt-8">{children}</div>
+          <InstallAppButton className="mx-auto mt-6 rounded-lg px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50" />
         </div>
       </main>
     </div>

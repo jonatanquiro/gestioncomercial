@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
 import { internalPath, publicFile } from '@/lib/base-path';
+import { InstallAppButton } from './install-button';
 import { TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 import { appearanceStyle, DEFAULT_APPEARANCE } from '@/features/settings/appearance';
@@ -146,6 +147,7 @@ export function AppLayout() {
               <div className="text-right"><p className="text-sm font-medium">{me.user.name}</p><p className="text-xs opacity-60">{me.role?.name}</p></div>
               <span className="flex size-9 items-center justify-center rounded-full border border-current/30 bg-current/10 text-sm font-semibold" aria-hidden>{me.user.name.slice(0, 1).toUpperCase()}</span>
             </Link>
+            <InstallAppButton className="hidden shrink-0 rounded-lg border border-current/30 px-3 py-2 text-sm font-medium hover:bg-current/10 lg:flex" />
             <button onClick={() => void logout()} className="hidden rounded-lg p-2.5 opacity-70 hover:bg-current/10 hover:opacity-100 sm:block" aria-label="Salir"><LogOut className="size-4" /></button>
             <button className="shrink-0 rounded-lg border border-current/30 p-2.5 lg:hidden" onClick={() => setOpen(!open)} aria-label={open ? 'Cerrar menú' : 'Abrir menú'} aria-expanded={open} aria-controls="mobile-navigation">
               {open ? <X className="size-5" /> : <Menu className="size-5" />}
@@ -177,6 +179,7 @@ export function AppLayout() {
           <nav data-tenant-menu id="mobile-navigation" className="absolute inset-x-0 top-full max-h-[calc(100dvh-5rem)] overflow-y-auto border-b border-slate-200 bg-white p-4 shadow-xl lg:hidden" aria-label="Navegación móvil">
             <Link to="/app" activeOptions={{ exact: true }} onClick={closeMenus} className="flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-semibold" activeProps={{ className: 'bg-brand-50 text-brand-700' }}><Home className="size-4" />Inicio</Link>
             {groups.map((group) => <div key={group.id} className="mt-4 border-t border-slate-100 pt-3"><p className="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-500">{group.label}</p><div className="mt-2 grid gap-1 sm:grid-cols-2">{group.items.map((item) => <Link key={item.to} to={item.to} onClick={closeMenus} className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm text-slate-600 hover:bg-slate-50 ${inSections(item) ? 'bg-brand-50 !text-brand-700' : ''}`} activeProps={{ className: 'bg-brand-50 !text-brand-700' }}><item.icon className="size-4" />{item.label}</Link>)}</div></div>)}
+            <InstallAppButton className="mt-4 gap-3 px-3 py-3 text-sm font-medium text-brand-700" />
             <button onClick={() => void logout()} className="mt-4 flex items-center gap-3 px-3 py-3 text-sm text-slate-600"><LogOut className="size-4" />Salir</button>
           </nav>
         )}
