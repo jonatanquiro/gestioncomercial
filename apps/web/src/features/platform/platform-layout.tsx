@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { Layers, LogOut, Store } from 'lucide-react';
 import { http } from '@/lib/api';
+import { publicFile } from '@/lib/base-path';
 import { platformMeQuery } from './platform-session';
 
 export function PlatformLayout() {
@@ -23,7 +24,7 @@ export function PlatformLayout() {
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-4 py-5 sm:px-8 lg:px-12">
         <div className="flex flex-wrap items-center gap-4 sm:gap-8">
           <div className="flex items-center gap-2">
-            <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-10" />
+            <img src={publicFile('icon.svg')} alt="" className="size-10" />
             <div>
               <span className="block font-display text-sm font-semibold text-white">Gestión Comercial.</span>
               <span className="text-xs text-brand-300">Administración de plataforma</span>

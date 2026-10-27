@@ -6,6 +6,7 @@ import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
+import { internalPath, publicFile } from '@/lib/base-path';
 import { TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 import { appearanceStyle, DEFAULT_APPEARANCE } from '@/features/settings/appearance';
@@ -51,7 +52,7 @@ export function AppLayout() {
   const me = useMe();
   const can = useCan();
   const navigate = useNavigate();
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const pathname = useRouterState({ select: (state) => internalPath(state.location.pathname) });
   const queryClient = useQueryClient();
   const toast = useToast();
   const tenant = useQuery({ queryKey: ['tenant'], queryFn: () => http.get<TenantDto>('/tenant') });
@@ -125,7 +126,7 @@ export function AppLayout() {
         <div data-tenant-header>
           <div className="mx-auto flex min-h-20 max-w-[1440px] items-center justify-between gap-4 px-4 py-4 sm:px-8 lg:px-12">
             <Link to="/app" onClick={closeMenus} className="flex shrink-0 items-center gap-3" aria-label="Gestión Comercial, inicio">
-              <img src={appearance.logoData || `${import.meta.env.BASE_URL}icon.svg`} alt="" className={appearance.logoData ? 'h-10 max-w-24 rounded object-contain' : 'size-9'} />
+              <img src={appearance.logoData || publicFile('icon.svg')} alt="" className={appearance.logoData ? 'h-10 max-w-24 rounded object-contain' : 'size-9'} />
               <span className="font-display text-sm font-semibold leading-tight tracking-tight sm:text-base">Gestión<span className="block opacity-70">Comercial.</span></span>
             </Link>
             <div className="ml-auto flex min-w-0 items-center gap-3 sm:ml-6 sm:mr-auto sm:border-l sm:border-current/20 sm:pl-6">

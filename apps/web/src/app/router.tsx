@@ -33,6 +33,7 @@ import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
 import { MovementsPage } from '@/features/stock/movements-page';
 import { StockPage } from '@/features/stock/stock-page';
 import { ApiRequestError } from '@/lib/api';
+import { appBasePath, appUrl, internalPath } from '@/lib/base-path';
 import { meQuery } from '@/lib/session';
 
 interface RouterContext {
@@ -45,7 +46,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
     <main className="flex min-h-full items-center justify-center p-6 text-center">
       <div>
         <h1 className="text-lg font-semibold">Página no encontrada</h1>
-        <a href="/app" className="mt-2 inline-block text-sm text-brand-700 hover:underline">
+        <a href={appUrl('/app')} className="mt-2 inline-block text-sm text-brand-700 hover:underline">
           Volver al inicio
         </a>
       </div>
@@ -130,7 +131,7 @@ const platformRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/plataforma',
   beforeLoad: async ({ context, location }) => {
-    if (location.pathname === '/plataforma/login') return;
+    if (internalPath(location.pathname) === '/plataforma/login') return;
     await context.queryClient.ensureQueryData(platformMeQuery).catch((err: unknown) => redirectOn401(err, '/plataforma/login'));
   },
   component: PlatformLayout,
@@ -177,7 +178,7 @@ const routeTree = rootRoute.addChildren([
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {
-  return createRouter({ routeTree, context: { queryClient }, defaultPreload: 'intent', scrollRestoration: true });
+  return createRouter({ routeTree, basepath: appBasePath() || '/', context: { queryClient }, defaultPreload: 'intent', scrollRestoration: true });
 }
 
 declare module '@tanstack/react-router' {

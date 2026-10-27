@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { publicFile } from '@/lib/base-path';
 
 export function AuthLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
@@ -7,7 +8,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
         <div aria-hidden className="pointer-events-none absolute -right-40 top-1/4 size-[32rem] rounded-full border border-white/10" />
         <div aria-hidden className="pointer-events-none absolute -right-24 top-1/3 size-96 rounded-full border border-white/10" />
         <div className="flex items-center gap-3">
-          <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-10" />
+          <img src={publicFile('icon.svg')} alt="" className="size-10" />
           <span className="font-display text-lg font-semibold tracking-tight text-white">Gestión Comercial.</span>
         </div>
         <div className="relative py-16">
@@ -24,7 +25,7 @@ export function AuthLayout({ title, subtitle, children }: { title: string; subti
       <main className="flex flex-1 items-center justify-center px-4 py-12">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <img src={`${import.meta.env.BASE_URL}icon.svg`} alt="" className="size-10" />
+            <img src={publicFile('icon.svg')} alt="" className="size-10" />
             <span className="text-lg font-semibold tracking-tight text-slate-900">Gestión Comercial</span>
           </div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">{title}</h1>

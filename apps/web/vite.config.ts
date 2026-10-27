@@ -26,7 +26,8 @@ export default defineConfig({
     },
   },
   // La web compilada la sirve Laravel desde apps/server/public/spa (sin Node en el servidor).
-  base: '/spa/',
+  // Rutas relativas: Laravel agrega el prefijo del sitio al entregar el HTML.
+  base: './',
   server: {
     port: 5173,
     proxy: { '/api': 'http://localhost:8000' },

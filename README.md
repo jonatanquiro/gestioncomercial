@@ -61,7 +61,7 @@ Si Composer avisa que falta una extensión de PHP (por ejemplo `fileinfo` o `zip
 
 ### Con Apache de XAMPP, sin `php artisan serve`
 
-La aplicación tiene que quedar en la **raíz** de un sitio, no en una subcarpeta como `http://localhost/gestioncomercial`. Agregar un VirtualHost en `C:\xampp\apache\conf\extra\httpd-vhosts.conf`:
+La raíz pública debe apuntar a `apps/server/public`. Para XAMPP se puede agregar un VirtualHost en `C:\xampp\apache\conf\extra\httpd-vhosts.conf`:
 
 ```apache
 Listen 8080
@@ -75,6 +75,8 @@ Listen 8080
 ```
 
 Reiniciar Apache, poner `APP_URL=http://localhost:8080` en `.env` y entrar a http://localhost:8080.
+
+También se puede instalar en una subcarpeta, por ejemplo `https://celenial.com.ar/gestion-comercial`. Ver [la guía de despliegue en Ferozo](docs/despliegue-ferozo.md) y el generador de paquetes `scripts/preparar-ferozo.ps1`. El código privado y `.env` se guardan fuera de la raíz pública.
 
 ### Correos
 

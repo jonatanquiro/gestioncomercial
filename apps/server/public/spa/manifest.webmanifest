@@ -1,7 +1,8 @@
 {
   "name": "Gestión Comercial",
   "short_name": "Gestión",
-  "start_url": "/app",
+  "start_url": "../app",
+  "scope": "../",
   "display": "standalone",
   "background_color": "#f7f3ea",
   "theme_color": "#1f3b2d",
