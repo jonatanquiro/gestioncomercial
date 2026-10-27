@@ -182,7 +182,7 @@ export function AppLayout() {
         )}
       </header>
       <div className="flex min-w-0 flex-1">
-        {appearance.navigation === 'side' && <aside data-tenant-menu className="sticky top-0 hidden max-h-dvh w-60 shrink-0 self-start overflow-y-auto border-r border-slate-200 px-3 pb-6 pt-4 lg:block" aria-label="Navegación principal">
+        {appearance.navigation === 'side' && <aside data-tenant-menu className="sticky top-0 hidden max-h-[calc(100dvh-5rem)] w-60 shrink-0 self-start overflow-y-auto border-r border-slate-200 px-3 pb-6 pt-4 lg:block" aria-label="Navegación principal">
           <Link to="/app" activeOptions={{ exact: true }} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><Home className="size-4" />Inicio</Link>
           {groups.map(group => <div key={group.id} className="mt-5"><p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest">{group.label}</p>{group.items.map(item => <Link key={item.to} to={item.to} className={`side-nav-link ${inSections(item) ? 'side-nav-active' : ''}`} activeProps={{ className: 'side-nav-active' }}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}</div>)}
         </aside>}
