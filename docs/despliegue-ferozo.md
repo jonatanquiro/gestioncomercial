@@ -120,6 +120,30 @@ Abrir `https://celenial.com.ar/gestion-comercial/`. Verificar:
 
 Si aparece un error 500, revisar el registro privado `storage/logs/laravel.log` o el registro PHP del panel, manteniendo `APP_DEBUG=false`. No probar facturación real hasta validar PHP, SOAP y la conexión en homologación.
 
+## 7. Cobro de suscripciones
+
+El sistema cobra el plan con Mercado Pago y avisa por correo antes de vencer ([ADR 0012](adr/0012-cobro-de-suscripciones.md)). Se puede usar la misma cuenta de Mercado Pago de Celenial: los cobros de este sistema llevan la referencia `GC-…` y no se mezclan.
+
+1. En [developers.mercadopago.com](https://www.mercadopago.com.ar/developers/panel/app), en la aplicación de la cuenta, copiar el **Access token** de producción y agregarlo al `.env`:
+
+   ```dotenv
+   MP_ACCESS_TOKEN=APP_USR-...
+   ```
+
+   Para probar sin cobrar, usar el de prueba (`TEST-...`) y pagar con un usuario de prueba de Mercado Pago.
+
+2. Opcional: en **Webhooks > Configurar notificaciones**, cargar la URL `https://celenial.com.ar/gestion-comercial/api/v1/mercadopago/webhook`, marcar el evento **Pagos** y copiar la clave secreta en `MP_WEBHOOK_SECRET`. Sin este paso los avisos llegan igual, porque cada pago indica su propia URL de aviso; con la clave, además se verifica la firma.
+
+3. En **Cron Jobs** del panel de Ferozo, crear una tarea diaria (por ejemplo, a las 9) con el PHP 8.2 del sitio:
+
+   ```text
+   php /home/USUARIO/gestion-comercial-servidor/artisan subscriptions:remind
+   ```
+
+   Usar la ruta real de la carpeta privada y del PHP que indique el panel. La tarea manda los avisos a los 7, 3 y 1 día del vencimiento, el día que vence y cuando se pausa, y revisa los pagos que quedaron pendientes. Si no corre, el corte de acceso funciona igual, pero no salen los correos.
+
+**Antes de poner precio a un plan**, marcar en Comercios → ⋯ → «Licencia sin vencimiento» a los comercios que no tienen que pagar. Un plan con precio 0 no se cobra. Cuando un plan pasa a tener precio, los comercios de ese plan cuya prueba ya terminó entran en los 7 días de gracia o quedan pausados. Los pagos recibidos por transferencia se cargan en Comercios → ⋯ → «Registrar pago».
+
 ## Actualizaciones
 
 Respaldar base y archivos antes de actualizar. Preparar nuevos paquetes, conservar el `.env`, `APP_KEY` y `storage` del servidor, y aplicar las migraciones pendientes. El procedimiento de exportar una base local completa corresponde a la instalación inicial: **no importar esa base encima de una instalación que ya recibe ventas**. Sin SSH, coordinar la ejecución de las migraciones con soporte.

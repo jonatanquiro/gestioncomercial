@@ -21,11 +21,12 @@ class PasswordService
 
     private ?string $dummyHash = null;
 
-    public function hash(string $password): string
+    /** @param  bool  $portable  bcrypt siempre: para un hash que va a verificar otro PHP (por ejemplo, el del hosting). */
+    public function hash(string $password, bool $portable = false): string
     {
         $this->assertStrong($password);
 
-        return $this->algorithm() === PASSWORD_BCRYPT
+        return $portable || $this->algorithm() === PASSWORD_BCRYPT
             ? password_hash($password, PASSWORD_BCRYPT, ['cost' => 12])
             : password_hash($password, PASSWORD_ARGON2ID, self::OPTIONS);
     }

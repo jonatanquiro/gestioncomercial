@@ -29,8 +29,16 @@ const CHANGE_LABELS: Record<string, string> = {
 const FIELD_LABELS: Record<string, string> = {
   name: 'Nombre', kind: 'Tipo', description: 'Descripción', categoryId: 'Categoría', brandId: 'Marca', saleMode: 'Forma de venta',
   vatRate: 'IVA', trackStock: 'Controla stock', minStock: 'Stock mínimo', blockNegativeStock: 'Bloquea negativo', sku: 'Código interno',
-  price: 'Precio', cost: 'Costo', barcodes: 'Códigos', status: 'Estado',
+  price: 'Precio', cost: 'Costo', barcodes: 'Códigos', status: 'Estado', optionNames: 'Propiedades', variants: 'Variantes',
 };
+
+/** «$ 15.000» o «$ 15.000 – $ 17.000» si las variantes tienen distinto precio. */
+function priceRange(values: string[]): string {
+  const sorted = values.filter(Boolean).sort((a, b) => dec(a).cmp(b));
+  if (sorted.length === 0) return '—';
+  const [min, max] = [sorted[0]!, sorted[sorted.length - 1]!];
+  return dec(min).eq(max) ? formatArs(min) : `${formatArs(min)} – ${formatArs(max)}`;
+}
 
 function describeChange(after: unknown): string {
   if (!after || typeof after !== 'object') return '';
@@ -45,15 +53,17 @@ function HistoryView({ product }: { product: ProductDto }) {
   if (history.isLoading) return <Spinner />;
   if (history.error) return <Alert>{errorMessage(history.error)}</Alert>;
   const h = history.data!;
+  const withVariants = h.prices.some((p) => p.variantLabel !== null);
   return (
     <div className="space-y-6">
       <section>
         <h3 className="mb-2 text-sm font-semibold">Precios</h3>
-        <Table head={<><Th>Desde</Th><Th>Hasta</Th><Th className="text-right">Precio</Th><Th>Quién</Th></>}>
+        <Table head={<><Th>Desde</Th><Th>Hasta</Th>{withVariants && <Th>Variante</Th>}<Th className="text-right">Precio</Th><Th>Quién</Th></>}>
           {h.prices.map((p, i) => (
             <tr key={i}>
               <Td className="whitespace-nowrap">{formatDateTime(p.validFrom)}</Td>
               <Td className="whitespace-nowrap">{p.validTo ? formatDateTime(p.validTo) : <Badge tone="green">Vigente</Badge>}</Td>
+              {withVariants && <Td>{p.variantLabel ?? '—'}</Td>}
               <Td className="text-right font-medium">{formatArs(p.price)}</Td>
               <Td>
                 {p.changedBy ?? '—'}
@@ -66,10 +76,11 @@ function HistoryView({ product }: { product: ProductDto }) {
       {can('costs.read') && h.costs.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm font-semibold">Costos</h3>
-          <Table head={<><Th>Fecha</Th><Th className="text-right">Costo</Th><Th>Quién</Th></>}>
+          <Table head={<><Th>Fecha</Th>{withVariants && <Th>Variante</Th>}<Th className="text-right">Costo</Th><Th>Quién</Th></>}>
             {h.costs.map((c, i) => (
               <tr key={i}>
                 <Td className="whitespace-nowrap">{formatDateTime(c.at)}</Td>
+                {withVariants && <Td>{c.variantLabel ?? '—'}</Td>}
                 <Td className="text-right">{formatArs(c.cost)}</Td>
                 <Td>{c.changedBy ?? '—'}</Td>
               </tr>
@@ -200,20 +211,25 @@ export function ProductsPage() {
             }
           >
             {products.data.items.map((p) => {
-              const low = p.stock !== null && p.minStock !== null && dec(p.stock).lte(p.minStock);
+              // El stock mínimo se aplica a cada variante.
+              const low = p.minStock !== null && p.variants.some((v) => v.stock !== null && dec(v.stock).lte(p.minStock!));
+              const [only] = p.variants;
+              const labels = p.variants.map((v) => v.label).filter(Boolean);
+              const codes =
+                p.optionNames.length === 0 && only
+                  ? [only.sku, ...only.barcodes.map((b) => (b.quantityFactor === '1.000' ? b.code : `${b.code} (×${formatQty(b.quantityFactor)})`))]
+                  : [`${p.variants.length} variantes: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? '…' : ''}`];
               return (
                 <tr key={p.id}>
                   <Td>
                     <div className="font-medium">{p.name}</div>
                     <div className="text-xs text-slate-500">
-                      {[p.kind === 'service' ? 'Servicio' : null, p.brandName, p.sku, ...p.barcodes.map((b) => (b.quantityFactor === '1.000' ? b.code : `${b.code} (×${formatQty(b.quantityFactor)})`))]
-                        .filter(Boolean)
-                        .join(' · ')}
+                      {[p.kind === 'service' ? 'Servicio' : null, p.brandName, ...codes].filter(Boolean).join(' · ')}
                     </div>
                   </Td>
                   <Td>{p.categoryName ?? '—'}</Td>
-                  <Td className="text-right font-medium whitespace-nowrap">{formatArs(p.price)}</Td>
-                  {seeCost && <Td className="text-right whitespace-nowrap text-slate-600">{p.cost ? formatArs(p.cost) : '—'}</Td>}
+                  <Td className="text-right font-medium whitespace-nowrap">{priceRange(p.variants.map((v) => v.price))}</Td>
+                  {seeCost && <Td className="text-right whitespace-nowrap text-slate-600">{priceRange(p.variants.map((v) => v.cost ?? ''))}</Td>}
                   {seeStock && (
                     <Td className="text-right whitespace-nowrap">
                       {p.stock === null ? <span className="text-slate-400">—</span> : <span className={low ? 'font-semibold text-orange-700' : ''}>{formatQty(p.stock, p.saleMode)}</span>}

@@ -9,6 +9,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - auditoría y aislamiento entre comercios;
 - el panel de la plataforma;
 - productos y servicios con varios códigos de barras y códigos de pack, categorías iniciales según el rubro, marcas e historial de precios y costos;
+- variantes por talle, color u otra propiedad (hasta 3 por producto), cada una con su precio, código y stock; lo que no tiene código de barras se vende buscándolo por nombre y propiedad («remera m rojo»). Depende de la función «Variantes» del plan;
 - stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
 - cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo;
 - punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados, nombre y teléfono opcionales de quien transfiere o paga con QR, «cantidad * código» (por ejemplo `12*` y escanear), barra fija para cobrar en el celular y ticket interno de 80 mm;
@@ -18,6 +19,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
 - estilo propio «Almacén de barrio» (papel crema, menú verde almacén y acento tomate) con logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior configurables por comercio;
 - cambio individual de plan desde la plataforma, con control de límites y conservación de fechas;
+- cobro de la suscripción con Mercado Pago (1, 3, 6 o 12 meses por adelantado), avisos por correo antes de vencer, 7 días de gracia y pausa automática si no se paga; licencias sin vencimiento y pagos por transferencia cargados desde la plataforma;
 - configuración de certificados ARCA por comercio y ambiente, CSR, autenticación WSAA y solicitud/consulta de CAE para facturas A/B/C de bienes en ARS sin otros tributos, que se emiten desde la venta o al terminar de cobrar; el permiso «Emitir facturas electrónicas» deja facturar sin administrar certificados (ver alcance fiscal más abajo).
 
 Si ya tenías instalada una versión anterior, después de actualizar el código corré `php artisan migrate` (o `iniciar.bat`): crea las tablas nuevas, les carga a los comercios existentes las categorías de su rubro y les crea "Caja 1" en cada sucursal y los medios de pago habituales.
@@ -105,11 +107,20 @@ Si ese email ya tenía cuenta, el comercio se suma a los suyos y entra con su co
 El panel también permite:
 
 - Buscar comercios por nombre o CUIT y filtrarlos por estado.
-- Consultar el plan asignado, el vencimiento de la prueba y la cantidad de sucursales y usuarios activos.
+- Consultar el plan asignado, hasta cuándo está en prueba o pagado y la cantidad de sucursales y usuarios activos.
 - Suspender o habilitar un comercio indicando un motivo que queda auditado.
+- Dar o quitar una licencia sin vencimiento, y registrar un pago recibido por transferencia (menú ⋯ de cada comercio).
 - Editar los planes existentes: nombre, precio mensual, días de prueba, límites de sucursales, usuarios, productos y cajas, funciones incluidas y disponibilidad para nuevas altas.
 
 Editar un plan cambia su definición para todos los comercios que lo usan. Para cambiar solo un kiosco, usar **Cambiar plan** en su fila: se elige un plan activo y se indica un motivo. El cambio es inmediato, no reinicia la prueba ni cambia el estado de la suscripción, y no genera cargos. Si el uso de sucursales, usuarios, productos o cajas supera los límites del nuevo plan, se rechaza. Una edición desactualizada también se rechaza para no pisar cambios de otro operador.
+
+### Cobro de suscripciones
+
+El dueño del comercio (o quien tenga el permiso «Gestionar la suscripción») ve en **Administración → Suscripción** su plan, hasta cuándo está pagado y el historial de pagos, y renueva con Mercado Pago eligiendo plan y meses. El vencimiento se corre solo cuando Mercado Pago confirma el pago. Si se paga en la prueba o dentro de la gracia, el período arranca en el vencimiento; si el comercio ya estaba pausado, arranca ese día.
+
+Siete días antes del vencimiento aparece un aviso arriba de cada pantalla. Al vencer hay 7 días de gracia en los que se sigue operando; después el comercio queda pausado y solo se puede entrar a pagar. Los datos no se tocan. Los planes con precio 0 y los comercios con licencia sin vencimiento no pagan ni se pausan.
+
+Los avisos por correo (7, 3 y 1 día antes, el día que vence y cuando se pausa) los manda `php artisan subscriptions:remind`, que tiene que correr una vez por día; en el hosting se configura como tarea de cron ([despliegue en Ferozo](docs/despliegue-ferozo.md#7-cobro-de-suscripciones)). La credencial de Mercado Pago va en `MP_ACCESS_TOKEN`. Sin ella, la pantalla de suscripción muestra el estado pero no ofrece pagar.
 
 La API dispone de auditoría de plataforma (`GET /api/v1/platform/audit`), pero el panel todavía no tiene una pantalla para consultarla. Marcar una función en un plan no implementa los módulos que siguen pendientes.
 
@@ -201,7 +212,8 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - `APP_DEBUG=false`;
 - `SESSION_SECURE_COOKIE=true` con HTTPS;
 - un usuario de base con contraseña;
-- un servidor de correo real.
+- un servidor de correo real;
+- `MP_ACCESS_TOKEN` para cobrar las suscripciones y la tarea diaria `subscriptions:remind`.
 
 ## Estructura
 
@@ -224,4 +236,6 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0009 · Despliegue en la raíz o en una subcarpeta](docs/adr/0009-despliegue-subcarpeta.md)
 - [0010 · Ingreso con nombre de usuario o email](docs/adr/0010-ingreso-con-usuario.md)
 - [0011 · Disparadores opcionales en hostings que no los permiten](docs/adr/0011-disparadores-opcionales-en-hosting.md)
+- [0012 · Cobro de suscripciones con Mercado Pago](docs/adr/0012-cobro-de-suscripciones.md)
+- [0013 · Variantes de producto (talle, color)](docs/adr/0013-variantes-de-producto.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

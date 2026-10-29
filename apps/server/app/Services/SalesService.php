@@ -103,7 +103,7 @@ class SalesService
             $variant = $variants[$line['variantId']] ?? throw AppError::validation([['path' => "lines.{$i}.variantId", 'message' => 'El artículo no existe']]);
             $product = $products[$variant->product_id];
             if ($product->status !== 'active' || $variant->status !== 'active') {
-                throw new AppError(409, 'PRODUCT_INACTIVE', "{$product->name} está desactivado: no se puede vender", ['variantId' => $variant->id]);
+                throw new AppError(409, 'PRODUCT_INACTIVE', ProductVariant::displayName($product->name, $variant->label).' está desactivado: no se puede vender', ['variantId' => $variant->id]);
             }
             if ($product->sale_mode === 'unit' && BigDecimal::of($line['quantity'])->hasNonZeroFractionalPart()) {
                 throw AppError::validation([['path' => "lines.{$i}.quantity", 'message' => "{$product->name} se vende por unidad: la cantidad tiene que ser entera"]]);
@@ -148,7 +148,7 @@ class SalesService
                 'sale_id' => $sale->id,
                 'line_no' => $n + 1,
                 'variant_id' => $l['variant']->id,
-                'description' => $l['product']->name,
+                'description' => ProductVariant::displayName($l['product']->name, $l['variant']->label),
                 'sale_mode' => $l['product']->sale_mode,
                 'quantity' => $l['quantity'],
                 'unit_price' => Money::round($l['variant']->price),

@@ -237,7 +237,30 @@ export const barcodeSchema = z.object({
   quantityFactor: z.string().trim().regex(/^\d{1,11}(\.\d{1,3})?$/, 'Cantidad inválida').refine((v) => Number(v) > 0, 'Debe ser mayor a cero'),
 });
 
-const productBase = {
+/** Hasta 3 propiedades por producto (Talle, Color…), como en Tienda Nube. ADR 0013. */
+export const MAX_PRODUCT_OPTIONS = 3;
+export const MAX_PRODUCT_VARIANTS = 100;
+
+const variantSchema = z.object({
+  /** Variante existente que se edita; null para una nueva. */
+  id: uuidSchema.nullable(),
+  /** Valores de cada propiedad, en el orden de optionNames. */
+  options: z.array(z.string().trim().min(1, 'Obligatorio').max(40)).max(MAX_PRODUCT_OPTIONS),
+  sku: optionalText(60),
+  price: moneySchema,
+  cost: costSchema.nullable(),
+  barcodes: z.array(barcodeSchema).max(20),
+  /** Stock inicial en el depósito principal, solo para variantes nuevas (necesita el permiso de ajustar stock). */
+  initialStock: quantitySchema.nullable(),
+});
+export type VariantInput = z.infer<typeof variantSchema>;
+
+/** «M / Rojo»: la etiqueta con la que se muestra la variante. null si el producto no tiene propiedades. */
+export const variantLabel = (options: string[]): string | null => (options.length === 0 ? null : options.join(' / '));
+/** «Remera · M / Rojo». */
+export const variantDisplayName = (productName: string, label: string | null): string => (label ? `${productName} · ${label}` : productName);
+
+const productShape = z.object({
   kind: z.enum(PRODUCT_KINDS),
   name: trimmed(160),
   description: optionalText(500),
@@ -246,27 +269,62 @@ const productBase = {
   saleMode: z.enum(SALE_MODES),
   vatRate: z.enum(VAT_RATES),
   trackStock: z.boolean(),
+  /** Se aplica a cada variante. */
   minStock: quantitySchema.nullable(),
   blockNegativeStock: z.boolean(),
-  sku: optionalText(60),
-  price: moneySchema,
-  cost: costSchema.nullable(),
-  barcodes: z
-    .array(barcodeSchema)
-    .max(20)
-    .superRefine((list, ctx) => {
-      const seen = new Set<string>();
-      list.forEach((b, i) => {
-        if (seen.has(b.code)) ctx.addIssue({ code: 'custom', path: [i, 'code'], message: 'Código repetido' });
-        seen.add(b.code);
-      });
-    }),
-};
+  optionNames: z.array(z.string().trim().min(1, 'Obligatorio').max(30)).max(MAX_PRODUCT_OPTIONS, `Hasta ${MAX_PRODUCT_OPTIONS} propiedades`),
+  variants: z.array(variantSchema).min(1, 'Agregá al menos una variante').max(MAX_PRODUCT_VARIANTS, `Hasta ${MAX_PRODUCT_VARIANTS} variantes por producto`),
+});
 
-export const createProductSchema = z.object({
-  ...productBase,
-  /** Stock inicial en el depósito principal (necesita el permiso de ajustar stock). */
-  initialStock: quantitySchema.nullable(),
+/** Reglas entre campos, las mismas que ProductsController::validated. */
+function refineProduct(p: z.infer<typeof productShape>, ctx: z.RefinementCtx) {
+  const names = new Set<string>();
+  p.optionNames.forEach((n, i) => {
+    if (names.has(n.toLowerCase())) ctx.addIssue({ code: 'custom', path: ['optionNames', i], message: 'Propiedad repetida' });
+    names.add(n.toLowerCase());
+  });
+  if (p.optionNames.length === 0 && p.variants.length > 1) {
+    ctx.addIssue({ code: 'custom', path: ['optionNames'], message: 'Para cargar variantes, agregá al menos una propiedad (talle, color…)' });
+  }
+  const combos = new Set<string>();
+  const skus = new Set<string>();
+  const codes = new Set<string>();
+  p.variants.forEach((v, i) => {
+    if (v.options.length !== p.optionNames.length) {
+      ctx.addIssue({ code: 'custom', path: ['variants', i, 'options'], message: 'Completá todas las propiedades' });
+    } else if (p.optionNames.length > 0) {
+      const key = v.options.join('\u0000').toLowerCase();
+      if (combos.has(key)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'options'], message: 'Esta combinación ya está cargada' });
+      combos.add(key);
+    }
+    if (v.sku) {
+      if (skus.has(v.sku)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'sku'], message: 'Código repetido' });
+      skus.add(v.sku);
+    }
+    v.barcodes.forEach((b, j) => {
+      if (codes.has(b.code)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'barcodes', j, 'code'], message: 'Código repetido' });
+      codes.add(b.code);
+    });
+    if (p.saleMode === 'unit') {
+      const quantities: Array<[string | null, (string | number)[]]> = [
+        [v.initialStock, ['variants', i, 'initialStock']],
+        ...v.barcodes.map((b, j): [string, (string | number)[]] => [b.quantityFactor, ['variants', i, 'barcodes', j, 'quantityFactor']]),
+      ];
+      for (const [q, path] of quantities) {
+        if (q !== null && !Number.isInteger(Number(q))) ctx.addIssue({ code: 'custom', path, message: 'En la venta por unidad, la cantidad tiene que ser entera' });
+      }
+    }
+  });
+  if (p.saleMode === 'unit' && p.minStock !== null && !Number.isInteger(Number(p.minStock))) {
+    ctx.addIssue({ code: 'custom', path: ['minStock'], message: 'En la venta por unidad, la cantidad tiene que ser entera' });
+  }
+}
+
+export const createProductSchema = productShape.superRefine((p, ctx) => {
+  refineProduct(p, ctx);
+  p.variants.forEach((v, i) => {
+    if (v.id !== null) ctx.addIssue({ code: 'custom', path: ['variants', i, 'id'], message: 'Identificador inválido' });
+  });
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
@@ -284,7 +342,14 @@ export const addReferenceProductsSchema = z.object({
 });
 export type AddReferenceProductsInput = z.infer<typeof addReferenceProductsSchema>;
 
-export const updateProductSchema = z.object({ ...productBase, version: z.number().int().min(1) });
+export const updateProductSchema = productShape.extend({ version: z.number().int().min(1) }).superRefine((p, ctx) => {
+  refineProduct(p, ctx);
+  p.variants.forEach((v, i) => {
+    if (v.id !== null && v.initialStock !== null) {
+      ctx.addIssue({ code: 'custom', path: ['variants', i, 'initialStock'], message: 'El stock de una variante existente se cambia con un ajuste' });
+    }
+  });
+});
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
 export const productStatusSchema = z.object({ status: z.enum(['active', 'inactive']) });
@@ -422,4 +487,26 @@ export type PaymentMethodInput = z.infer<typeof paymentMethodSchema>;
 export const posPinSchema = z.object({
   password: z.string().min(1, 'Obligatorio'),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN tiene que tener de 4 a 6 números'),
+});
+
+// ---------- Suscripción (ADR 0012) ----------
+
+/** Meses que se pueden pagar juntos con Mercado Pago (BillingService::MONTH_OPTIONS). */
+export const SUBSCRIPTION_MONTH_OPTIONS = [1, 3, 6, 12] as const;
+
+export const subscriptionCheckoutSchema = z.object({
+  planCode: trimmed(40),
+  months: z.literal(SUBSCRIPTION_MONTH_OPTIONS, 'Valor inválido'),
+});
+
+export const setTenantLicenseSchema = z.object({
+  freeForever: z.boolean(),
+  reason: trimmed(300),
+});
+
+/** Pago recibido por otro medio (transferencia), registrado por el operador. */
+export const recordTenantPaymentSchema = z.object({
+  months: z.number().int().min(1, 'Entre 1 y 36 meses').max(36, 'Entre 1 y 36 meses'),
+  amount: moneySchema,
+  notes: trimmed(300),
 });

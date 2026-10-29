@@ -99,10 +99,21 @@ abstract class TestCase extends BaseTestCase
         $this->fail("No existe el rol plantilla {$template}");
     }
 
-    /** Cuerpo válido de alta de producto, con un código de barras único. */
+    /** Campos de la variante que las pruebas de un producto simple pasan aplanados. */
+    private const VARIANT_KEYS = ['sku', 'price', 'cost', 'barcodes', 'initialStock'];
+
+    /**
+     * Cuerpo válido de alta de producto simple, con un código de barras único. sku, price, cost,
+     * barcodes e initialStock pueden venir aplanados: van a la única variante.
+     */
     protected static function productInput(array $overrides = []): array
     {
         self::$seq++;
+        $variant = [
+            'id' => null, 'options' => [], 'sku' => null, 'price' => '1000', 'cost' => '600',
+            'barcodes' => [['code' => '779'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT), 'quantityFactor' => '1']],
+            'initialStock' => null,
+        ];
 
         return array_merge([
             'kind' => 'good',
@@ -115,29 +126,31 @@ abstract class TestCase extends BaseTestCase
             'trackStock' => true,
             'minStock' => null,
             'blockNegativeStock' => false,
-            'sku' => null,
-            'price' => '1000',
-            'cost' => '600',
-            'barcodes' => [['code' => '779'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT), 'quantityFactor' => '1']],
-            'initialStock' => null,
-        ], $overrides);
+            'optionNames' => [],
+            'variants' => [array_merge($variant, array_intersect_key($overrides, array_flip(self::VARIANT_KEYS)))],
+        ], array_diff_key($overrides, array_flip(self::VARIANT_KEYS)));
     }
 
-    /** Crea un producto y devuelve su DTO. */
+    /** Crea un producto y devuelve su DTO, con variantId de la primera variante como atajo. */
     protected function createProduct(ApiClient $client, array $overrides = []): array
     {
         $res = $client->post('/products', self::productInput($overrides));
         $this->assertSame(201, $res->status, 'Alta de producto falló: '.json_encode($res->body));
 
-        return $res->body;
+        return $res->body + ['variantId' => $res->body['variants'][0]['id']];
     }
 
-    /** Cuerpo de edición a partir del DTO actual. */
+    /** Cuerpo de edición a partir del DTO actual. Los campos de variante aplanados van a la primera. */
     protected static function productUpdate(array $dto, array $overrides = []): array
     {
-        $keys = ['kind', 'name', 'description', 'categoryId', 'brandId', 'saleMode', 'vatRate', 'trackStock', 'minStock', 'blockNegativeStock', 'sku', 'price', 'cost', 'barcodes', 'version'];
+        $keys = ['kind', 'name', 'description', 'categoryId', 'brandId', 'saleMode', 'vatRate', 'trackStock', 'minStock', 'blockNegativeStock', 'optionNames', 'version'];
+        $variants = array_map(fn ($v) => [
+            'id' => $v['id'], 'options' => $v['options'], 'sku' => $v['sku'], 'price' => $v['price'], 'cost' => $v['cost'],
+            'barcodes' => $v['barcodes'], 'initialStock' => null,
+        ], $dto['variants']);
+        $variants[0] = array_merge($variants[0], array_intersect_key($overrides, array_flip(self::VARIANT_KEYS)));
 
-        return array_merge(array_intersect_key($dto, array_flip($keys)), $overrides);
+        return array_merge(array_intersect_key($dto, array_flip($keys)), ['variants' => $variants], array_diff_key($overrides, array_flip(self::VARIANT_KEYS)));
     }
 
     protected function defaultWarehouse(ApiClient $client): string

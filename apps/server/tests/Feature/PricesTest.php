@@ -54,9 +54,9 @@ class PricesTest extends TestCase
         $applied = $owner->post('/prices/bulk/apply', $body + ['fingerprint' => $preview['fingerprint']]);
         $this->assertSame(200, $applied->status, json_encode($applied->body));
         $this->assertSame(2, $applied->body['affectedCount']);
-        $this->assertSame('1130.00', $owner->get("/products/{$a['id']}")->body['price']);
-        $this->assertSame('2250.00', $owner->get("/products/{$b['id']}")->body['price']);
-        $this->assertSame('500.00', $owner->get("/products/{$other['id']}")->body['price']);
+        $this->assertSame('1130.00', $owner->get("/products/{$a['id']}")->body['variants'][0]['price']);
+        $this->assertSame('2250.00', $owner->get("/products/{$b['id']}")->body['variants'][0]['price']);
+        $this->assertSame('500.00', $owner->get("/products/{$other['id']}")->body['variants'][0]['price']);
         $history = $owner->get("/products/{$a['id']}/history")->body['prices'];
         $this->assertSame($applied->body['batchId'], $history[0]['batchId']);
         $this->assertSame('prices.bulk_updated', $owner->get('/audit')->body['items'][0]['action']);
@@ -77,7 +77,7 @@ class PricesTest extends TestCase
 
         $res = $owner->post('/prices/bulk/apply', $body + ['fingerprint' => $preview['fingerprint']]);
         $this->assertSame(409, $res->status);
-        $this->assertSame('120.00', $owner->get("/products/{$p['id']}")->body['price']);
+        $this->assertSame('120.00', $owner->get("/products/{$p['id']}")->body['variants'][0]['price']);
     }
 
     public function test_omite_lo_que_no_se_puede_calcular_y_avisa_por_que(): void

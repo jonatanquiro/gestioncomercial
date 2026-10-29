@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Branch;
 use App\Models\Role;
+use App\Models\Subscription;
+use App\Models\SubscriptionPayment;
 use App\Tenancy\BelongsToTenant;
 use App\Tenancy\MissingTenantContext;
 use App\Tenancy\TenantContext;
@@ -60,7 +62,7 @@ class IsolationTest extends TestCase
         $this->bIds = [
             'branch' => $this->b['me']['branchIds'][0], 'role' => $cashier['id'], 'membership' => $emp['membershipId'],
             'category' => $this->b['client']->get('/categories')->body[0]['id'], 'product' => $product['id'], 'variant' => $product['variantId'],
-            'warehouse' => $warehouse, 'count' => $count->body['id'], 'barcode' => $product['barcodes'][0]['code'],
+            'warehouse' => $warehouse, 'count' => $count->body['id'], 'barcode' => $product['variants'][0]['barcodes'][0]['code'],
             'register' => $register['id'], 'shift' => $shift->body['id'], 'paymentMethod' => $cash['id'], 'sale' => $sale->body['id'],
             'saleLine' => $sale->body['lines'][0]['id'],
         ];
@@ -68,6 +70,9 @@ class IsolationTest extends TestCase
         $settlement = $this->b['client']->post('/settlements', ['paymentMethodId' => $transfer['id'], 'provider' => 'MP', 'fromDate' => '2026-01-01', 'toDate' => '2026-01-01']);
         $this->assertSame(201, $settlement->status);
         $this->bIds['settlement'] = $settlement->body['id'];
+        $this->bIds['subscriptionPayment'] = app(TenantContext::class)->run($this->b['tenantId'], fn () => SubscriptionPayment::create([
+            'plan_id' => Subscription::first()->plan_id, 'months' => 1, 'amount' => '1000.00', 'method' => 'mercadopago', 'status' => 'pending',
+        ]))->id;
     }
 
     public function test_a_no_ve_datos_de_b_en_los_listados(): void
@@ -101,6 +106,7 @@ class IsolationTest extends TestCase
     public function test_cada_ruta_con_identificador_responde_404_ante_un_id_de_otro_comercio(): void
     {
         $bodies = [
+            '/subscription/payments/{id}/check' => ['mpPaymentId' => null],
             '/settlements/{id}/refresh' => [],
             '/settlements/{id}/import' => [],
             '/settlements/{id}/review' => [],
@@ -129,6 +135,7 @@ class IsolationTest extends TestCase
             ],
         ];
         $idFor = fn (string $path) => match (true) {
+            str_starts_with($path, '/subscription/payments') => $this->bIds['subscriptionPayment'],
             str_starts_with($path, '/settlements') => $this->bIds['settlement'],
             str_starts_with($path, '/branches') => $this->bIds['branch'],
             str_starts_with($path, '/roles') => $this->bIds['role'],

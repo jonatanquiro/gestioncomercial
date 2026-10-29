@@ -64,7 +64,10 @@ class FiscalController extends Controller
                 if (isset($v['privateKeyPem']) && $storedKey && $storedKey !== $key && @openssl_x509_check_private_key($certificate, $storedKey)) {
                     throw AppError::validation([['path' => 'privateKeyPem', 'message' => 'El certificado corresponde a la clave que ya tiene guardada el sistema. Cargá solo el certificado y dejá vacía la clave privada.']]);
                 }
-                if (! $key || ! @openssl_x509_check_private_key($certificate, $key)) {
+                if (! $key) {
+                    throw AppError::validation([['path' => 'privateKeyPem', 'message' => 'Este comercio no tiene guardada la clave privada de este ambiente. Cargá también la clave (.key) con la que generaste el pedido del certificado.']]);
+                }
+                if (! @openssl_x509_check_private_key($certificate, $key)) {
                     throw AppError::validation([['path' => 'certificatePem', 'message' => 'El certificado no corresponde a la clave privada']]);
                 }
                 $certificateCuit = preg_replace('/\D/', '', $parsed['subject']['serialNumber'] ?? '');

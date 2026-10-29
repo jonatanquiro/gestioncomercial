@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Auth\Client;
 use App\Auth\Cookies;
+use App\Auth\PlatformActor;
 use App\Mail\OwnerInvitationMail;
 use App\Models\AuditEntry;
 use App\Models\Branch;
@@ -13,12 +14,12 @@ use App\Models\Plan;
 use App\Models\PlanFeature;
 use App\Models\PlanLimit;
 use App\Models\PlatformUser;
-use App\Models\Product;
-use App\Models\Register;
 use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\BillingService;
+use App\Services\EntitlementsService;
 use App\Services\PasswordService;
 use App\Services\PlatformSessionService;
 use App\Services\ProvisioningService;
@@ -53,6 +54,8 @@ class PlatformController extends Controller
         private readonly AuditService $audit,
         private readonly TenantContext $context,
         private readonly ProvisioningService $provisioning,
+        private readonly EntitlementsService $entitlements,
+        private readonly BillingService $billing,
     ) {}
 
     /** Login con email y contraseña, con límite de intentos por IP. */
@@ -142,15 +145,17 @@ class PlatformController extends Controller
             $ids = $rows->pluck('id')->all();
 
             $subs = Subscription::whereIn('tenant_id', $ids)->where('status', '<>', 'cancelled')->get()->keyBy('tenant_id');
-            $planCodes = Plan::whereIn('id', $subs->pluck('plan_id')->unique()->all())->pluck('code', 'id');
+            $plans = Plan::whereIn('id', $subs->pluck('plan_id')->unique()->all())->get()->keyBy('id');
             $users = Membership::whereIn('tenant_id', $ids)->where('status', 'active')
                 ->groupBy('tenant_id')->selectRaw('tenant_id, count(*) as n')->pluck('n', 'tenant_id');
             $branches = Branch::whereIn('tenant_id', $ids)->where('status', 'active')
                 ->groupBy('tenant_id')->selectRaw('tenant_id, count(*) as n')->pluck('n', 'tenant_id');
 
             return [
-                'items' => $rows->map(function (Tenant $t) use ($subs, $planCodes, $users, $branches) {
+                'items' => $rows->map(function (Tenant $t) use ($subs, $plans, $users, $branches) {
                     $sub = $subs->get($t->id);
+                    $plan = $sub ? $plans->get($sub->plan_id) : null;
+                    $billing = $sub && $plan ? BillingService::evaluate($sub, $plan) : null;
 
                     return [
                         'id' => $t->id,
@@ -158,9 +163,12 @@ class PlatformController extends Controller
                         'cuit' => $t->cuit,
                         'businessTypeCode' => $t->business_type_code,
                         'status' => $t->status,
-                        'planCode' => $sub ? ($planCodes[$sub->plan_id] ?? null) : null,
+                        'planCode' => $plan?->code,
                         'subscriptionStatus' => $sub?->status,
                         'trialEndsAt' => Dates::iso($sub?->trial_ends_at),
+                        'billingState' => $billing['state'] ?? null,
+                        'dueAt' => Dates::iso($billing['dueAt'] ?? null),
+                        'freeForever' => (bool) $sub?->free_forever,
                         'createdAt' => Dates::iso($t->created_at),
                         'userCount' => (int) ($users[$t->id] ?? 0),
                         'branchCount' => (int) ($branches[$t->id] ?? 0),
@@ -287,6 +295,35 @@ class PlatformController extends Controller
         return $this->json(['ok' => true]);
     }
 
+    /** Licencia sin vencimiento: el comercio no paga ni se pausa (mismas reglas que setTenantLicenseSchema). */
+    public function setTenantLicense(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'freeForever' => ['required', Input::strictBoolean()],
+            'reason' => ['required', 'string', 'max:300'],
+        ]);
+        $this->assertTenantOpen($id);
+        $this->billing->setFreeForever($id, $input['freeForever'], $input['reason'], $this->platformBy($actor));
+
+        return $this->json(['ok' => true]);
+    }
+
+    /** Pago recibido por otro medio, por ejemplo transferencia (mismas reglas que recordTenantPaymentSchema). */
+    public function recordTenantPayment(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'months' => ['required', 'integer', 'min:1', 'max:36'],
+            'amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'notes' => ['required', 'string', 'max:300'],
+        ], ['months.integer' => 'Entre 1 y 36 meses', 'months.min' => 'Entre 1 y 36 meses', 'months.max' => 'Entre 1 y 36 meses']);
+        $this->assertTenantOpen($id);
+        $payment = $this->billing->recordManual($id, (int) $input['months'], $input['amount'], $input['notes'], $this->platformBy($actor));
+
+        return $this->json(BillingService::paymentDto($payment, null), 201);
+    }
+
     public function plans(): JsonResponse
     {
         return $this->json(Plan::with(['limits', 'features'])->orderBy('sort_order')->get()->map(fn (Plan $p) => $this->planDto($p))->all());
@@ -310,14 +347,7 @@ class PlatformController extends Controller
             if ($plan->id === $subscription->plan_id) {
                 throw AppError::badRequest('PLAN_UNCHANGED', 'Elegí un plan diferente');
             }
-            $usage = ['max_branches' => Branch::where('tenant_id', $id)->where('status', 'active')->count(), 'max_users' => Membership::where('tenant_id', $id)->where('status', 'active')->count(), 'max_products' => Product::where('tenant_id', $id)->where('status', 'active')->count(), 'max_registers' => Register::where('tenant_id', $id)->where('status', 'active')->count()];
-            $limits = $plan->limitMap();
-            $labels = ['max_branches' => 'sucursales', 'max_users' => 'usuarios', 'max_products' => 'productos', 'max_registers' => 'cajas'];
-            foreach ($usage as $key => $used) {
-                if (isset($limits[$key]) && $used > $limits[$key]) {
-                    throw AppError::conflict('PLAN_USAGE_EXCEEDED', "El comercio tiene {$used} {$labels[$key]} activos y el plan permite {$limits[$key]}. Reducí el uso antes de cambiarlo.");
-                }
-            }
+            $usage = $this->context->run($id, fn () => $this->entitlements->assertPlanFits($plan));
             $subscription->forceFill(['plan_id' => $plan->id])->save();
             $this->audit->record(['tenantId' => $id, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => 'Plataforma: '.$actor->name, 'action' => 'platform.tenant_plan_changed', 'entityType' => 'tenant', 'entityId' => $id, 'before' => ['planCode' => $previous?->code], 'after' => ['planCode' => $plan->code, 'reason' => $v['reason'], 'usage' => $usage], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
         }));
@@ -399,6 +429,20 @@ class PlatformController extends Controller
             'page' => $page,
             'pageSize' => $pageSize,
         ]);
+    }
+
+    private function assertTenantOpen(string $id): void
+    {
+        $tenant = Tenant::find($id) ?? throw AppError::notFound('Comercio');
+        if ($tenant->status === 'cancelled') {
+            throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+        }
+    }
+
+    /** @return array{actorType: string, actorId: string, actorName: string, ip: string, requestId: string} */
+    private function platformBy(PlatformActor $actor): array
+    {
+        return ['actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}", 'ip' => $actor->ip, 'requestId' => $actor->requestId];
     }
 
     /** Forma de PlanDto. */

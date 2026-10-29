@@ -69,6 +69,18 @@ class FiscalTest extends TestCase
         $this->assertSame(200, $owner->put('/fiscal/settings', [...$config, 'certificatePem' => $certificatePem])->status);
     }
 
+    public function test_certificado_sin_clave_guardada_pide_la_clave(): void
+    {
+        $owner = $this->registerTenant()['client'];
+        $key = openssl_pkey_new(['private_key_bits' => 2048, ...OpenSslConfig::options()]);
+        $csr = openssl_csr_new(['commonName' => 'prueba', 'serialNumber' => 'CUIT 20123456786'], $key, ['digest_alg' => 'sha256', ...OpenSslConfig::options()]);
+        openssl_x509_export(openssl_csr_sign($csr, null, $key, 1, ['digest_alg' => 'sha256', ...OpenSslConfig::options()]), $certificatePem);
+        $res = $owner->put('/fiscal/settings', ['environment' => 'homologacion', 'cuit' => '20123456786', 'pointOfSale' => 1, 'credentialMode' => 'own', 'certificatePem' => $certificatePem]);
+        $this->assertSame(400, $res->status);
+        $this->assertSame('privateKeyPem', $res->body['details'][0]['path']);
+        $this->assertStringContainsString('no tiene guardada la clave privada', $res->body['details'][0]['message']);
+    }
+
     public function test_sin_puntos_de_venta_y_guardar_la_configuracion_conserva_el_ticket(): void
     {
         [$owner] = $this->prepare();

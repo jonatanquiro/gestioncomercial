@@ -20,6 +20,7 @@ use App\Http\Controllers\SalesController;
 use App\Http\Controllers\SettlementsController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\StockCountsController;
+use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\TenantController;
 use Illuminate\Support\Facades\Route;
 
@@ -41,6 +42,8 @@ Route::post('auth/login', [AuthController::class, 'login'])->name('public.login'
 Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword'])->name('public.forgot-password');
 Route::post('auth/reset-password', [AuthController::class, 'resetPassword'])->name('public.reset-password');
 Route::post('platform/auth/login', [PlatformController::class, 'login'])->name('public.platform-login');
+// Aviso automático de Mercado Pago: solo trae el número de pago, el estado se consulta a la API.
+Route::post('mercadopago/webhook', [SubscriptionController::class, 'webhook'])->name('public.mercadopago-webhook');
 
 // ---------------------------------------------------------------- Sesión propia (sin comercio obligatorio)
 // Cerrar sesión no exige CSRF: el peor caso es que alguien cierre tu sesión.
@@ -53,6 +56,13 @@ Route::middleware(['csrf.double', 'auth.user:any'])->group(function () {
     Route::put('auth/username', [AuthController::class, 'updateUsername']);
     Route::get('auth/sessions', [AuthController::class, 'sessions']);
     Route::delete('auth/sessions/{id}', [AuthController::class, 'revokeSession']);
+});
+
+// ---------------------------------------------------------------- Suscripción (también con el comercio pausado por falta de pago)
+Route::middleware(['csrf.double', 'auth.user:billing', 'perm:subscription.manage'])->group(function () {
+    Route::get('subscription', [SubscriptionController::class, 'show']);
+    Route::post('subscription/checkout', [SubscriptionController::class, 'checkout']);
+    Route::post('subscription/payments/{id}/check', [SubscriptionController::class, 'check']);
 });
 
 // ---------------------------------------------------------------- Comercio activo
@@ -106,6 +116,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
 
     Route::get('products', [ProductsController::class, 'index'])->middleware('perm:products.read');
     Route::get('products/lookup', [ProductsController::class, 'lookup'])->middleware('perm:products.read');
+    Route::get('products/items', [ProductsController::class, 'items'])->middleware('perm:products.read');
     Route::get('products/favorites', [ProductsController::class, 'favorites'])->middleware('perm:products.read');
     Route::get('products/reference', [ProductsController::class, 'reference'])->middleware('perm:products.create');
     Route::get('products/reference/search', [ProductsController::class, 'referenceSearch'])->middleware('perm:products.create');
@@ -169,6 +180,8 @@ Route::prefix('platform')->middleware(['csrf.double', 'auth.platform'])->group(f
     Route::post('tenants', [PlatformController::class, 'createTenant']);
     Route::post('tenants/{id}/status', [PlatformController::class, 'setTenantStatus']);
     Route::post('tenants/{id}/plan', [PlatformController::class, 'changeTenantPlan']);
+    Route::post('tenants/{id}/license', [PlatformController::class, 'setTenantLicense']);
+    Route::post('tenants/{id}/payments', [PlatformController::class, 'recordTenantPayment']);
     Route::get('plans', [PlatformController::class, 'plans']);
     Route::put('plans/{id}', [PlatformController::class, 'updatePlan']);
     Route::get('audit', [PlatformController::class, 'audit']);

@@ -35,6 +35,7 @@ class AuthService
         private readonly SessionService $sessions,
         private readonly ProvisioningService $provisioning,
         private readonly AuditService $audit,
+        private readonly BillingService $billing,
     ) {}
 
     /** @return list<array{code: string, name: string}> */
@@ -286,6 +287,8 @@ class AuthService
                 'businessTypeCode' => $current->business_type_code,
             ] : null,
             'role' => $current ? ['id' => $current->role_id, 'name' => $current->role_name] : null,
+            // El middleware ya fijó el comercio de la sesión en el contexto.
+            'subscription' => $current ? $this->billing->summary() : null,
             'permissions' => $current ? $actor->permissionList() : [],
             'branchIds' => $current ? $actor->branchIds : [],
             'memberships' => $list->map(fn ($m) => [

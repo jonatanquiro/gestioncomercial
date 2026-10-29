@@ -1,4 +1,4 @@
-import { createSaleSchema, type PaymentMethodDto, type PermissionCode, type ProductDto, type RegisterDto, type SaleDto } from '@gc/contracts';
+import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -22,7 +22,7 @@ import { PrintTicket } from './ticket';
 import { InvoiceDialog } from '@/features/fiscal/invoice-dialog';
 
 interface CartLine {
-  product: ProductDto;
+  product: ItemDto;
   quantity: string;
   discountPercent: string;
 }
@@ -155,7 +155,9 @@ function ClosedRegister({ register }: { register: RegisterDto }) {
 }
 
 const UNIT: Record<string, string> = { weight: 'kg', length: 'm', volume: 'l' };
-const isMeasured = (p: ProductDto) => p.saleMode !== 'unit';
+const isMeasured = (p: ItemDto) => p.saleMode !== 'unit';
+/** «Remera · M / Rojo». */
+const itemName = (p: ItemDto) => variantDisplayName(p.name, p.variantLabel ?? null);
 const QUANTITY_RE = /^\d+(\.\d{1,3})?$/;
 /** Medios en los que se pide, opcionalmente, quién paga. */
 const PAYER_KINDS: string[] = ['transfer', 'qr'];
@@ -167,10 +169,10 @@ function Counter({ register }: { register: RegisterDto }) {
   const toast = useToast();
   const tenant = useQuery(tenantQuery);
   const methods = useQuery(paymentMethodsQuery);
-  const favorites = useQuery({ queryKey: ['products', 'favorites'], queryFn: () => http.get<ProductDto[]>('/products/favorites'), staleTime: 5 * 60_000 });
+  const favorites = useQuery({ queryKey: ['products', 'favorites'], queryFn: () => http.get<ItemDto[]>('/products/favorites'), staleTime: 5 * 60_000 });
   const [cart, setCart] = useStoredCart(register.id);
   const [checkout, setCheckout] = useState(false);
-  const [editing, setEditing] = useState<{ product: ProductDto; index: number | null } | null>(null);
+  const [editing, setEditing] = useState<{ product: ItemDto; index: number | null } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<SaleDto | null>(null);
   const [printing, setPrinting] = useState<SaleDto | null>(null);
@@ -190,7 +192,7 @@ function Counter({ register }: { register: RegisterDto }) {
   const discount = sumMoney(computed.map((l) => l.amounts.discount));
   const allValid = computed.length > 0 && computed.every((l) => l.valid);
 
-  function addQuantity(product: ProductDto, quantity: string) {
+  function addQuantity(product: ItemDto, quantity: string) {
     setCart((c) => {
       const i = c.lines.findIndex((l) => l.product.variantId === product.variantId);
       if (i === -1) return { ...c, lines: [...c.lines, { product, quantity: dec(quantity).toFixed(3), discountPercent: '0' }] };
@@ -200,7 +202,7 @@ function Counter({ register }: { register: RegisterDto }) {
     });
   }
   /** Los artículos por peso o medida piden cuánto, salvo que el código ya traiga la cantidad. */
-  function add(product: ProductDto, factor: string) {
+  function add(product: ItemDto, factor: string) {
     setNotice(null);
     setLastSale(null);
     if (isMeasured(product) && dec(factor).eq(1)) return setEditing({ product, index: null });
@@ -271,7 +273,7 @@ function Counter({ register }: { register: RegisterDto }) {
                   className="flex min-h-20 flex-col justify-between rounded-xl border border-slate-200 bg-white p-3 text-left shadow-xs hover:border-brand-300 active:bg-brand-50 active:ring-2 active:ring-brand-500"
                   onClick={() => add(p, '1.000')}
                 >
-                  <span className="line-clamp-2 text-sm font-semibold leading-snug">{p.name}</span>
+                  <span className="line-clamp-2 text-sm font-semibold leading-snug">{itemName(p)}</span>
                   <span className="mt-1 text-sm text-slate-600">
                     {formatArs(p.price)}
                     {isMeasured(p) && ` /${UNIT[p.saleMode]}`}
@@ -294,9 +296,9 @@ function Counter({ register }: { register: RegisterDto }) {
         ) : (
           <ul aria-label="Artículos de la venta" className="max-h-[50vh] divide-y divide-slate-100 overflow-y-auto">
             {computed.map((l, i) => (
-              <li key={l.product.variantId} aria-label={l.product.name} className="px-3 py-2">
+              <li key={l.product.variantId} aria-label={itemName(l.product)} className="px-3 py-2">
                 <button type="button" className="w-full rounded-lg px-1 py-0.5 text-left hover:bg-slate-50" onClick={() => setEditing({ product: l.product, index: i })}>
-                  <span className="line-clamp-2 font-medium leading-snug">{l.product.name}</span>
+                  <span className="line-clamp-2 font-medium leading-snug">{itemName(l.product)}</span>
                   <span className="block text-xs text-slate-500">
                     {formatArs(l.product.price)} {isMeasured(l.product) ? `/${UNIT[l.product.saleMode]}` : 'c/u'}
                     {dec(l.valid ? l.discountPercent : '0').gt(0) && <span className="ml-1 font-semibold text-emerald-700">−{toInputDecimal(l.discountPercent)} %</span>}
@@ -304,13 +306,13 @@ function Counter({ register }: { register: RegisterDto }) {
                 </button>
                 <div className="mt-1 flex items-center gap-1">
                   {!isMeasured(l.product) && (
-                    <button type="button" aria-label={`Restar uno de ${l.product.name}`} disabled={!dec(l.quantity).gt(1)} className="flex size-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40" onClick={() => step(i, -1)}>
+                    <button type="button" aria-label={`Restar uno de ${itemName(l.product)}`} disabled={!dec(l.quantity).gt(1)} className="flex size-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40" onClick={() => step(i, -1)}>
                       <Minus className="size-4" />
                     </button>
                   )}
                   <button
                     type="button"
-                    aria-label={`Cantidad de ${l.product.name}`}
+                    aria-label={`Cantidad de ${itemName(l.product)}`}
                     aria-invalid={!isPositive(l.quantity) || undefined}
                     className="h-10 min-w-12 rounded-lg bg-slate-100 px-3 text-center font-semibold tabular-nums"
                     onClick={() => setEditing({ product: l.product, index: i })}
@@ -318,12 +320,12 @@ function Counter({ register }: { register: RegisterDto }) {
                     {formatQty(l.quantity, l.product.saleMode)}
                   </button>
                   {!isMeasured(l.product) && (
-                    <button type="button" aria-label={`Sumar uno de ${l.product.name}`} className="flex size-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700" onClick={() => step(i, 1)}>
+                    <button type="button" aria-label={`Sumar uno de ${itemName(l.product)}`} className="flex size-10 items-center justify-center rounded-lg border border-slate-200 text-slate-700" onClick={() => step(i, 1)}>
                       <Plus className="size-4" />
                     </button>
                   )}
                   <span className="ml-auto font-semibold tabular-nums">{formatArs(l.amounts.total)}</span>
-                  <button type="button" className="flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700" aria-label={`Quitar ${l.product.name}`} onClick={() => remove(i)}>
+                  <button type="button" className="flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700" aria-label={`Quitar ${itemName(l.product)}`} onClick={() => remove(i)}>
                     <Trash2 className="size-4" />
                   </button>
                 </div>
@@ -439,7 +441,7 @@ function LineDialog({
   onRemove,
   onClose,
 }: {
-  product: ProductDto;
+  product: ItemDto;
   /** Línea que se edita; sin ella, se está agregando el artículo. */
   line?: CartLine;
   /** Al agregar, la línea que ya está en la venta: lo cargado se suma. */
@@ -473,7 +475,7 @@ function LineDialog({
   const preview = quantityOk && discountOk ? saleLine(q, product.price, d).total : null;
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()} title={product.name} description={`${formatArs(product.price)} ${measured ? `por ${unit}` : 'por unidad'}`} wide={keypad}>
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={itemName(product)} description={`${formatArs(product.price)} ${measured ? `por ${unit}` : 'por unidad'}`} wide={keypad}>
       <form
         className="space-y-4"
         noValidate

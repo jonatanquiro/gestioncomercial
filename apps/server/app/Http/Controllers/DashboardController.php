@@ -67,10 +67,11 @@ class DashboardController extends Controller
 
         if ($actor->can('stock.read')) {
             $products = Product::where('status', 'active')->where('track_stock', true)->whereNotNull('min_stock')->get(['id', 'name', 'min_stock'])->keyBy('id');
-            $variants = ProductVariant::whereIn('product_id', $products->keys())->pluck('product_id', 'id');
+            $variants = ProductVariant::whereIn('product_id', $products->keys())->where('status', 'active')->get(['id', 'product_id', 'label'])->keyBy('id');
             $onHand = StockLevel::whereIn('variant_id', $variants->keys())->groupBy('variant_id')->selectRaw('variant_id, SUM(on_hand) AS total')->pluck('total', 'variant_id');
-            $low = $variants->filter(fn ($productId, $variantId) => Money::of((string) ($onHand[$variantId] ?? '0'))->isLessThanOrEqualTo($products[$productId]->min_stock))
-                ->map(fn ($productId) => $products[$productId]->name)->sort()->values();
+            // El stock mínimo del producto se aplica a cada variante.
+            $low = $variants->filter(fn (ProductVariant $v) => Money::of((string) ($onHand[$v->id] ?? '0'))->isLessThanOrEqualTo($products[$v->product_id]->min_stock))
+                ->map(fn (ProductVariant $v) => ProductVariant::displayName($products[$v->product_id]->name, $v->label))->sort()->values();
             $out['stock'] = ['lowCount' => $low->count(), 'lowNames' => $low->take(5)->all()];
         }
 

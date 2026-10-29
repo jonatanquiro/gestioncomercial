@@ -129,23 +129,23 @@ class PricesController extends Controller
             ->when($scope['categoryId'], fn ($w, $id) => $w->where('category_id', $id))
             ->when($scope['brandId'], fn ($w, $id) => $w->where('brand_id', $id))
             ->when($scope['productIds'] !== null, fn ($w) => $w->whereIn('id', $scope['productIds']));
-        if ((clone $query)->count() > self::MAX_ROWS) {
+        if (ProductVariant::whereIn('product_id', (clone $query)->select('id'))->where('status', 'active')->count() > self::MAX_ROWS) {
             throw AppError::badRequest('TOO_MANY_PRODUCTS', 'El cambio abarca más de '.self::MAX_ROWS.' artículos. Acotalo por categoría o marca.');
         }
         $products = $query->orderBy('name')->orderBy('id')->get(['id', 'name']);
-        $variantQuery = ProductVariant::whereIn('product_id', $products->pluck('id'))->orderBy('id');
-        $variants = ($lock ? $variantQuery->lockForUpdate() : $variantQuery)->get()->keyBy('product_id');
+        $variantQuery = ProductVariant::whereIn('product_id', $products->pluck('id'))->where('status', 'active')->orderBy('id');
+        $variants = ($lock ? $variantQuery->lockForUpdate() : $variantQuery)->get()->sortBy('label')->groupBy('product_id');
 
         ['kind' => $kind, 'value' => $value] = $input['rule'];
         $seeCost = $actor->can('costs.read');
         $rows = [];
         $skipped = [];
-        foreach ($products as $p) {
-            $v = $variants[$p->id];
+        foreach ($products->flatMap(fn ($p) => collect($variants->get($p->id, []))->map(fn ($v) => [$p, $v])) as [$p, $v]) {
+            $name = ProductVariant::displayName($p->name, $v->label);
             $old = Money::round($v->price);
             $cost = $v->cost === null ? null : Money::roundUnit($v->cost);
             if (in_array($kind, ['markup', 'margin'], true) && ($cost === null || BigDecimal::of($cost)->isZero())) {
-                $skipped[] = ['productId' => $p->id, 'name' => $p->name, 'reason' => 'No tiene costo cargado'];
+                $skipped[] = ['productId' => $p->id, 'name' => $name, 'reason' => 'No tiene costo cargado'];
 
                 continue;
             }
@@ -156,13 +156,13 @@ class PricesController extends Controller
                 'margin' => Pricing::priceFromMargin($cost, $value),
             };
             if (BigDecimal::of($raw)->isNegative()) {
-                $skipped[] = ['productId' => $p->id, 'name' => $p->name, 'reason' => 'El precio quedaría negativo'];
+                $skipped[] = ['productId' => $p->id, 'name' => $name, 'reason' => 'El precio quedaría negativo'];
 
                 continue;
             }
             $new = Pricing::roundPriceUp($raw, $input['roundingStep']);
             if (BigDecimal::of($new)->isEqualTo($old)) {
-                $skipped[] = ['productId' => $p->id, 'name' => $p->name, 'reason' => 'El precio no cambia'];
+                $skipped[] = ['productId' => $p->id, 'name' => $name, 'reason' => 'El precio no cambia'];
 
                 continue;
             }
@@ -170,6 +170,7 @@ class PricesController extends Controller
                 'productId' => $p->id,
                 'variantId' => $v->id,
                 'name' => $p->name,
+                'variantLabel' => $v->label,
                 'oldPrice' => $old,
                 'newPrice' => $new,
                 'variation' => BigDecimal::of($old)->isZero() ? null : Pricing::variationPercent($old, $new),

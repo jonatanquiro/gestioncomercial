@@ -53,10 +53,7 @@ class StockController extends Controller
         ]);
         $warehouse = $this->warehouse($q['warehouseId'] ?? null);
 
-        $query = ProductsController::search(Product::query(), $q['q'] ?? null)
-            ->join('product_variants', function ($j) {
-                $j->on('product_variants.tenant_id', '=', 'products.tenant_id')->on('product_variants.product_id', '=', 'products.id');
-            })
+        $query = ProductsController::searchVariants(ProductsController::activeVariants(), $q['q'] ?? null)
             ->join('stock_levels', function ($j) use ($warehouse) {
                 $j->on('stock_levels.tenant_id', '=', 'product_variants.tenant_id')->on('stock_levels.variant_id', '=', 'product_variants.id')
                     ->where('stock_levels.warehouse_id', '=', $warehouse->id);
@@ -69,8 +66,8 @@ class StockController extends Controller
             ->when($q['categoryId'] ?? null, fn ($w, $id) => $w->where('products.category_id', $id))
             ->when(($q['low'] ?? '0') === '1', fn ($w) => $w->whereNotNull('products.min_stock')->whereColumn('stock_levels.on_hand', '<=', 'products.min_stock'));
         $total = (clone $query)->count();
-        $rows = $query->orderBy('products.name')->orderBy('products.id')->forPage($page, $pageSize)->get([
-            'products.id as product_id', 'product_variants.id as variant_id', 'products.name', 'product_variants.sku', 'categories.name as category_name',
+        $rows = $query->orderBy('products.name')->orderBy('products.id')->orderBy('product_variants.label')->forPage($page, $pageSize)->get([
+            'products.id as product_id', 'product_variants.id as variant_id', 'products.name', 'product_variants.label', 'product_variants.sku', 'categories.name as category_name',
             'products.sale_mode', 'stock_levels.on_hand', 'products.min_stock', 'product_variants.cost',
         ]);
         $seeCost = $actor->can('costs.read');
@@ -80,6 +77,7 @@ class StockController extends Controller
                 'productId' => $r->product_id,
                 'variantId' => $r->variant_id,
                 'name' => $r->name,
+                'variantLabel' => $r->label,
                 'sku' => $r->sku,
                 'categoryName' => $r->category_name,
                 'saleMode' => $r->sale_mode,
@@ -110,8 +108,8 @@ class StockController extends Controller
         $total = (clone $query)->count();
         $rows = $query->orderByDesc('occurred_at')->orderByDesc('id')->forPage($page, $pageSize)->get();
 
-        $variants = ProductVariant::whereIn('id', $rows->pluck('variant_id')->unique())->pluck('product_id', 'id');
-        $products = Product::whereIn('id', $variants->unique())->pluck('name', 'id');
+        $variants = ProductVariant::whereIn('id', $rows->pluck('variant_id')->unique())->get(['id', 'product_id', 'label'])->keyBy('id');
+        $products = Product::whereIn('id', $variants->pluck('product_id')->unique())->pluck('name', 'id');
         $warehouses = Warehouse::whereIn('id', $rows->pluck('warehouse_id')->unique())->pluck('name', 'id');
         $users = User::whereIn('id', $rows->pluck('user_id')->filter()->unique())->pluck('name', 'id');
         $seeCost = $actor->can('costs.read');
@@ -121,9 +119,10 @@ class StockController extends Controller
                 'id' => $m->id,
                 'occurredAt' => Dates::iso($m->occurred_at),
                 'type' => $m->type,
-                'productId' => $variants[$m->variant_id] ?? null,
+                'productId' => $variants[$m->variant_id]?->product_id,
                 'variantId' => $m->variant_id,
-                'productName' => $products[$variants[$m->variant_id] ?? ''] ?? '',
+                'productName' => $products[$variants[$m->variant_id]?->product_id ?? ''] ?? '',
+                'variantLabel' => $variants[$m->variant_id]?->label,
                 'warehouseName' => $warehouses[$m->warehouse_id] ?? '',
                 'quantity' => Money::quantity($m->quantity),
                 'balanceAfter' => Money::quantity($m->balance_after),

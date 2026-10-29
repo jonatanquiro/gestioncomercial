@@ -1,5 +1,5 @@
-import { QueryClient, useQuery } from '@tanstack/react-query';
-import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect } from '@tanstack/react-router';
+import { QueryClient, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, useNavigate } from '@tanstack/react-router';
 import { z } from 'zod';
 import { AccountPage } from '@/features/account/account-page';
 import { AuditPage } from '@/features/audit/audit-page';
@@ -30,9 +30,10 @@ import { SettingsPage } from '@/features/settings/settings-page';
 import { AppearancePage } from '@/features/settings/appearance-page';
 import { FiscalPage } from '@/features/settings/fiscal-page';
 import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
+import { SubscriptionExpiredPage, SubscriptionPage } from '@/features/subscription/subscription-page';
 import { MovementsPage } from '@/features/stock/movements-page';
 import { StockPage } from '@/features/stock/stock-page';
-import { ApiRequestError } from '@/lib/api';
+import { ApiRequestError, http } from '@/lib/api';
 import { appBasePath, appUrl, internalPath } from '@/lib/base-path';
 import { meQuery } from '@/lib/session';
 
@@ -80,8 +81,17 @@ const resetRoute = createRoute({
 
 function AppGate() {
   const me = useQuery(meQuery).data!;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   if (!me.tenant) return <NoTenantPage reason="none" />;
   if (me.tenant.status === 'suspended' || me.tenant.status === 'cancelled') return <NoTenantPage reason="suspended" />;
+  if (me.subscription?.state === 'expired') {
+    return <SubscriptionExpiredPage onLogout={async () => {
+      await http.post('/auth/logout').catch(() => undefined);
+      queryClient.clear();
+      await navigate({ to: '/login' });
+    }} />;
+  }
   return <AppLayout />;
 }
 
@@ -103,6 +113,17 @@ const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: 'confi
 const appearanceRoute = createRoute({ getParentRoute: () => appRoute, path: 'apariencia', component: AppearancePage });
 const fiscalRoute = createRoute({ getParentRoute: () => appRoute, path: 'facturacion', component: FiscalPage, validateSearch: z.object({ saleId: z.string().uuid().optional().catch(undefined) }) });
 const accountRoute = createRoute({ getParentRoute: () => appRoute, path: 'cuenta', component: AccountPage });
+// Mercado Pago vuelve con ?pago=<id>&payment_id=...; el resto de sus parámetros se ignora.
+const subscriptionRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: 'suscripcion',
+  validateSearch: z.object({
+    pago: z.string().uuid().optional().catch(undefined),
+    payment_id: z.string().max(40).optional().catch(undefined),
+    collection_id: z.string().max(40).optional().catch(undefined),
+  }),
+  component: SubscriptionPage,
+});
 const productsRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos', component: ProductsPage });
 const referenceCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos/catalogo', component: ReferenceCatalogPage });
 const categoriesRoute = createRoute({ getParentRoute: () => appRoute, path: 'categorias', component: CategoriesPage });
@@ -172,6 +193,7 @@ const routeTree = rootRoute.addChildren([
     appearanceRoute,
     fiscalRoute,
     accountRoute,
+    subscriptionRoute,
   ]),
   platformLoginRoute,
   platformRoute.addChildren([platformIndexRoute, platformPlansRoute]),

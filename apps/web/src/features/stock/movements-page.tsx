@@ -48,6 +48,7 @@ export function MovementsPage() {
     queryFn: () => http.get<ProductDto>(`/products/${productId}`),
     enabled: allowed && !!productId && can('products.read'),
   });
+  const hasVariants = (product.data?.optionNames.length ?? 0) > 0;
   if (!allowed) return <Forbidden />;
   const seeCost = can('costs.read');
 
@@ -84,7 +85,7 @@ export function MovementsPage() {
             head={
               <>
                 <Th>Fecha</Th>
-                {!productId && <Th>Producto</Th>}
+                {!productId ? <Th>Producto</Th> : hasVariants && <Th>Variante</Th>}
                 <Th>Tipo</Th>
                 <Th className="text-right">Cantidad</Th>
                 <Th className="text-right">Saldo</Th>
@@ -97,12 +98,15 @@ export function MovementsPage() {
             {movements.data.items.map((m) => (
               <tr key={m.id}>
                 <Td className="whitespace-nowrap">{formatDateTime(m.occurredAt)}</Td>
-                {!productId && (
+                {!productId ? (
                   <Td>
                     <Link to="/app/stock/movimientos" search={{ productId: m.productId }} className="font-medium hover:underline">
                       {m.productName}
                     </Link>
+                    {m.variantLabel && <span className="ml-1.5 text-slate-600">{m.variantLabel}</span>}
                   </Td>
+                ) : (
+                  hasVariants && <Td className="font-medium">{m.variantLabel}</Td>
                 )}
                 <Td>
                   <Badge tone={m.type === 'waste' || m.type === 'expired' ? 'red' : m.type === 'count_adjust' ? 'brand' : 'slate'}>{MOVEMENT_LABELS[m.type] ?? m.type}</Badge>

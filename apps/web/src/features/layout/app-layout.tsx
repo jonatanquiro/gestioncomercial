@@ -1,7 +1,7 @@
 import type { PermissionCode, TenantDto } from '@gc/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { ArrowRightLeft, Boxes, Building2, ChevronDown, ClipboardList, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Boxes, Building2, ChevronDown, ClipboardList, CreditCard, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Users, Wallet, X } from 'lucide-react';
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -12,6 +12,7 @@ import { TENANT_STATUS_LABELS } from '@/lib/format';
 import { useCan, useMe } from '@/lib/session';
 import { appearanceStyle, DEFAULT_APPEARANCE } from '@/features/settings/appearance';
 import { PAYMENTS_TABS, type SectionTab, SETTINGS_TABS } from '@/features/settings/settings-tabs';
+import { subscriptionNotice } from '@/features/subscription/subscription-page';
 
 interface NavItem {
   to: string;
@@ -45,6 +46,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },
     { to: '/app/auditoria', label: 'Auditoría', icon: History, anyOf: ['audit.read'] },
     { to: '/app/configuracion', label: 'Configuración', icon: Settings, anyOf: ['settings.manage', 'fiscal.manage', 'branches.manage'], sections: SETTINGS_TABS },
+    { to: '/app/suscripcion', label: 'Suscripción', icon: CreditCard, anyOf: ['subscription.manage'] },
     { to: '/app/cuenta', label: 'Mi cuenta', icon: KeyRound },
   ] },
 ];
@@ -68,6 +70,7 @@ export function AppLayout() {
   })).filter((g) => g.items.length > 0);
   const inSections = (item: NavItem) => !!item.sections?.some((t) => pathname === t.to || pathname.startsWith(`${t.to}/`));
   const others = me.memberships.filter((m) => m.status === 'active' && m.tenantId !== me.tenant?.id);
+  const notice = pathname === '/app/suscripcion' ? null : subscriptionNotice(me.subscription);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -189,7 +192,18 @@ export function AppLayout() {
           <Link to="/app" activeOptions={{ exact: true }} className="side-nav-link" activeProps={{ className: 'side-nav-active' }}><Home className="size-4" />Inicio</Link>
           {groups.map(group => <div key={group.id} className="mt-5"><p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest">{group.label}</p>{group.items.map(item => <Link key={item.to} to={item.to} className={`side-nav-link ${inSections(item) ? 'side-nav-active' : ''}`} activeProps={{ className: 'side-nav-active' }}><item.icon className="size-4 shrink-0" />{item.label}</Link>)}</div>)}
         </aside></div>}
-        <main className={`mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 ${appearance.navigation === 'top' ? 'lg:px-12' : 'lg:px-8'} lg:py-10`}><Outlet /></main>
+        <main className={`mx-auto min-w-0 w-full max-w-[1440px] flex-1 px-4 py-7 sm:px-8 sm:py-9 ${appearance.navigation === 'top' ? 'lg:px-12' : 'lg:px-8'} lg:py-10`}>
+          {notice && (
+            <div role="status" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <AlertTriangle className="size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1">{notice}</span>
+              {can('subscription.manage')
+                ? <Link to="/app/suscripcion" className="font-semibold underline-offset-2 hover:underline">Renovar</Link>
+                : <span className="text-amber-800">Avisale al propietario del comercio.</span>}
+            </div>
+          )}
+          <Outlet />
+        </main>
       </div>
     </div>
   );

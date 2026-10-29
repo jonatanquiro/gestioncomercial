@@ -27,9 +27,9 @@ try {
   const methods = await api('GET', '/payment-methods');
   const method = methods.find(m => m.kind === 'transfer');
   await api('POST', '/shifts', { registerId: register.id, openingFloat: '0' });
-  const product = await api('POST', '/products', { kind: 'good', name: 'Producto de prueba', description: null, categoryId: null, brandId: null, saleMode: 'unit', vatRate: '21', trackStock: true, minStock: null, blockNegativeStock: false, sku: null, price: '1250.50', cost: null, barcodes: [], initialStock: '2' });
+  const product = await api('POST', '/products', { kind: 'good', name: 'Producto de prueba', description: null, categoryId: null, brandId: null, saleMode: 'unit', vatRate: '21', trackStock: true, minStock: null, blockNegativeStock: false, optionNames: [], variants: [{ id: null, options: [], sku: null, price: '1250.50', cost: null, barcodes: [], initialStock: '2' }] });
   const reference = `CSV-${stamp}`;
-  const sale = await api('POST', '/sales', { clientUuid: crypto.randomUUID(), registerId: register.id, lines: [{ variantId: product.variantId, quantity: '1' }], payments: [{ paymentMethodId: method.id, amount: '1250.50', reference }], expectedTotal: '1250.50' });
+  const sale = await api('POST', '/sales', { clientUuid: crypto.randomUUID(), registerId: register.id, lines: [{ variantId: product.variants[0].id, quantity: '1' }], payments: [{ paymentMethodId: method.id, amount: '1250.50', reference }], expectedTotal: '1250.50' });
   console.log('• Revisar la transferencia en Cobros y crear la rendición desde el filtro');
   await page.goto(`${BASE}/app/cobros`);
   await page.getByLabel('Buscar', { exact: true }).fill(reference);

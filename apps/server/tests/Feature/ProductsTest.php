@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Support\Catalog;
+use App\Tenancy\TenantContext;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /** Fase 3 · productos: alta, edición, búsqueda, desactivación, códigos y permisos sobre precios y costos. */
@@ -31,10 +33,13 @@ class ProductsTest extends TestCase
         ]);
         $this->assertSame($category['name'], $p['categoryName']);
         $this->assertSame($brand['name'], $p['brandName']);
-        $this->assertSame('1000.00', $p['price']);
-        $this->assertSame('600.0000', $p['cost']);
+        $this->assertSame([], $p['optionNames']);
+        $this->assertCount(1, $p['variants']);
+        $this->assertNull($p['variants'][0]['label']);
+        $this->assertSame('1000.00', $p['variants'][0]['price']);
+        $this->assertSame('600.0000', $p['variants'][0]['cost']);
         $this->assertSame('24.000', $p['stock']);
-        $this->assertCount(2, $p['barcodes']);
+        $this->assertCount(2, $p['variants'][0]['barcodes']);
 
         foreach (['triple choc', '7790001112223', 'ALF-3'] as $term) {
             $ids = array_column($owner->get('/products?q='.urlencode($term))->body['items'], 'id');
@@ -43,7 +48,8 @@ class ProductsTest extends TestCase
 
         // El código del pack representa 12 unidades.
         $pack = $owner->get('/products/lookup?code=17790001112220')->body;
-        $this->assertSame($p['id'], $pack['product']['id']);
+        $this->assertSame($p['id'], $pack['item']['productId']);
+        $this->assertSame($p['variantId'], $pack['item']['variantId']);
         $this->assertSame('12.000', $pack['quantityFactor']);
         $this->assertSame('1.000', $owner->get('/products/lookup?code=ALF-3')->body['quantityFactor']);
 
@@ -58,7 +64,7 @@ class ProductsTest extends TestCase
     {
         ['client' => $owner] = $this->registerTenant();
         $p = $this->createProduct($owner, ['sku' => 'GAL-1']);
-        $code = $p['barcodes'][0]['code'];
+        $code = $p['variants'][0]['barcodes'][0]['code'];
 
         $dup = $owner->post('/products', self::productInput(['barcodes' => [['code' => $code, 'quantityFactor' => '1']]]));
         $this->assertSame(409, $dup->status);
@@ -71,7 +77,7 @@ class ProductsTest extends TestCase
 
         $same = $owner->post('/products', self::productInput(['barcodes' => [['code' => '111', 'quantityFactor' => '1'], ['code' => '111', 'quantityFactor' => '6']]]));
         $this->assertSame(400, $same->status);
-        $this->assertContains('barcodes.1.code', array_column($same->body['details'], 'path'));
+        $this->assertContains('variants.0.barcodes.1.code', array_column($same->body['details'], 'path'));
 
         // Editar el propio producto conservando su código no es un duplicado.
         $this->assertSame(200, $owner->put("/products/{$p['id']}", self::productUpdate($p, ['name' => 'Galletitas']))->status);
@@ -83,8 +89,8 @@ class ProductsTest extends TestCase
         $res = $owner->post('/products', self::productInput(['price' => 10.5, 'cost' => '1,5', 'minStock' => '2.5']));
         $this->assertSame(400, $res->status);
         $paths = array_column($res->body['details'], 'path');
-        $this->assertContains('price', $paths);
-        $this->assertContains('cost', $paths);
+        $this->assertContains('variants.0.price', $paths);
+        $this->assertContains('variants.0.cost', $paths);
 
         $unit = $owner->post('/products', self::productInput(['minStock' => '2.5']));
         $this->assertSame(400, $unit->status);
@@ -114,7 +120,7 @@ class ProductsTest extends TestCase
         $p = $this->createProduct($owner);
         $updated = $owner->put("/products/{$p['id']}", self::productUpdate($p, ['price' => '1250.50', 'cost' => '700', 'name' => 'Nuevo nombre']));
         $this->assertSame(200, $updated->status, json_encode($updated->body));
-        $this->assertSame('1250.50', $updated->body['price']);
+        $this->assertSame('1250.50', $updated->body['variants'][0]['price']);
         $this->assertSame(2, $updated->body['version']);
 
         // Otro usuario editando con la versión vieja recibe un conflicto en lugar de pisar los cambios.
@@ -140,12 +146,12 @@ class ProductsTest extends TestCase
         ['client' => $client] = $this->addEmployee($owner, $stocker['id'], $me['branchIds']);
 
         $seen = $client->get("/products/{$p['id']}")->body;
-        $this->assertNull($seen['cost']);
+        $this->assertNull($seen['variants'][0]['cost']);
         $this->assertSame([], $client->get("/products/{$p['id']}/history")->body['costs']);
 
         $ok = $client->put("/products/{$p['id']}", self::productUpdate($seen, ['name' => 'Editado por repositor']));
         $this->assertSame(200, $ok->status, json_encode($ok->body));
-        $this->assertSame('450.0000', $owner->get("/products/{$p['id']}")->body['cost']);
+        $this->assertSame('450.0000', $owner->get("/products/{$p['id']}")->body['variants'][0]['cost']);
 
         $price = $client->put("/products/{$p['id']}", self::productUpdate($ok->body, ['price' => '1']));
         $this->assertSame(403, $price->status);
@@ -176,5 +182,136 @@ class ProductsTest extends TestCase
         $this->assertSame('inactive', collect($owner->get('/categories')->body)->firstWhere('id', $c->body['id'])['status']);
         $this->assertSame(201, $owner->post('/brands', ['name' => 'Arcor'])->status);
         $this->assertSame(409, $owner->post('/brands', ['name' => 'ARCOR'])->status);
+    }
+
+    /** Talles y colores (ADR 0013): una variante por combinación, cada una con su precio, códigos y stock. */
+    public function test_producto_con_talles_y_colores(): void
+    {
+        ['client' => $owner, 'tenantId' => $tenantId] = $this->registerTenant(['businessTypeCode' => 'ropa']);
+        $this->withPlan($tenantId, 'multisucursal');
+        $variant = fn (array $options, array $extra = []) => [
+            'id' => null, 'options' => $options, 'sku' => null, 'price' => '15000', 'cost' => null, 'barcodes' => [], 'initialStock' => null, ...$extra,
+        ];
+        $res = $owner->post('/products', self::productInput([
+            'name' => 'Remera lisa', 'optionNames' => ['Talle', 'Color'],
+            'variants' => [
+                $variant(['S', 'Rojo'], ['initialStock' => '3']),
+                $variant(['M', 'Rojo'], ['initialStock' => '5', 'barcodes' => [['code' => 'REM-M-R', 'quantityFactor' => '1']]]),
+                $variant(['XL', 'Negro'], ['price' => '17000']),
+            ],
+        ]));
+        $this->assertSame(201, $res->status, json_encode($res->body));
+        $p = $res->body;
+        $this->assertSame(['Talle', 'Color'], $p['optionNames']);
+        $this->assertSame(['S / Rojo', 'M / Rojo', 'XL / Negro'], array_column($p['variants'], 'label'));
+        $this->assertSame(['3.000', '5.000', '0.000'], array_column($p['variants'], 'stock'));
+        $this->assertSame('8.000', $p['stock']);
+        $this->assertSame('17000.00', $p['variants'][2]['price']);
+
+        // Sin código de barras se encuentra por nombre y propiedades, palabra por palabra.
+        $found = $owner->get('/products/items?q='.urlencode('remera m rojo'))->body['items'];
+        $this->assertSame(['M / Rojo'], array_column($found, 'variantLabel'));
+        $this->assertSame('5.000', $found[0]['stock']);
+        $this->assertCount(3, $owner->get('/products/items?q=remera')->body['items']);
+        $this->assertSame([$p['id']], array_column($owner->get('/products?q=negro')->body['items'], 'id'));
+        $this->assertSame('M / Rojo', $owner->get('/products/lookup?code=REM-M-R')->body['item']['variantLabel']);
+
+        // La venta congela «Producto · talle / color» y descuenta el stock de esa variante.
+        $register = $owner->get('/registers')->body[0];
+        $owner->post('/shifts', ['registerId' => $register['id'], 'openingFloat' => '0']);
+        $cash = collect($owner->get('/payment-methods')->body)->firstWhere('kind', 'cash');
+        $sale = $owner->post('/sales', [
+            'clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $p['variants'][1]['id'], 'quantity' => '2']],
+            'payments' => [['paymentMethodId' => $cash['id'], 'amount' => '30000']], 'expectedTotal' => '30000.00',
+        ]);
+        $this->assertSame(201, $sale->status, json_encode($sale->body));
+        $this->assertSame('Remera lisa · M / Rojo', $sale->body['lines'][0]['description']);
+        $this->assertSame('3.000', $owner->get("/products/{$p['id']}")->body['variants'][1]['stock']);
+
+        // Las filas de stock son por variante.
+        $rows = collect($owner->get('/stock?q=remera')->body['items']);
+        $this->assertSame(['M / Rojo', 'S / Rojo', 'XL / Negro'], $rows->pluck('variantLabel')->all());
+    }
+
+    public function test_editar_variantes_agrega_quita_y_recupera_combinaciones(): void
+    {
+        ['client' => $owner, 'tenantId' => $tenantId] = $this->registerTenant(['businessTypeCode' => 'ropa']);
+        $this->withPlan($tenantId, 'multisucursal');
+        $body = fn (array $dto, array $variants) => [...self::productUpdate($dto), 'variants' => $variants];
+        $keep = fn (array $v, array $extra = []) => [
+            'id' => $v['id'], 'options' => $v['options'], 'sku' => $v['sku'], 'price' => $v['price'], 'cost' => $v['cost'], 'barcodes' => $v['barcodes'], 'initialStock' => null, ...$extra,
+        ];
+        $new = fn (string $talle, ?string $stock = null) => ['id' => null, 'options' => [$talle], 'sku' => null, 'price' => '9000', 'cost' => null, 'barcodes' => [], 'initialStock' => $stock];
+        $p = $this->createProduct($owner, ['name' => 'Zapatilla', 'optionNames' => ['Talle'], 'variants' => [$new('38', '2'), $new('39')]]);
+        [, $t39] = $p['variants'];
+
+        // Agregar el 40 con stock y cambiar el precio del 39.
+        $res = $owner->put("/products/{$p['id']}", $body($p, [$keep($p['variants'][0]), $keep($t39, ['price' => '9500']), $new('40', '4')]));
+        $this->assertSame(200, $res->status, json_encode($res->body));
+        $this->assertSame(['38', '39', '40'], array_column($res->body['variants'], 'label'));
+        $this->assertSame('9500.00', $res->body['variants'][1]['price']);
+        $this->assertSame('4.000', $res->body['variants'][2]['stock']);
+
+        // El 38 tiene stock: no se puede quitar hasta llevarlo a cero.
+        $p = $res->body;
+        $blocked = $owner->put("/products/{$p['id']}", $body($p, [$keep($p['variants'][1]), $keep($p['variants'][2])]));
+        $this->assertSame(409, $blocked->status);
+        $this->assertStringContainsString('38', $blocked->body['message']);
+
+        // El 39 no tiene stock: se quita y deja de aparecer para vender.
+        $res = $owner->put("/products/{$p['id']}", $body($p, [$keep($p['variants'][0]), $keep($p['variants'][2])]));
+        $this->assertSame(200, $res->status, json_encode($res->body));
+        $this->assertSame(['38', '40'], array_column($res->body['variants'], 'label'));
+        $this->assertSame([], $owner->get('/products/items?q=zapatilla+39')->body['items']);
+
+        // Volver a cargar el 39 recupera la misma variante, con su historial de precios.
+        $p = $res->body;
+        $res = $owner->put("/products/{$p['id']}", $body($p, [...array_map(fn ($v) => $keep($v), $p['variants']), $new('39')]));
+        $this->assertSame(200, $res->status, json_encode($res->body));
+        $this->assertSame($t39['id'], collect($res->body['variants'])->firstWhere('label', '39')['id']);
+
+        $history = $owner->get("/products/{$p['id']}/history")->body;
+        $this->assertContains('39', array_column($history['prices'], 'variantLabel'));
+        $this->assertArrayHasKey('variants', $history['changes'][0]['after']);
+    }
+
+    public function test_variantes_validan_combinaciones_y_dependen_del_plan(): void
+    {
+        ['client' => $owner, 'tenantId' => $tenantId] = $this->registerTenant(['businessTypeCode' => 'ropa']);
+        $v = fn (array $options) => ['id' => null, 'options' => $options, 'sku' => null, 'price' => '100', 'cost' => null, 'barcodes' => [], 'initialStock' => null];
+        $input = self::productInput(['optionNames' => ['Talle'], 'variants' => [$v(['M']), $v(['L'])]]);
+
+        $plan = $owner->post('/products', $input);
+        $this->assertSame(400, $plan->status);
+        $this->assertSame('VARIANTS_PLAN', $plan->body['code']);
+
+        $this->withPlan($tenantId, 'multisucursal');
+        $bad = $owner->post('/products', self::productInput(['optionNames' => ['Talle', 'talle'], 'variants' => [$v(['M', 'X']), $v(['m', 'x']), $v(['L'])]]));
+        $this->assertSame(400, $bad->status);
+        $paths = array_column($bad->body['details'], 'path');
+        $this->assertContains('optionNames.1', $paths);
+        $this->assertContains('variants.1.options', $paths);
+        $this->assertContains('variants.2.options', $paths);
+
+        $noOptions = $owner->post('/products', self::productInput(['variants' => [$v([]), $v([])]]));
+        $this->assertSame('optionNames', $noOptions->body['details'][0]['path']);
+
+        $created = $owner->post('/products', $input);
+        $this->assertSame(201, $created->status);
+
+        // Al bajar de plan se siguen editando las variantes existentes, pero no se agregan nuevas.
+        $this->withPlan($tenantId, 'inicial');
+        $dto = $created->body;
+        $this->assertSame(200, $owner->put("/products/{$dto['id']}", self::productUpdate($dto, ['price' => '120']))->status);
+        $dto = $owner->get("/products/{$dto['id']}")->body;
+        $more = [...self::productUpdate($dto), 'variants' => [...self::productUpdate($dto)['variants'], $v(['XL'])]];
+        $this->assertSame('VARIANTS_PLAN', $owner->put("/products/{$dto['id']}", $more)->body['code']);
+    }
+
+    private function withPlan(string $tenantId, string $code): void
+    {
+        app(TenantContext::class)->withoutTenant(function () use ($tenantId, $code) {
+            DB::table('subscriptions')->where('tenant_id', $tenantId)->update(['plan_id' => DB::table('plans')->where('code', $code)->value('id')]);
+        });
     }
 }

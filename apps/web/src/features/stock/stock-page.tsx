@@ -1,4 +1,4 @@
-import { type Paginated, type StockOperationResult, type StockRowDto, stockAdjustmentSchema, stockWasteSchema } from '@gc/contracts';
+import { type Paginated, type StockOperationResult, type StockRowDto, stockAdjustmentSchema, stockWasteSchema, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs } from '@gc/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -210,7 +210,10 @@ export function StockPage() {
             {stock.data.items.map((r) => (
               <tr key={r.variantId}>
                 <Td>
-                  <div className="font-medium">{r.name}</div>
+                  <div className="font-medium">
+                    {r.name}
+                    {r.variantLabel && <span className="ml-1.5 font-semibold text-brand-700">{r.variantLabel}</span>}
+                  </div>
                   {r.sku && <div className="text-xs text-slate-500">{r.sku}</div>}
                 </Td>
                 <Td>{r.categoryName ?? '—'}</Td>
@@ -237,7 +240,7 @@ export function StockPage() {
                     </Button>
                   )}
                   <ActionMenu
-                    label={`Más acciones de ${r.name}`}
+                    label={`Más acciones de ${variantDisplayName(r.name, r.variantLabel)}`}
                     items={[
                       { label: 'Merma o vencido', hidden: !can('stock.waste'), onSelect: () => setDialog({ row: r, operation: 'waste' }) },
                       { label: 'Ver movimientos', onSelect: () => void navigate({ to: '/app/stock/movimientos', search: { productId: r.productId } }) },
@@ -254,7 +257,7 @@ export function StockPage() {
         open={dialog !== null}
         onOpenChange={(o) => !o && setDialog(null)}
         title={dialog?.operation === 'adjust' ? 'Ajustar stock' : 'Baja por merma o vencimiento'}
-        description={dialog?.row.name}
+        description={dialog ? variantDisplayName(dialog.row.name, dialog.row.variantLabel) : undefined}
       >
         {dialog && <OperationForm key={`${dialog.row.variantId}-${dialog.operation}`} row={dialog.row} warehouseId={warehouse} operation={dialog.operation} onDone={() => setDialog(null)} />}
       </Dialog>

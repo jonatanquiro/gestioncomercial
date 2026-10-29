@@ -74,7 +74,7 @@ class StockService
             $after = $before->plus($delta);
             $product = $products[$variants[$line['variantId']]->product_id];
             if (! $force && $delta->isNegative() && $after->isNegative() && (! $allowNegative || $product->block_negative_stock)) {
-                $insufficient[] = ['variantId' => $line['variantId'], 'name' => $product->name, 'onHand' => Money::quantity($before), 'requested' => Money::quantity($delta->negated())];
+                $insufficient[] = ['variantId' => $line['variantId'], 'name' => ProductVariant::displayName($product->name, $variants[$line['variantId']]->label), 'onHand' => Money::quantity($before), 'requested' => Money::quantity($delta->negated())];
 
                 continue;
             }

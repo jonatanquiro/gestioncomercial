@@ -1,14 +1,16 @@
-import type { Paginated, ProductDto, ProductLookupDto } from '@gc/contracts';
+import { type ItemDto, type Paginated, type ProductLookupDto, variantDisplayName } from '@gc/contracts';
 import { dec } from '@gc/domain';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { type KeyboardEvent, type Ref, useState } from 'react';
 import { Input } from '@/components/ui/field';
+import { formatQty } from '@/lib/format';
 import { ApiRequestError, http } from '@/lib/api';
 
 /**
  * Buscador de artículos para cargar cantidades: el lector de códigos escribe el código y manda
- * Enter (búsqueda exacta); también se puede escribir parte del nombre y elegir de la lista.
+ * Enter (búsqueda exacta); también se puede escribir parte del nombre y del talle o color
+ * («remera m rojo») y elegir la variante de la lista, para lo que no tiene código de barras.
  */
 export function ProductPicker({
   onPick,
@@ -19,7 +21,7 @@ export function ProductPicker({
   inputClassName,
   multiplier = false,
 }: {
-  onPick: (p: ProductDto, quantityFactor: string) => void;
+  onPick: (item: ItemDto, quantityFactor: string) => void;
   label?: string;
   /** Para inventario solo sirven los artículos que controlan stock; en la caja se vende todo. */
   onlyStock?: boolean;
@@ -35,17 +37,17 @@ export function ProductPicker({
   const q = term.trim().replace(multiplier ? /^\d+(?:[.,]\d{1,3})?\s*[*×]\s*/ : /^$/, '');
   const results = useQuery({
     queryKey: ['products', 'picker', q],
-    queryFn: () => http.get<Paginated<ProductDto>>(`/products?pageSize=8&q=${encodeURIComponent(q)}`),
+    queryFn: () => http.get<Paginated<ItemDto>>(`/products/items?pageSize=12&q=${encodeURIComponent(q)}`),
     enabled: q.length >= 2,
   });
   const options = (results.data?.items ?? []).filter((p) => p.status === 'active' && (!onlyStock || p.trackStock));
 
   /** Aplica la cantidad pendiente («12*») y la olvida. */
-  function deliver(p: ProductDto, factor: string, by = times) {
+  function deliver(p: ItemDto, factor: string, by = times) {
     onPick(p, by ? dec(factor).times(by).toFixed(3) : factor);
     setTimes(null);
   }
-  function pick(p: ProductDto, factor = '1.000') {
+  function pick(p: ItemDto, factor = '1.000') {
     deliver(p, factor);
     setTerm('');
     setMessage(null);
@@ -73,9 +75,10 @@ export function ProductPicker({
     setMessage(null);
     try {
       const found = await http.get<ProductLookupDto>(`/products/lookup?code=${encodeURIComponent(code)}`);
-      if (onlyStock && !found.product.trackStock) return setMessage(`${found.product.name} no controla stock`);
-      if (found.product.status !== 'active') return setMessage(`${found.product.name} está desactivado`);
-      deliver(found.product, found.quantityFactor, by);
+      const name = variantDisplayName(found.item.name, found.item.variantLabel);
+      if (onlyStock && !found.item.trackStock) return setMessage(`${name} no controla stock`);
+      if (found.item.status !== 'active') return setMessage(`${name} está desactivado`);
+      deliver(found.item, found.quantityFactor, by);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 404) {
         if (options.length === 1) return deliver(options[0]!, '1.000', by);
@@ -100,10 +103,15 @@ export function ProductPicker({
       {q.length >= 2 && options.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg" role="listbox">
           {options.map((p) => (
-            <li key={p.id}>
-              <button type="button" className="flex w-full justify-between gap-3 px-3 py-3 text-left text-sm hover:bg-brand-50" onClick={() => pick(p)}>
-                <span className="font-medium">{p.name}</span>
-                <span className="text-xs text-slate-500">{p.sku ?? p.barcodes[0]?.code ?? ''}</span>
+            <li key={p.variantId}>
+              <button type="button" className="flex w-full items-baseline justify-between gap-3 px-3 py-3 text-left text-sm hover:bg-brand-50" onClick={() => pick(p)}>
+                <span>
+                  <span className="font-medium">{p.name}</span>
+                  {p.variantLabel && <span className="ml-1.5 font-semibold text-brand-700">{p.variantLabel}</span>}
+                </span>
+                <span className="shrink-0 text-xs text-slate-500">
+                  {[p.sku ?? p.barcodes[0]?.code, p.stock !== null ? `stock ${formatQty(p.stock, p.saleMode)}` : null].filter(Boolean).join(' · ')}
+                </span>
               </button>
             </li>
           ))}

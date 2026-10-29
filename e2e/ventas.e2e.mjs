@@ -42,7 +42,8 @@ const api = (method, path, body) =>
 
 const product = (name, price, code, stock) => ({
   kind: 'good', name, description: null, categoryId: null, brandId: null, saleMode: 'unit', vatRate: '21', trackStock: true, minStock: null,
-  blockNegativeStock: false, sku: null, price, cost: null, barcodes: [{ code, quantityFactor: '1' }], initialStock: stock,
+  blockNegativeStock: false, optionNames: [],
+  variants: [{ id: null, options: [], sku: null, price, cost: null, barcodes: code ? [{ code, quantityFactor: '1' }] : [], initialStock: stock }],
 });
 
 try {
@@ -155,7 +156,7 @@ try {
   assert.equal(byName['Gaseosa 500 ml'], '1.000'); // 10 − 1 − 10 + 1 (anulación) + 1 (devolución)
 
   step('Venta táctil: más vendidos, queso por importe y débito con botones');
-  assert.equal((await api('POST', '/products', { ...product('Queso de máquina', '9000', `${stamp}9`, '5'), saleMode: 'weight', barcodes: [] })).status, 201);
+  assert.equal((await api('POST', '/products', { ...product('Queso de máquina', '9000', null, '5'), saleMode: 'weight' })).status, 201);
   if (await page.getByRole('button', { name: 'Operación', exact: true }).isVisible()) await page.getByRole('button', { name: 'Operación', exact: true }).click();
   await page.getByRole('link', { name: 'Vender', exact: true }).click();
   await page.getByRole('region', { name: 'Más vendidos' }).getByRole('button', { name: /Alfajor triple/ }).click();

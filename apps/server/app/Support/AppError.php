@@ -52,6 +52,11 @@ class AppError extends RuntimeException
         return new self(403, 'TENANT_SUSPENDED', 'El comercio está suspendido. Comunicate con soporte.');
     }
 
+    public static function subscriptionExpired(): self
+    {
+        return new self(402, 'SUBSCRIPTION_EXPIRED', 'La suscripción del comercio venció. Regularizá el pago para seguir operando.');
+    }
+
     public static function notFound(string $what = 'Recurso'): self
     {
         return new self(404, 'NOT_FOUND', "{$what} no encontrado");

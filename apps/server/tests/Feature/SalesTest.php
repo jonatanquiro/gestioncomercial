@@ -46,7 +46,7 @@ class SalesTest extends TestCase
         $queso = $this->createProduct($owner, ['name' => 'Queso', 'price' => '9000', 'saleMode' => 'weight']);
         $baja = $this->createProduct($owner, ['name' => 'Discontinuado', 'price' => '50']);
         foreach ([[$pan, '1'], [$pan, '2'], [$queso, '0.350'], [$baja, '1'], [$baja, '1'], [$baja, '1']] as [$p, $qty]) {
-            $total = Money::round(Money::of($p['price'])->multipliedBy($qty));
+            $total = Money::round(Money::of($p['variants'][0]['price'])->multipliedBy($qty));
             $this->assertSame(201, $this->sale($owner, $shop, [['variantId' => $p['variantId'], 'quantity' => $qty]], [$this->cash($shop, $total)], $total)->status);
         }
         $this->assertSame(200, $owner->post('/products/'.$baja['id'].'/status', ['status' => 'inactive', 'version' => $baja['version']])->status);

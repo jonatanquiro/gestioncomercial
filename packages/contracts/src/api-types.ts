@@ -28,9 +28,65 @@ export interface MeResponse {
   user: { id: string; name: string; email: string | null; username: string | null };
   tenant: { id: string; tradeName: string; status: string; businessTypeCode: string } | null;
   role: { id: string; name: string } | null;
+  /** Estado del cobro del comercio activo. */
+  subscription: SubscriptionStateDto | null;
   permissions: PermissionCode[];
   branchIds: string[];
   memberships: MembershipSummary[];
+}
+
+/**
+ * free: sin vencimiento · trial: en prueba · active: pagada · grace: vencida, todavía opera ·
+ * expired: pausada hasta que se pague.
+ */
+export type SubscriptionState = 'free' | 'trial' | 'active' | 'grace' | 'expired';
+
+export interface SubscriptionStateDto {
+  state: SubscriptionState;
+  /** Fin de la prueba o del período pagado. */
+  dueAt: string | null;
+  /** Desde cuándo se pausa si no se paga. */
+  blockAt: string | null;
+  freeForever: boolean;
+}
+
+export interface SubscriptionPlanDto {
+  code: string;
+  name: string;
+  /** Precio por mes. */
+  price: string;
+  currency: string;
+  limits: Record<string, number>;
+}
+
+export interface SubscriptionPaymentDto {
+  id: string;
+  planName: string | null;
+  months: number;
+  amount: string;
+  currency: string;
+  method: 'mercadopago' | 'manual';
+  status: 'pending' | 'approved' | 'rejected' | 'refunded' | 'error';
+  periodFrom: string | null;
+  periodTo: string | null;
+  createdAt: string;
+}
+
+export interface SubscriptionDto extends SubscriptionStateDto {
+  plan: SubscriptionPlanDto | null;
+  /** Planes que se pueden pagar (activos y con precio). */
+  plans: SubscriptionPlanDto[];
+  monthOptions: number[];
+  graceDays: number;
+  /** Hay credencial de Mercado Pago configurada. */
+  mercadoPago: boolean;
+  payments: SubscriptionPaymentDto[];
+}
+
+export interface SubscriptionCheckoutResult {
+  id: string;
+  /** Dirección de Mercado Pago a la que se manda a la persona. */
+  url: string;
 }
 
 export interface TenantDto {
@@ -126,6 +182,9 @@ export interface PlatformTenantDto {
   planCode: string | null;
   subscriptionStatus: string | null;
   trialEndsAt: string | null;
+  billingState: SubscriptionState | null;
+  dueAt: string | null;
+  freeForever: boolean;
   createdAt: string;
   userCount: number;
   branchCount: number;
@@ -162,9 +221,24 @@ export interface BarcodeDto {
   quantityFactor: string;
 }
 
+/** Variante activa de un producto: lo que se vende y se stockea. */
+export interface ProductVariantDto {
+  id: string;
+  /** Valores en el orden de ProductDto.optionNames. */
+  options: string[];
+  /** «M / Rojo»; null si el producto no tiene propiedades. */
+  label: string | null;
+  sku: string | null;
+  price: string;
+  /** null si no hay costo cargado o si el usuario no tiene permiso para ver costos. */
+  cost: string | null;
+  barcodes: BarcodeDto[];
+  /** Suma de todos los depósitos; null si no controla stock o el usuario no puede verlo. */
+  stock: string | null;
+}
+
 export interface ProductDto {
   id: string;
-  variantId: string;
   kind: 'good' | 'service';
   name: string;
   description: string | null;
@@ -175,29 +249,49 @@ export interface ProductDto {
   saleMode: SaleMode;
   vatRate: VatRate;
   trackStock: boolean;
+  /** Se aplica a cada variante. */
   minStock: string | null;
   blockNegativeStock: boolean;
-  sku: string | null;
-  price: string;
-  /** null si no hay costo cargado o si el usuario no tiene permiso para ver costos. */
-  cost: string | null;
-  barcodes: BarcodeDto[];
-  /** Suma de todos los depósitos; null si no controla stock o el usuario no puede verlo. */
+  /** Propiedades (Talle, Color…); vacío si el producto tiene una sola variante. */
+  optionNames: string[];
+  /** Variantes activas; siempre al menos una. */
+  variants: ProductVariantDto[];
+  /** Suma de todas las variantes; null si no controla stock o el usuario no puede verlo. */
   stock: string | null;
   status: 'active' | 'inactive';
   version: number;
   updatedAt: string;
 }
 
+/** Una variante lista para vender o contar: lo que devuelven el buscador, el lector y los más vendidos. */
+export interface ItemDto {
+  productId: string;
+  variantId: string;
+  /** Nombre del producto. Para mostrar: variantDisplayName(name, variantLabel). */
+  name: string;
+  variantLabel: string | null;
+  kind: 'good' | 'service';
+  saleMode: SaleMode;
+  trackStock: boolean;
+  minStock: string | null;
+  sku: string | null;
+  price: string;
+  barcodes: BarcodeDto[];
+  /** null si no controla stock o el usuario no puede verlo. */
+  stock: string | null;
+  /** Estado del producto. */
+  status: 'active' | 'inactive';
+}
+
 export interface ProductHistoryDto {
-  prices: Array<{ price: string; validFrom: string; validTo: string | null; changedBy: string | null; batchId: string | null }>;
+  prices: Array<{ variantLabel: string | null; price: string; validFrom: string; validTo: string | null; changedBy: string | null; batchId: string | null }>;
   /** Vacío si el usuario no puede ver costos. */
-  costs: Array<{ cost: string; source: string; at: string; changedBy: string | null }>;
+  costs: Array<{ variantLabel: string | null; cost: string; source: string; at: string; changedBy: string | null }>;
   changes: Array<{ at: string; actorName: string | null; action: string; before: unknown; after: unknown }>;
 }
 
 export interface ProductLookupDto {
-  product: ProductDto;
+  item: ItemDto;
   /** Unidades que representa el código leído (12 si es el código del pack). */
   quantityFactor: string;
 }
@@ -230,6 +324,7 @@ export interface StockRowDto {
   productId: string;
   variantId: string;
   name: string;
+  variantLabel: string | null;
   sku: string | null;
   categoryName: string | null;
   saleMode: SaleMode;
@@ -250,6 +345,7 @@ export interface StockMovementDto {
   productId: string;
   variantId: string;
   productName: string;
+  variantLabel: string | null;
   warehouseName: string;
   quantity: string;
   balanceAfter: string;
@@ -283,6 +379,7 @@ export interface StockCountLineDto {
   variantId: string;
   productId: string;
   name: string;
+  variantLabel: string | null;
   sku: string | null;
   saleMode: SaleMode;
   expected: string;
@@ -299,6 +396,7 @@ export interface BulkPriceRowDto {
   productId: string;
   variantId: string;
   name: string;
+  variantLabel: string | null;
   oldPrice: string;
   newPrice: string;
   /** Variación porcentual del precio. */

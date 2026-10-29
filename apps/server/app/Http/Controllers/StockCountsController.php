@@ -222,6 +222,7 @@ class StockCountsController extends Controller
                     'variantId' => $l->variant_id,
                     'productId' => $p->id,
                     'name' => $p->name,
+                    'variantLabel' => $v->label,
                     'sku' => $v->sku,
                     'saleMode' => $p->sale_mode,
                     'expected' => Money::quantity($l->expected),
