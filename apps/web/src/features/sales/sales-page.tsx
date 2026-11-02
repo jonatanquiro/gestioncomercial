@@ -1,6 +1,6 @@
 import { type Paginated, type PermissionCode, type SaleDto, type SaleSummaryDto } from '@gc/contracts';
 import { dec, formatArs, proportionalAmount, roundMoney, sumMoney } from '@gc/domain';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { Printer } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
@@ -15,8 +15,9 @@ import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatDateTime, formatQty, parseDecimalInput } from '@/lib/format';
 import { useCan } from '@/lib/session';
-import { PinDialog } from './pin-dialog';
-import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQuery } from './queries';
+import { paymentMethodsQuery, registersQuery } from './queries';
+import { useAuthorized } from './use-authorized';
+import { ExchangeDialog } from './exchange-dialog';
 import { PrintTicket } from './ticket';
 import { InvoiceDialog, invoiceNumber, saleInvoicesQuery } from '@/features/fiscal/invoice-dialog';
 import { InvoicePrint } from '@/features/fiscal/invoice';
@@ -107,6 +108,7 @@ export function SaleDetailPage() {
   const [printing, setPrinting] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [exchanging, setExchanging] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
   const canInvoice = can('fiscal.issue', 'fiscal.manage');
   const invoices = useQuery({ ...saleInvoicesQuery(id), enabled: canInvoice });
@@ -134,10 +136,26 @@ export function SaleDetailPage() {
                 Devolución
               </Button>
             )}
+            {s.status === 'confirmed' && can('sales.create') && returnable && (
+              <Button variant="secondary" onClick={() => setExchanging(true)}>
+                Cambio
+              </Button>
+            )}
             <ActionMenu label="Más acciones de la venta" text="Más" items={[{ label: 'Anular venta', danger: true, hidden: !(s.status === 'confirmed' && s.returns.length === 0 && can('sales.create', 'sales.void')), onSelect: () => setVoiding(true) }]} />
           </>
         }
       />
+      {s.exchangeOf && (
+        <div className="mb-4">
+          <Alert kind="info">
+            Es un cambio de la{' '}
+            <Link to="/app/ventas/$id" params={{ id: s.exchangeOf.saleId }} className="font-semibold underline">
+              venta N° {s.exchangeOf.saleNumber}
+            </Link>
+            : lo devuelto dejó un crédito de {formatArs(s.exchangeOf.credit)}.
+          </Alert>
+        </div>
+      )}
       {s.void && (
         <div className="mb-4">
           <Alert>
@@ -224,7 +242,17 @@ export function SaleDetailPage() {
               <tr key={r.id}>
                 <Td>{r.number}</Td>
                 <Td>{formatDateTime(r.createdAt)}</Td>
-                <Td>{r.reason}</Td>
+                <Td>
+                  {r.reason}
+                  {r.exchangeSale && (
+                    <span className="block text-xs">
+                      Se cambió por la{' '}
+                      <Link to="/app/ventas/$id" params={{ id: r.exchangeSale.id }} className="font-semibold text-brand-700 underline">
+                        venta N° {r.exchangeSale.number}
+                      </Link>
+                    </span>
+                  )}
+                </Td>
                 <Td>{r.paymentMethodName}</Td>
                 <Td>
                   {r.userName}
@@ -238,6 +266,7 @@ export function SaleDetailPage() {
       )}
       {voiding && <VoidDialog sale={s} onClose={() => setVoiding(false)} />}
       {returning && <ReturnDialog sale={s} onClose={() => setReturning(false)} />}
+      {exchanging && <ExchangeDialog sale={s} onClose={() => setExchanging(false)} />}
       {printing && tenant.data && <PrintTicket sale={s} tenant={tenant.data} onDone={() => setPrinting(false)} />}
       {invoicing && <InvoiceDialog sale={s} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => setInvoicing(false)} />}
       {printingInvoice && <InvoicePrint invoice={printingInvoice} onClose={() => setPrintingInvoice(null)} />}
@@ -251,26 +280,6 @@ const Line = ({ label, value }: { label: string; value: string }) => (
     <span>{value}</span>
   </div>
 );
-
-/** Repite el pedido con el PIN de un encargado cuando el servidor lo pide. */
-function useAuthorized<T>(send: (a: Authorization) => Promise<T>, onSuccess: (r: T) => void) {
-  const [pin, setPin] = useState<{ permission: PermissionCode; error: string | null } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const mutation = useMutation({
-    mutationFn: send,
-    onSuccess: (r) => (setPin(null), onSuccess(r)),
-    onError: (err) => {
-      const permission = needsAuthorization(err);
-      if (permission) return setPin({ permission, error: err instanceof ApiRequestError && err.code === 'AUTHORIZATION_INVALID' ? err.message : null });
-      setPin(null);
-      setError(err instanceof ApiRequestError && err.code === 'VALIDATION_ERROR' ? Object.values(err.fieldErrors())[0] ?? err.message : errorMessage(err));
-    },
-  });
-  const dialog = (
-    <PinDialog permission={pin?.permission ?? null} error={pin?.error ?? null} loading={mutation.isPending} onAuthorize={(a) => mutation.mutate(a)} onCancel={() => setPin(null)} />
-  );
-  return { mutation, error, setError, dialog, waitingPin: pin !== null };
-}
 
 function VoidDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void }) {
   const queryClient = useQueryClient();

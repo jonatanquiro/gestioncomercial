@@ -15,6 +15,7 @@ use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\PricesController;
 use App\Http\Controllers\ProductsController;
+use App\Http\Controllers\PurchasesController;
 use App\Http\Controllers\RolesController;
 use App\Http\Controllers\SalesController;
 use App\Http\Controllers\SettlementsController;
@@ -122,6 +123,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::get('products/reference/search', [ProductsController::class, 'referenceSearch'])->middleware('perm:products.create');
     Route::post('products/reference/add', [ProductsController::class, 'addFromReference'])->middleware('perm:products.create');
     Route::post('products', [ProductsController::class, 'store'])->middleware('perm:products.create');
+    Route::post('products/barcodes', [ProductsController::class, 'generateBarcodes'])->middleware('perm:products.update');
     Route::get('products/{id}', [ProductsController::class, 'show'])->middleware('perm:products.read');
     Route::get('products/{id}/history', [ProductsController::class, 'history'])->middleware('perm:products.read');
     Route::put('products/{id}', [ProductsController::class, 'update'])->middleware('perm:products.update');
@@ -131,6 +133,14 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::post('prices/bulk/apply', [PricesController::class, 'apply'])->middleware('perm:prices.bulk_update');
 
     // Inventario
+    // Compras: proveedores e ingreso de mercadería (ADR 0014).
+    Route::get('suppliers', [PurchasesController::class, 'suppliers'])->middleware('perm:suppliers.manage,purchases.create,purchases.receive');
+    Route::post('suppliers', [PurchasesController::class, 'storeSupplier'])->middleware('perm:suppliers.manage');
+    Route::put('suppliers/{id}', [PurchasesController::class, 'updateSupplier'])->middleware('perm:suppliers.manage');
+    Route::get('purchases', [PurchasesController::class, 'index'])->middleware('perm:purchases.create,purchases.receive');
+    Route::post('purchases', [PurchasesController::class, 'store'])->middleware('perm:purchases.create,purchases.receive');
+    Route::get('purchases/{id}', [PurchasesController::class, 'show'])->middleware('perm:purchases.create,purchases.receive');
+
     Route::get('warehouses', [StockController::class, 'warehouses'])->middleware('perm:stock.read');
     Route::get('stock', [StockController::class, 'index'])->middleware('perm:stock.read');
     Route::get('stock/movements', [StockController::class, 'movements'])->middleware('perm:stock.read');
@@ -168,6 +178,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::get('sales/{id}', [SalesController::class, 'show'])->middleware('perm:sales.read_own,sales.read_all');
     Route::post('sales/{id}/void', [SalesController::class, 'void'])->middleware('perm:sales.create,sales.void');
     Route::post('sales/{id}/returns', [SalesController::class, 'storeReturn'])->middleware('perm:sales.create,sales.return');
+    Route::post('sales/{id}/exchanges', [SalesController::class, 'storeExchange'])->middleware('perm:sales.create');
     Route::get('pos/authorizers', [PosController::class, 'authorizers'])->middleware('perm:sales.create');
     Route::post('auth/pos-pin', [PosController::class, 'setPin']);
 });

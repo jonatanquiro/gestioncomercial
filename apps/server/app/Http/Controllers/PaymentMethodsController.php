@@ -20,7 +20,8 @@ class PaymentMethodsController extends Controller
 
     public function index(): JsonResponse
     {
-        return $this->json(PaymentMethod::orderBy('sort_order')->orderBy('name')->get()->map(fn (PaymentMethod $m) => [
+        // El crédito por cambio es interno: no se configura ni se elige al cobrar.
+        return $this->json(PaymentMethod::where('kind', '<>', 'exchange')->orderBy('sort_order')->orderBy('name')->get()->map(fn (PaymentMethod $m) => [
             'id' => $m->id, 'name' => $m->name, 'kind' => $m->kind, 'requiresReference' => $m->requires_reference,
             'active' => $m->active, 'sortOrder' => (int) $m->sort_order,
         ])->all());
@@ -53,7 +54,7 @@ class PaymentMethodsController extends Controller
         $input = $this->input($request);
         try {
             DB::transaction(function () use ($actor, $id, $input) {
-                $method = PaymentMethod::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Medio de pago');
+                $method = PaymentMethod::whereKey($id)->where('kind', '<>', 'exchange')->lockForUpdate()->first() ?? throw AppError::notFound('Medio de pago');
                 $before = ['name' => $method->name, 'kind' => $method->kind, 'requiresReference' => $method->requires_reference, 'active' => $method->active, 'sortOrder' => (int) $method->sort_order];
                 $method->forceFill([
                     'name' => $input['name'], 'kind' => $input['kind'], 'requires_reference' => $input['requiresReference'],

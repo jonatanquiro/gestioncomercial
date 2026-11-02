@@ -274,4 +274,74 @@ class SalesTest extends TestCase
         $this->assertSame($mine->body['id'], $list['items'][0]['id']);
         $this->assertSame(2, $owner->get('/sales')->body['total']);
     }
+
+    /** Cambio (ADR 0014): lo devuelto paga lo nuevo; no sale efectivo ni queda un cobro a rendir. */
+    public function test_cambio_de_talle_con_credito_y_diferencia(): void
+    {
+        $shop = $this->shop();
+        $owner = $shop['client'];
+        $m = $this->createProduct($owner, ['name' => 'Remera M', 'price' => '10000', 'initialStock' => '5']);
+        $l = $this->createProduct($owner, ['name' => 'Remera L', 'price' => '10000', 'initialStock' => '5']);
+        $buzo = $this->createProduct($owner, ['name' => 'Buzo', 'price' => '25000', 'initialStock' => '5']);
+        $debit = ['paymentMethodId' => $shop['methods']['debit']['id'], 'amount' => '10000', 'reference' => 'POS-1'];
+        $sale = $this->sale($owner, $shop, [['variantId' => $m['variantId'], 'quantity' => '1']], [$debit], '10000.00')->body;
+        $cashBefore = $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash'];
+
+        $exchange = fn (array $lines, array $payments, string $total, ?string $uuid = null) => $owner->post("/sales/{$sale['id']}/exchanges", [
+            'clientUuid' => $uuid ?? self::uuid(), 'registerId' => $shop['register']['id'], 'reason' => 'Le quedaba chica',
+            'returnLines' => [['saleLineId' => $sale['lines'][0]['id'], 'quantity' => '1', 'restock' => true]],
+            'lines' => $lines, 'payments' => $payments, 'expectedTotal' => $total,
+        ]);
+
+        // Por algo más barato no: el crédito no se devuelve en un cambio.
+        $cheaper = $this->createProduct($owner, ['name' => 'Medias', 'price' => '2000', 'initialStock' => '5']);
+        $less = $exchange([['variantId' => $cheaper['variantId'], 'quantity' => '1']], [], '2000.00');
+        $this->assertSame(400, $less->status);
+        $this->assertStringContainsString('suma menos que lo que devuelve', $less->body['details'][0]['message']);
+
+        // Mismo precio: no se paga nada.
+        $uuid = self::uuid();
+        $same = $exchange([['variantId' => $l['variantId'], 'quantity' => '1']], [], '10000.00', $uuid);
+        $this->assertSame(201, $same->status, json_encode($same->body));
+        $this->assertSame(['exchange'], array_column($same->body['payments'], 'kind'));
+        $this->assertSame($sale['number'], $same->body['exchangeOf']['saleNumber']);
+        $this->assertSame(200, $exchange([['variantId' => $l['variantId'], 'quantity' => '1']], [], '10000.00', $uuid)->status, 'un reintento no duplica');
+
+        $this->assertSame('5.000', $owner->get("/products/{$m['id']}")->body['stock']);
+        $this->assertSame('4.000', $owner->get("/products/{$l['id']}")->body['stock']);
+        $this->assertSame($cashBefore, $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash']);
+        $original = $owner->get("/sales/{$sale['id']}")->body;
+        $this->assertSame($same->body['number'], $original['returns'][0]['exchangeSale']['number']);
+        $this->assertSame('1.000', $original['lines'][0]['returnedQuantity']);
+
+        // El crédito no figura como cobro a rendir ni como medio de pago para elegir.
+        $this->assertNotContains('exchange', array_column($owner->get('/payments')->body['items'], 'kind'));
+        $this->assertNotContains('exchange', array_column($owner->get('/payment-methods')->body, 'kind'));
+
+        // Una venta que es un cambio no se anula, y el crédito no se usa en una devolución común.
+        $this->assertSame('SALE_IS_EXCHANGE', $owner->post("/sales/{$same->body['id']}/void", ['reason' => 'Error'])->body['code']);
+        $creditId = $same->body['payments'][0]['paymentMethodId'];
+        $plain = $owner->post("/sales/{$same->body['id']}/returns", [
+            'clientUuid' => self::uuid(), 'registerId' => $shop['register']['id'], 'reason' => 'Prueba', 'paymentMethodId' => $creditId,
+            'lines' => [['saleLineId' => $same->body['lines'][0]['id'], 'quantity' => '1', 'restock' => true]],
+        ]);
+        $this->assertSame(400, $plain->status);
+
+        // Por algo más caro: se paga la diferencia, y solo eso entra a la caja.
+        $sale2 = $this->sale($owner, $shop, [['variantId' => $m['variantId'], 'quantity' => '1']], [$this->cash($shop, '10000')], '10000.00')->body;
+        $cashMid = $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash'];
+        $more = $owner->post("/sales/{$sale2['id']}/exchanges", [
+            'clientUuid' => self::uuid(), 'registerId' => $shop['register']['id'], 'reason' => 'Prefirió el buzo',
+            'returnLines' => [['saleLineId' => $sale2['lines'][0]['id'], 'quantity' => '1', 'restock' => true]],
+            'lines' => [['variantId' => $buzo['variantId'], 'quantity' => '1']], 'payments' => [$this->cash($shop, '20000')], 'expectedTotal' => '25000.00',
+        ]);
+        $this->assertSame(201, $more->status, json_encode($more->body));
+        $this->assertSame('5000.00', $more->body['changeGiven']);
+        $this->assertSame(Money::round(Money::of($cashMid)->plus('15000')), $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash']);
+
+        // El resumen del día no cuenta dos veces lo que pagó el crédito.
+        $today = $owner->get('/dashboard/today')->body['sales'];
+        $this->assertSame('35000.00', $today['total'], 'débito 10.000 + efectivo 10.000 + diferencia 15.000');
+        $this->assertSame('10000.00', $today['electronic']);
+    }
 }

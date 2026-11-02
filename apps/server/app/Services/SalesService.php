@@ -86,7 +86,8 @@ class SalesService
         return $this->pins->require($actor, 'sales.discount_unlimited', $input['authorization'] ?? null);
     }
 
-    private function confirm(Actor $actor, Register $register, array $input, ?string $discountAuthorizedBy): Sale
+    /** $credit: lo devuelto en un cambio, que paga primero la venta nueva con el medio interno «exchange». */
+    private function confirm(Actor $actor, Register $register, array $input, ?string $discountAuthorizedBy, ?array $credit = null): Sale
     {
         $shift = $this->cash->lockOpenShift($register->id);
         $warehouse = Warehouse::where('branch_id', $register->branch_id)->where('is_default', true)->first()
@@ -123,7 +124,7 @@ class SalesService
             ]);
         }
 
-        [$payments, $change] = $this->payments($input['payments'], $total);
+        [$payments, $change] = $this->payments($input['payments'], $total, $credit);
 
         $sale = Sale::create([
             'branch_id' => $register->branch_id,
@@ -201,17 +202,27 @@ class SalesService
      * de cada pago en efectivo ya tiene el vuelto descontado, así la suma de los pagos
      * registrados es siempre igual al total de la venta.
      *
+     * @param  ?array{method: PaymentMethod, amount: string}  $credit  crédito de un cambio
      * @return array{0: list<array{method: PaymentMethod, amount: BigDecimal, reference: ?string, payerName: ?string, payerPhone: ?string}>, 1: BigDecimal}
      */
-    private function payments(array $input, BigDecimal $total): array
+    private function payments(array $input, BigDecimal $total, ?array $credit = null): array
     {
         $methods = PaymentMethod::whereIn('id', array_column($input, 'paymentMethodId'))->get()->keyBy('id');
         $payments = [];
         $paid = BigDecimal::zero();
         $nonCash = BigDecimal::zero();
+        if ($credit !== null) {
+            if (BigDecimal::of($credit['amount'])->isGreaterThan($total)) {
+                throw AppError::validation([['path' => 'lines', 'message' => 'Lo que se lleva ('.Money::pesos($total).') suma menos que lo que devuelve ('
+                    .Money::pesos($credit['amount']).'). Agregá artículos o registrá una devolución por la diferencia.']]);
+            }
+            $payments[] = ['method' => $credit['method'], 'amount' => BigDecimal::of($credit['amount']), 'reference' => null, 'payerName' => null, 'payerPhone' => null];
+            $paid = $nonCash = BigDecimal::of($credit['amount']);
+        }
         foreach ($input as $i => $p) {
             $method = $methods[$p['paymentMethodId']] ?? null;
-            if (! $method || ! $method->active) {
+            // El crédito por cambio lo pone el sistema: no se elige como medio de pago.
+            if (! $method || ! $method->active || $method->kind === 'exchange') {
                 throw AppError::validation([['path' => "payments.{$i}.paymentMethodId", 'message' => 'Medio de pago inexistente o desactivado']]);
             }
             $reference = trim((string) ($p['reference'] ?? '')) ?: null;
@@ -248,6 +259,58 @@ class SalesService
         return [array_values(array_filter($payments, fn ($p) => $p['amount']->isPositive())), $change];
     }
 
+    /**
+     * Cambio: devuelve artículos de una venta y entrega otros en una sola operación. Lo devuelto
+     * queda como crédito que paga la venta nueva; el cliente paga la diferencia si la hay. No
+     * mueve efectivo por lo devuelto ni genera cobros a rendir (ADR 0014).
+     *
+     * @param  array{clientUuid: string, registerId: string, reason: string, returnLines: list<array{saleLineId: string, quantity: string, restock: bool}>, lines: list<array{variantId: string, quantity: string, discountPercent?: ?string}>, payments: list<array>, expectedTotal: string, authorization?: ?array}  $input
+     * @return array{sale: Sale, created: bool}
+     */
+    public function exchange(Actor $actor, string $saleId, array $input): array
+    {
+        if ($existing = Sale::where('client_uuid', $input['clientUuid'])->first()) {
+            return ['sale' => $existing, 'created' => false];
+        }
+        $original = Sale::find($saleId) ?? throw AppError::notFound('Venta');
+        $this->cash->assertBranch($actor, $original->branch_id);
+        $register = $this->cash->register($actor, $input['registerId']);
+        $returnAuthorizedBy = $this->pins->require($actor, 'sales.return', $input['authorization'] ?? null);
+        $discountAuthorizedBy = $this->authorizeDiscount($actor, $input);
+
+        try {
+            $sale = DB::transaction(function () use ($actor, $saleId, $register, $input, $returnAuthorizedBy, $discountAuthorizedBy) {
+                $method = $this->exchangeMethod();
+                $saleReturn = $this->confirmReturn($actor, $saleId, $register, [
+                    'clientUuid' => $input['clientUuid'], 'reason' => "Cambio: {$input['reason']}", 'paymentMethodId' => $method->id, 'lines' => $input['returnLines'], 'exchange' => true,
+                ], $returnAuthorizedBy);
+                $sale = $this->confirm($actor, $register, $input, $discountAuthorizedBy, ['method' => $method, 'amount' => Money::round($saleReturn->total)]);
+                $sale->forceFill(['exchange_return_id' => $saleReturn->id])->save();
+                $this->record($actor, 'sale.exchanged', $sale->id, [
+                    'number' => $sale->number, 'originalSaleId' => $saleId, 'returnNumber' => $saleReturn->number,
+                    'credit' => Money::round($saleReturn->total), 'total' => $sale->total, 'reason' => $input['reason'],
+                ]);
+
+                return $sale;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            $sale = Sale::where('client_uuid', $input['clientUuid'])->first();
+            if ($sale) {
+                return ['sale' => $sale, 'created' => false];
+            }
+            throw $e;
+        }
+
+        return ['sale' => $sale, 'created' => true];
+    }
+
+    /** Medio interno del crédito por cambio: se crea la primera vez que el comercio hace un cambio. */
+    private function exchangeMethod(): PaymentMethod
+    {
+        return PaymentMethod::where('kind', 'exchange')->first()
+            ?? PaymentMethod::create(['name' => 'Crédito por cambio', 'kind' => 'exchange', 'requires_reference' => false, 'sort_order' => 99]);
+    }
+
     /** Anulación: solo en el turno abierto en que se hizo y si no tiene devoluciones. */
     public function void(Actor $actor, string $saleId, string $reason, ?array $authorization): Sale
     {
@@ -267,6 +330,10 @@ class SalesService
             }
             if (SaleReturn::where('sale_id', $sale->id)->exists()) {
                 throw AppError::conflict('SALE_HAS_RETURNS', 'La venta tiene devoluciones: no se puede anular');
+            }
+            // Anularla dejaría sin usar el crédito de lo devuelto: se corrige con una devolución.
+            if ($sale->exchange_return_id !== null) {
+                throw AppError::conflict('SALE_IS_EXCHANGE', 'La venta es un cambio: no se anula, registrá una devolución');
             }
 
             $products = Product::whereIn('id', ProductVariant::whereIn('id', SaleLine::where('sale_id', $sale->id)->select('variant_id'))->select('product_id'))
@@ -339,7 +406,8 @@ class SalesService
         }
         $shift = $this->cash->lockOpenShift($register->id);
         $method = PaymentMethod::find($input['paymentMethodId']);
-        if (! $method || ! $method->active) {
+        // El crédito por cambio solo lo usa exchange(), que lo aplica en la misma operación.
+        if (! $method || ! $method->active || ($method->kind === 'exchange' && ! ($input['exchange'] ?? false))) {
             throw AppError::validation([['path' => 'paymentMethodId', 'message' => 'Medio de pago inexistente o desactivado']]);
         }
 

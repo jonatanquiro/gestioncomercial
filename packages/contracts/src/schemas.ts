@@ -99,6 +99,8 @@ export const tenantSettingsSchema = z.object({
   priceRoundingStep: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(10), z.literal(50), z.literal(100)]),
   /** Descuento máximo por línea con sales.discount; más arriba hace falta sales.discount_unlimited o un PIN. */
   discountLimitPercent: discountPercentSchema,
+  /** Mostrar «Agregar desde catálogo» (Precios Claros). El valor inicial depende del rubro. */
+  referenceCatalog: z.boolean(),
 });
 export type TenantSettings = z.infer<typeof tenantSettingsSchema>;
 
@@ -416,6 +418,8 @@ export const applyBulkPriceSchema = bulkPriceSchema.extend({ fingerprint: z.stri
 
 export const PAYMENT_KINDS = ['cash', 'debit', 'credit', 'transfer', 'qr', 'other'] as const;
 export type PaymentKind = (typeof PAYMENT_KINDS)[number];
+/** En los pagos de una venta también aparece el crédito por cambio, que es interno y no se configura. */
+export type SalePaymentKind = PaymentKind | 'exchange';
 export const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
   cash: 'Efectivo',
   debit: 'Tarjeta de débito',
@@ -454,6 +458,16 @@ export const createSaleSchema = z.object({
   authorization: pinAuthorizationSchema.nullable().optional(),
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
+
+/** Cambio (ADR 0014): lo devuelto de la venta queda como crédito que paga esta venta nueva. */
+export const createExchangeSchema = createSaleSchema.extend({
+  reason: trimmed(180),
+  returnLines: z
+    .array(z.object({ saleLineId: uuidSchema, quantity: positiveQuantity, restock: z.boolean() }))
+    .min(1, 'Elegí qué se devuelve')
+    .max(300),
+});
+export type CreateExchangeInput = z.infer<typeof createExchangeSchema>;
 
 export const voidSaleSchema = z.object({ reason: trimmed(200), authorization: pinAuthorizationSchema.nullable().optional() });
 
@@ -510,3 +524,31 @@ export const recordTenantPaymentSchema = z.object({
   amount: moneySchema,
   notes: trimmed(300),
 });
+
+// ---------------------------------------------------------------- Compras (ADR 0014)
+
+export const supplierSchema = z.object({
+  name: trimmed(120),
+  cuit: cuitSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  phone: optionalText(30),
+  email: emailSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  notes: optionalText(300),
+});
+export type SupplierInput = z.infer<typeof supplierSchema>;
+export const updateSupplierSchema = supplierSchema.extend({ status: z.enum(['active', 'inactive']) });
+
+/** Ingreso de mercadería: el costo es opcional y, con updateCosts, pasa a ser el costo vigente. */
+export const createPurchaseSchema = z.object({
+  clientUuid: uuidSchema,
+  warehouseId: uuidSchema,
+  supplierId: uuidSchema.nullable(),
+  document: optionalText(60),
+  notes: optionalText(300),
+  updateCosts: z.boolean(),
+  lines: z
+    .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, unitCost: costSchema.nullable() }))
+    .min(1, 'Agregá al menos un artículo')
+    .max(300),
+});
+export type CreatePurchaseInput = z.infer<typeof createPurchaseSchema>;
+

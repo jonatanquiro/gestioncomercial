@@ -102,6 +102,13 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
             <span className="block text-slate-500">La venta no se frena si falta cargar una compra; se genera una alerta para revisar el inventario.</span>
           </span>
         </label>
+        <label className="flex items-start gap-3 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4 rounded border-slate-300" {...register('settings.referenceCatalog')} />
+          <span>
+            <span className="font-medium">Ofrecer el catálogo de Precios Claros al cargar productos</span>
+            <span className="block text-slate-500">Sirve para almacén, kiosco, bebidas, limpieza y perfumería. En ropa, calzado o ferretería casi no hay nada útil.</span>
+          </span>
+        </label>
         <Controller
           control={control}
           name="settings.priceRoundingStep"

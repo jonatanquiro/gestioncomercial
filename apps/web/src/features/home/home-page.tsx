@@ -78,11 +78,15 @@ function FirstSteps({ tenant }: { tenant: TenantDto }) {
     can('products.create') && {
       done: products > 0,
       title: 'Cargá tus productos',
-      detail: 'Elegí varios del catálogo de Precios Claros y ponele tu precio, o cargalos uno por uno. Lo que no tiene código de barras se vende buscándolo por nombre.',
-      links: [
-        { to: '/app/productos/catalogo', label: 'Agregar desde catálogo' },
-        { to: '/app/productos', label: 'Nuevo producto' },
-      ],
+      detail: tenant.settings.referenceCatalog
+        ? 'Elegí varios del catálogo de Precios Claros y ponele tu precio, o cargalos uno por uno. Lo que no tiene código de barras se vende buscándolo por nombre.'
+        : 'Cargalos uno por uno, con sus talles y colores si los tienen. Después podés imprimirles etiquetas con código de barras.',
+      links: tenant.settings.referenceCatalog
+        ? [
+            { to: '/app/productos/catalogo', label: 'Agregar desde catálogo' },
+            { to: '/app/productos', label: 'Nuevo producto' },
+          ]
+        : [{ to: '/app/productos', label: 'Nuevo producto' }],
     },
     can('sales.create') && {
       done: hasSales,

@@ -1,7 +1,7 @@
 import type { Paginated, ProductDto, ProductHistoryDto } from '@gc/contracts';
 import { dec, formatArs } from '@gc/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
@@ -15,7 +15,7 @@ import { errorMessage, http } from '@/lib/api';
 import { formatDateTime, formatQty } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { ProductForm } from './product-form';
-import { categoriesQuery } from './queries';
+import { categoriesQuery, tenantQuery } from './queries';
 
 const PAGE_SIZE = 25;
 
@@ -110,6 +110,8 @@ export function ProductsPage() {
   const allowed = can('products.read');
   const toast = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const tenant = useQuery(tenantQuery);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -151,7 +153,7 @@ export function ProductsPage() {
                 Cambiar precios
               </Link>
             )}
-            {can('products.create') && (
+            {can('products.create') && tenant.data?.settings.referenceCatalog && (
               <Link to="/app/productos/catalogo" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
                 Agregar desde catálogo
               </Link>
@@ -197,7 +199,9 @@ export function ProductsPage() {
           <EmptyState>
             {search || categoryId || status !== 'active'
               ? 'Ningún producto coincide con la búsqueda.'
-              : 'Todavía no hay productos cargados. Elegí varios con «Agregar desde catálogo» o cargalos de a uno con «Nuevo producto».'}
+              : tenant.data?.settings.referenceCatalog
+                ? 'Todavía no hay productos cargados. Elegí varios con «Agregar desde catálogo» o cargalos de a uno con «Nuevo producto».'
+                : 'Todavía no hay productos cargados. Cargalos con «Nuevo producto»: para ropa o calzado, con sus talles y colores.'}
           </EmptyState>
         )}
         {products.data && products.data.items.length > 0 && (
@@ -250,6 +254,7 @@ export function ProductsPage() {
                       label={`Más acciones de ${p.name}`}
                       items={[
                         { label: 'Historial de precios', onSelect: () => setDialog({ mode: 'history', product: p }) },
+                        { label: 'Imprimir etiquetas', onSelect: () => void navigate({ to: '/app/etiquetas', search: { productId: p.id } }) },
                         { label: p.status === 'active' ? 'Desactivar' : 'Reactivar', danger: p.status === 'active', hidden: !can('products.deactivate'), onSelect: () => (p.status === 'active' ? setDeactivating(p) : toggle.mutate(p)) },
                       ]}
                     />

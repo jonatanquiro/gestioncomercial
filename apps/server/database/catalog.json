@@ -519,7 +519,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "quick_keys",
@@ -543,7 +544,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "weight_sale",
@@ -568,7 +570,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "multiple_registers",
@@ -595,7 +598,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "multiple_registers",
@@ -620,7 +624,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "weight_sale",
@@ -644,7 +649,8 @@
         "saleModes": [
           "unit",
           "length"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "unit_conversions",
@@ -665,7 +671,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "variants",
@@ -686,7 +693,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "variants"
@@ -706,7 +714,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "variants"
@@ -725,7 +734,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "variants",
@@ -746,7 +756,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "kits"
@@ -766,7 +777,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "kits"
@@ -786,7 +798,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "serial_numbers"
@@ -801,7 +814,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": []
     }

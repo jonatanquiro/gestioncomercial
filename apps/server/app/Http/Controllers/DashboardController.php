@@ -35,14 +35,15 @@ class DashboardController extends Controller
             $byKind = SalePayment::whereIn('sale_id', (clone $sales)->select('id'))->groupBy('kind')->selectRaw('kind, SUM(amount) AS total')->pluck('total', 'kind');
             $electronic = Money::of('0');
             foreach ($byKind as $kind => $amount) {
-                if ($kind !== 'cash') {
+                if (! in_array($kind, ['cash', 'exchange'], true)) {
                     $electronic = $electronic->plus((string) $amount);
                 }
             }
             $out['sales'] = [
                 'scope' => $all ? 'all' : 'own',
                 'count' => (clone $sales)->count(),
-                'total' => Money::round((string) ((clone $sales)->selectRaw('SUM(total) AS total')->value('total') ?? '0')),
+                // Lo pagado con crédito por cambio ya se había cobrado en la venta original.
+                'total' => Money::round(Money::of((string) ((clone $sales)->selectRaw('SUM(total) AS total')->value('total') ?? '0'))->minus((string) ($byKind['exchange'] ?? '0'))),
                 'cash' => Money::round((string) ($byKind['cash'] ?? '0')),
                 'electronic' => Money::round($electronic),
             ];
@@ -54,7 +55,7 @@ class DashboardController extends Controller
             foreach ($shifts as $shift) {
                 $expected = $expected->plus($this->cash->expectedCash($shift));
             }
-            $unsettled = SalePayment::where('kind', '!=', 'cash')
+            $unsettled = SalePayment::whereNotIn('kind', ['cash', 'exchange'])
                 ->whereNotIn('id', SettlementItem::whereNotNull('sale_payment_id')->select('sale_payment_id'))
                 ->whereIn('sale_id', Sale::where('status', 'confirmed')->select('id'));
             $out['cash'] = ['openShifts' => $shifts->count(), 'expected' => Money::round($expected)];

@@ -1,5 +1,5 @@
 import type { PermissionCode } from './permissions';
-import type { Appearance, PaymentKind, SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
+import type { Appearance, PaymentKind, SaleMode, SalePaymentKind, TaxCondition, TenantSettings, VatRate } from './schemas';
 
 /** Formato único de error de la API. */
 export interface ApiError {
@@ -276,6 +276,8 @@ export interface ItemDto {
   minStock: string | null;
   sku: string | null;
   price: string;
+  /** Costo vigente; null si no tiene o el usuario no puede ver costos. */
+  cost: string | null;
   barcodes: BarcodeDto[];
   /** null si no controla stock o el usuario no puede verlo. */
   stock: string | null;
@@ -464,8 +466,10 @@ export interface SaleDto {
   total: string;
   changeGiven: string;
   discountAuthorizedBy: string | null;
+  /** Si la venta es un cambio: la venta de la que salió el crédito. */
+  exchangeOf: { saleId: string; saleNumber: number; credit: string } | null;
   lines: SaleLineDto[];
-  payments: Array<{ paymentMethodId: string; name: string; kind: PaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null }>;
+  payments: Array<{ paymentMethodId: string; name: string; kind: SalePaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null }>;
   void: { at: string; byName: string; authorizedByName: string | null; reason: string } | null;
   returns: Array<{
     id: string;
@@ -476,6 +480,8 @@ export interface SaleDto {
     paymentMethodName: string;
     userName: string;
     authorizedByName: string | null;
+    /** La venta nueva, si la devolución fue parte de un cambio. */
+    exchangeSale: { id: string; number: number } | null;
     lines: Array<{ saleLineId: string; quantity: string; amount: string; restock: boolean }>;
   }>;
 }
@@ -538,3 +544,35 @@ export interface AuthorizerDto {
   membershipId: string;
   name: string;
 }
+
+// ---------------------------------------------------------------- Compras (ADR 0014)
+
+export interface SupplierDto {
+  id: string;
+  name: string;
+  cuit: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  status: 'active' | 'inactive';
+}
+
+export interface PurchaseDto {
+  id: string;
+  number: number;
+  createdAt: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  warehouseName: string;
+  /** N° de factura o remito del proveedor. */
+  document: string | null;
+  notes: string | null;
+  /** null si falta el costo de alguna línea o el usuario no puede ver costos. */
+  totalCost: string | null;
+  updatedCosts: boolean;
+  createdByName: string | null;
+  lineCount: number;
+  /** Solo en el detalle. */
+  lines: Array<{ variantId: string; description: string; quantity: string; unitCost: string | null }> | null;
+}
+

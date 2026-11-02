@@ -62,6 +62,7 @@ class ProvisioningService
                 'allowNegativeStock' => (bool) $businessType->default_settings['allowNegativeStock'],
                 'priceRoundingStep' => (int) $businessType->default_settings['priceRoundingStep'],
                 'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
+                'referenceCatalog' => (bool) ($businessType->default_settings['referenceCatalog'] ?? true),
             ],
         ]);
 

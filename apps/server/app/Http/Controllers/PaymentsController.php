@@ -43,7 +43,7 @@ class PaymentsController extends Controller
             ->when($q['from'] ?? null, fn ($w, $d) => $w->where('confirmed_at', '>=', Carbon::createFromFormat('!Y-m-d', $d, 'America/Buenos_Aires')->utc()))
             ->when($q['to'] ?? null, fn ($w, $d) => $w->where('confirmed_at', '<', Carbon::createFromFormat('!Y-m-d', $d, 'America/Buenos_Aires')->addDay()->utc()))
             ->when($q['registerId'] ?? null, fn ($w, $id) => $w->where('register_id', $id));
-        $query = SalePayment::where('kind', '!=', 'cash')
+        $query = SalePayment::whereNotIn('kind', ['cash', 'exchange'])
             ->when($q['kind'] ?? null, fn ($w, $k) => $w->where('kind', $k))
             ->when($q['paymentMethodId'] ?? null, fn ($w, $id) => $w->where('payment_method_id', $id));
         if (isset($q['from']) || isset($q['to']) || isset($q['registerId'])) {
@@ -118,7 +118,7 @@ class PaymentsController extends Controller
      */
     private function duplicates()
     {
-        return SalePayment::where('kind', '!=', 'cash')->whereNotNull('reference')
+        return SalePayment::whereNotIn('kind', ['cash', 'exchange'])->whereNotNull('reference')
             ->whereIn('sale_id', Sale::where('status', 'confirmed')->select('id'))
             ->groupBy('payment_method_id', 'reference')->havingRaw('COUNT(*) > 1')
             ->select('payment_method_id', 'reference')->toBase();

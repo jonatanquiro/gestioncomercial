@@ -81,4 +81,7 @@ html[data-density="compact"] td, html[data-density="compact"] th { padding-top: 
   body > *:not(#print-root) { display: none !important; }
   html, body { background: white; height: auto; font-size: 12px; }
   #print-root { display: block; width: 74mm; }
+  /* Etiquetas: una por página en rollo, hojas A4 completas con salto entre hojas. */
+  .labels-roll .label, .labels-sheet { break-after: page; }
+  .labels .label { break-inside: avoid; }
 }

@@ -31,38 +31,9 @@ class SalesController extends Controller
         $input = Input::validate($this->body($request), [
             'clientUuid' => ['required', 'string', 'uuid'],
             'registerId' => ['required', 'string', 'uuid'],
-            'lines' => ['required', 'array', 'list', 'min:1', 'max:300'],
-            'lines.*' => ['array'],
-            'lines.*.variantId' => ['required', 'string', 'uuid', 'distinct'],
-            'lines.*.quantity' => ['required', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
-            'lines.*.discountPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Descuento inválido')],
-            'payments' => ['present', 'array', 'list', 'max:10'],
-            'payments.*' => ['array'],
-            'payments.*.paymentMethodId' => ['required', 'string', 'uuid'],
-            'payments.*.amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
-            'payments.*.reference' => ['nullable', 'string', 'max:80'],
-            'payments.*.payerName' => ['nullable', 'string', 'max:120'],
-            'payments.*.payerPhone' => ['nullable', 'string', 'regex:/^[\d\s()+-]{6,30}$/'],
-            'expectedTotal' => ['required', ...Input::decimal(Input::MONEY, 'Total inválido')],
-            'authorization' => ['nullable', 'array'],
-        ], ['payments.*.payerPhone.regex' => 'Teléfono inválido', 'lines.required' => 'Agregá al menos un artículo', 'lines.min' => 'Agregá al menos un artículo', 'lines.*.variantId.distinct' => 'El artículo está repetido']);
-        $details = [];
-        foreach ($input['lines'] as $i => $line) {
-            if (Money::of($line['quantity'])->isZero()) {
-                $details[] = ['path' => "lines.{$i}.quantity", 'message' => 'La cantidad no puede ser cero'];
-            }
-            if (Money::of($line['discountPercent'] ?? '0')->isGreaterThan(100)) {
-                $details[] = ['path' => "lines.{$i}.discountPercent", 'message' => 'El descuento no puede superar el 100%'];
-            }
-        }
-        foreach ($input['payments'] as $i => $p) {
-            if (Money::of($p['amount'])->isZero()) {
-                $details[] = ['path' => "payments.{$i}.amount", 'message' => 'El importe no puede ser cero'];
-            }
-        }
-        if ($details !== []) {
-            throw AppError::validation($details);
-        }
+            ...self::saleRules(),
+        ], self::saleMessages());
+        self::assertSaleAmounts($input);
         ['sale' => $sale, 'created' => $created] = $this->sales->create($actor, $input);
 
         return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
@@ -154,6 +125,84 @@ class SalesController extends Controller
         return $this->json($this->dto(Sale::find($id), $actor), $created ? 201 : 200);
     }
 
+    /** Cambio de talle o de artículo: devuelve líneas de esta venta y cobra una venta nueva con ese crédito. */
+    public function storeExchange(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $input = Input::validate($this->body($request), [
+            'clientUuid' => ['required', 'string', 'uuid'],
+            'registerId' => ['required', 'string', 'uuid'],
+            'reason' => ['required', 'string', 'max:180'],
+            'returnLines' => ['required', 'array', 'list', 'min:1', 'max:300'],
+            'returnLines.*' => ['array'],
+            'returnLines.*.saleLineId' => ['required', 'string', 'uuid', 'distinct'],
+            'returnLines.*.quantity' => ['required', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
+            'returnLines.*.restock' => ['present', Input::strictBoolean()],
+            ...self::saleRules(),
+        ], [
+            'returnLines.required' => 'Elegí qué se devuelve', 'returnLines.min' => 'Elegí qué se devuelve',
+            ...self::saleMessages(),
+        ]);
+        foreach ($input['returnLines'] as $i => $line) {
+            if (Money::of($line['quantity'])->isZero()) {
+                throw AppError::validation([['path' => "returnLines.{$i}.quantity", 'message' => 'La cantidad no puede ser cero']]);
+            }
+        }
+        self::assertSaleAmounts($input);
+        $this->visible($actor)->whereKey($id)->exists() || throw AppError::notFound('Venta');
+        $input['reason'] = trim($input['reason']);
+        ['sale' => $sale, 'created' => $created] = $this->sales->exchange($actor, $id, $input);
+
+        return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
+    }
+
+    /** Artículos y pagos de una venta: los mismos límites que createSaleSchema. */
+    private static function saleRules(): array
+    {
+        return [
+            'lines' => ['required', 'array', 'list', 'min:1', 'max:300'],
+            'lines.*' => ['array'],
+            'lines.*.variantId' => ['required', 'string', 'uuid', 'distinct'],
+            'lines.*.quantity' => ['required', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
+            'lines.*.discountPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Descuento inválido')],
+            'payments' => ['present', 'array', 'list', 'max:10'],
+            'payments.*' => ['array'],
+            'payments.*.paymentMethodId' => ['required', 'string', 'uuid'],
+            'payments.*.amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'payments.*.reference' => ['nullable', 'string', 'max:80'],
+            'payments.*.payerName' => ['nullable', 'string', 'max:120'],
+            'payments.*.payerPhone' => ['nullable', 'string', 'regex:/^[\d\s()+-]{6,30}$/'],
+            'expectedTotal' => ['required', ...Input::decimal(Input::MONEY, 'Total inválido')],
+            'authorization' => ['nullable', 'array'],
+        ];
+    }
+
+    private static function saleMessages(): array
+    {
+        return ['payments.*.payerPhone.regex' => 'Teléfono inválido', 'lines.required' => 'Agregá al menos un artículo', 'lines.min' => 'Agregá al menos un artículo', 'lines.*.variantId.distinct' => 'El artículo está repetido'];
+    }
+
+    private static function assertSaleAmounts(array $input): void
+    {
+        $details = [];
+        foreach ($input['lines'] as $i => $line) {
+            if (Money::of($line['quantity'])->isZero()) {
+                $details[] = ['path' => "lines.{$i}.quantity", 'message' => 'La cantidad no puede ser cero'];
+            }
+            if (Money::of($line['discountPercent'] ?? '0')->isGreaterThan(100)) {
+                $details[] = ['path' => "lines.{$i}.discountPercent", 'message' => 'El descuento no puede superar el 100%'];
+            }
+        }
+        foreach ($input['payments'] as $i => $p) {
+            if (Money::of($p['amount'])->isZero()) {
+                $details[] = ['path' => "payments.{$i}.amount", 'message' => 'El importe no puede ser cero'];
+            }
+        }
+        if ($details !== []) {
+            throw AppError::validation($details);
+        }
+    }
+
     /** Sin sales.read_all, cada uno ve solo sus ventas. */
     private function visible(Actor $actor)
     {
@@ -173,6 +222,9 @@ class SalesController extends Controller
         $users = User::whereIn('id', $userIds)->pluck('name', 'id');
         $register = Register::find($sale->register_id);
         $seeCost = $actor->can('costs.read');
+        // Cambios: de qué venta salió el crédito de esta, y por qué venta se cambió cada devolución.
+        $origin = $sale->exchange_return_id ? SaleReturn::find($sale->exchange_return_id) : null;
+        $exchangedFor = Sale::whereIn('exchange_return_id', $returns->pluck('id'))->get(['id', 'number', 'exchange_return_id'])->keyBy('exchange_return_id');
 
         return [
             'id' => $sale->id,
@@ -189,6 +241,7 @@ class SalesController extends Controller
             'total' => Money::round($sale->total),
             'changeGiven' => Money::round($sale->change_given),
             'discountAuthorizedBy' => $users[$sale->discount_authorized_by] ?? null,
+            'exchangeOf' => $origin ? ['saleId' => $origin->sale_id, 'saleNumber' => (int) Sale::whereKey($origin->sale_id)->value('number'), 'credit' => Money::round($origin->total)] : null,
             'lines' => $lines->map(fn (SaleLine $l) => [
                 'id' => $l->id,
                 'variantId' => $l->variant_id,
@@ -227,6 +280,7 @@ class SalesController extends Controller
                 'paymentMethodName' => $methods[$r->payment_method_id] ?? '',
                 'userName' => $users[$r->user_id] ?? '',
                 'authorizedByName' => $users[$r->authorized_by] ?? null,
+                'exchangeSale' => isset($exchangedFor[$r->id]) ? ['id' => $exchangedFor[$r->id]->id, 'number' => (int) $exchangedFor[$r->id]->number] : null,
                 'lines' => ($returnLines[$r->id] ?? collect())->map(fn (SaleReturnLine $l) => [
                     'saleLineId' => $l->sale_line_id, 'quantity' => Money::quantity($l->quantity), 'amount' => Money::round($l->amount), 'restock' => (bool) $l->restock,
                 ])->values()->all(),

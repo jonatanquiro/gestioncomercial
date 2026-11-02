@@ -134,6 +134,55 @@ class ProductsController extends Controller
         return $this->json(['item' => $this->itemDtos(collect([$variant]), $actor)[0], 'quantityFactor' => $barcode ? Money::quantity($barcode->quantity_factor) : '1.000']);
     }
 
+    /**
+     * Códigos de barras internos para las variantes que no tienen (ADR 0014): EAN-13 con prefijo
+     * 29, reservado para uso dentro del comercio, así no choca con códigos de fábrica. Devuelve las
+     * variantes pedidas, con o sin código nuevo, listas para imprimir etiquetas.
+     */
+    public function generateBarcodes(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'variantIds' => ['required', 'array', 'list', 'min:1', 'max:500'],
+            'variantIds.*' => ['required', 'string', 'uuid', 'distinct'],
+        ]);
+        $generated = DB::transaction(function () use ($actor, $v) {
+            // Serializa por comercio: dos pedidos a la vez no toman el mismo número.
+            $this->entitlements->lockTenant($actor->tenantId);
+            $missing = ProductVariant::whereIn('id', $v['variantIds'])->where('status', 'active')
+                ->whereNotIn('id', Barcode::whereIn('variant_id', $v['variantIds'])->select('variant_id'))->orderBy('product_id')->orderBy('label')->get();
+            $last = Barcode::where('code', 'like', '29%')->whereRaw('CHAR_LENGTH(code) = 13')->max('code');
+            $next = $last === null ? 1 : (int) substr($last, 2, 10) + 1;
+            $rows = [];
+            $now = now()->format('Y-m-d H:i:s.u');
+            foreach ($missing as $variant) {
+                $code = self::ean13('29'.str_pad((string) $next++, 10, '0', STR_PAD_LEFT));
+                $rows[] = ['id' => (string) Str::uuid7(), 'variant_id' => $variant->id, 'code' => $code, 'quantity_factor' => '1.000', 'created_at' => $now];
+            }
+            Barcode::insertForTenant($rows);
+            foreach ($missing->groupBy('product_id') as $productId => $variants) {
+                $codes = $variants->mapWithKeys(fn ($variant) => [$variant->label ?? '—' => collect($rows)->firstWhere('variant_id', $variant->id)['code']])->all();
+                $this->record($actor, 'product.barcodes_generated', $productId, null, ['barcodes' => $codes]);
+            }
+
+            return count($rows);
+        });
+        $variants = ProductVariant::whereIn('id', $v['variantIds'])->get()->sortBy(fn ($x) => array_search($x->id, $v['variantIds'], true))->values();
+
+        return $this->json(['generated' => $generated, 'items' => $this->itemDtos($variants, $actor)]);
+    }
+
+    /** Agrega el dígito verificador a los 12 primeros dígitos de un EAN-13. */
+    public static function ean13(string $twelve): string
+    {
+        $sum = 0;
+        foreach (str_split($twelve) as $i => $digit) {
+            $sum += (int) $digit * ($i % 2 === 0 ? 1 : 3);
+        }
+
+        return $twelve.((10 - $sum % 10) % 10);
+    }
+
     /** Sugerencia del catálogo de referencia (SEPA) para un código que el comercio todavía no cargó. */
     public function reference(Request $request): JsonResponse
     {
@@ -591,8 +640,9 @@ class ProductsController extends Controller
         $barcodes = $this->barcodesOf($variants->pluck('id'));
         $stock = $this->stockOf($variants->pluck('id'), $actor);
         $seeStock = $actor->can('stock.read');
+        $seeCost = $actor->can('costs.read');
 
-        return $variants->map(function (ProductVariant $v) use ($products, $barcodes, $stock, $seeStock) {
+        return $variants->map(function (ProductVariant $v) use ($products, $barcodes, $stock, $seeStock, $seeCost) {
             $p = $products[$v->product_id];
 
             return [
@@ -606,6 +656,7 @@ class ProductsController extends Controller
                 'minStock' => $p->min_stock === null ? null : Money::quantity($p->min_stock),
                 'sku' => $v->sku,
                 'price' => Money::round($v->price),
+                'cost' => $seeCost && $v->cost !== null ? Money::roundUnit($v->cost) : null,
                 'barcodes' => $barcodes->get($v->id, []),
                 'stock' => $p->track_stock && $seeStock ? Money::quantity($stock[$v->id] ?? '0') : null,
                 'status' => $p->status === 'active' && $v->status === 'active' ? 'active' : 'inactive',

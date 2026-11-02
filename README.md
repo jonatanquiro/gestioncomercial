@@ -12,10 +12,13 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - productos y servicios con varios códigos de barras y códigos de pack, categorías iniciales según el rubro, marcas e historial de precios y costos;
 - variantes por talle, color u otra propiedad (hasta 3 por producto), cada una con su precio, código y stock; lo que no tiene código de barras se vende buscándolo por nombre y propiedad («remera m rojo»). Depende de la función «Variantes» del plan;
 - stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
+- ingreso de mercadería con proveedor, comprobante y costo (actualiza el costo vigente si se pide), y proveedores;
+- etiquetas con código de barras y precio en rollo de 50 × 25 mm o en hoja A4; lo que no tiene código recibe uno interno (EAN-13 con prefijo 29);
 - cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo;
 - punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados, nombre y teléfono opcionales de quien transfiere o paga con QR, «cantidad * código» (por ejemplo `12*` y escanear), alta en el momento de un código escaneado que no estaba cargado (se suma a la venta al guardarlo), barra fija para cobrar en el celular y ticket interno de 80 mm;
 - caja por turnos: apertura con fondo, retiros e ingresos, arqueos, cierre ciego con diferencia y totales por medio de pago;
 - historial de ventas con anulación en el turno y devoluciones parciales, con movimientos inversos de stock y caja.
+- cambios de talle o de artículo en una sola operación: lo devuelto queda como crédito y se cobra solo la diferencia;
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
 - estilo propio «Almacén de barrio» (papel crema, menú verde almacén y acento tomate) con logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior configurables por comercio;
@@ -127,7 +130,7 @@ La API dispone de auditoría de plataforma (`GET /api/v1/platform/audit`), pero 
 
 ### Cargar el catálogo de referencia de productos (Precios Claros / SEPA)
 
-Los comercios usan los datos abiertos de SEPA (Precios Claros) de dos maneras. En **Productos → Agregar desde catálogo** buscan lo que venden, lo tildan, le ponen su precio y, opcionalmente, su stock inicial, y lo agregan de una vez. Y al dar de alta un producto, si escanean o escriben un código que no tienen cargado, se completan el nombre y la marca. El catálogo es común a todos los comercios y no guarda precios.
+Los comercios usan los datos abiertos de SEPA (Precios Claros) de dos maneras. En **Productos → Agregar desde catálogo** buscan lo que venden, lo tildan, le ponen su precio y, opcionalmente, su stock inicial, y lo agregan de una vez. Y al dar de alta un producto, si escanean o escriben un código que no tienen cargado, se completan el nombre y la marca. El catálogo es común a todos los comercios y no guarda precios. Como son productos de supermercado, «Agregar desde catálogo» aparece según el rubro: sí en kiosco, almacén, minimercado, supermercado, dietética, perfumería y librería; no en ropa, calzado, ferretería, tecnología, regalería ni hogar. Cada comercio lo puede activar o desactivar en **Configuración → Parámetros operativos**.
 
 El campo **Stock inicial** aparece para quienes tienen el permiso `stock.adjust`. Acepta cantidades enteras no negativas, porque los productos del catálogo se crean con venta por unidad. Al dejarlo vacío, el stock queda en 0. Una cantidad mayor que 0 se registra como un movimiento de ajuste con motivo «Stock inicial» en el depósito principal, dentro de la misma transacción que crea el producto. Se cargan activos, con IVA 21 %; estos datos se pueden editar después.
 
@@ -239,4 +242,5 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0011 · Disparadores opcionales en hostings que no los permiten](docs/adr/0011-disparadores-opcionales-en-hosting.md)
 - [0012 · Cobro de suscripciones con Mercado Pago](docs/adr/0012-cobro-de-suscripciones.md)
 - [0013 · Variantes de producto (talle, color)](docs/adr/0013-variantes-de-producto.md)
+- [0014 · Ingreso de mercadería, cambios y etiquetas](docs/adr/0014-compras-cambios-y-etiquetas.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

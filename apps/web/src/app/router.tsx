@@ -30,6 +30,8 @@ import { SettingsPage } from '@/features/settings/settings-page';
 import { AppearancePage } from '@/features/settings/appearance-page';
 import { FiscalPage } from '@/features/settings/fiscal-page';
 import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
+import { NewPurchasePage, PurchaseDetailPage, PurchasesPage } from '@/features/purchases/purchases-page';
+import { LabelsPage } from '@/features/catalog/labels-page';
 import { SubscriptionExpiredPage, SubscriptionPage } from '@/features/subscription/subscription-page';
 import { MovementsPage } from '@/features/stock/movements-page';
 import { StockPage } from '@/features/stock/stock-page';
@@ -128,6 +130,12 @@ const productsRoute = createRoute({ getParentRoute: () => appRoute, path: 'produ
 const referenceCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos/catalogo', component: ReferenceCatalogPage });
 const categoriesRoute = createRoute({ getParentRoute: () => appRoute, path: 'categorias', component: CategoriesPage });
 const pricesRoute = createRoute({ getParentRoute: () => appRoute, path: 'precios', component: PricesPage });
+const labelsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: 'etiquetas',
+  validateSearch: z.object({ productId: z.string().uuid().optional().catch(undefined) }),
+  component: LabelsPage,
+});
 const stockRoute = createRoute({ getParentRoute: () => appRoute, path: 'stock', component: StockPage });
 const movementsRoute = createRoute({
   getParentRoute: () => appRoute,
@@ -136,6 +144,9 @@ const movementsRoute = createRoute({
   component: MovementsPage,
 });
 const countsRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios', component: CountsPage });
+const purchasesRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras', component: PurchasesPage });
+const newPurchaseRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras/nueva', component: NewPurchasePage });
+const purchaseDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras/$id', component: PurchaseDetailPage });
 const countDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios/$id', component: CountDetailPage });
 const posRoute = createRoute({ getParentRoute: () => appRoute, path: 'vender', component: PosPage });
 const salesRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas', component: SalesPage });
@@ -184,6 +195,10 @@ const routeTree = rootRoute.addChildren([
     stockRoute,
     movementsRoute,
     countsRoute,
+    purchasesRoute,
+    labelsRoute,
+    newPurchaseRoute,
+    purchaseDetailRoute,
     countDetailRoute,
     branchesRoute,
     employeesRoute,

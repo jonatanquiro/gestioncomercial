@@ -70,6 +70,14 @@ class IsolationTest extends TestCase
         $settlement = $this->b['client']->post('/settlements', ['paymentMethodId' => $transfer['id'], 'provider' => 'MP', 'fromDate' => '2026-01-01', 'toDate' => '2026-01-01']);
         $this->assertSame(201, $settlement->status);
         $this->bIds['settlement'] = $settlement->body['id'];
+        $supplier = $this->b['client']->post('/suppliers', ['name' => 'Proveedor B']);
+        $this->bIds['supplier'] = $supplier->body['id'];
+        $purchase = $this->b['client']->post('/purchases', [
+            'clientUuid' => self::uuid(), 'warehouseId' => $warehouse, 'supplierId' => $supplier->body['id'], 'updateCosts' => false,
+            'lines' => [['variantId' => $this->createProduct($this->b['client'])['variantId'], 'quantity' => '1', 'unitCost' => null]],
+        ]);
+        $this->assertSame(201, $purchase->status, json_encode($purchase->body));
+        $this->bIds['purchase'] = $purchase->body['id'];
         $this->bIds['subscriptionPayment'] = app(TenantContext::class)->run($this->b['tenantId'], fn () => SubscriptionPayment::create([
             'plan_id' => Subscription::first()->plan_id, 'months' => 1, 'amount' => '1000.00', 'method' => 'mercadopago', 'status' => 'pending',
         ]))->id;
@@ -88,6 +96,8 @@ class IsolationTest extends TestCase
         $this->assertNotContains($this->bIds['product'], array_column($a->get('/stock?pageSize=100')->body['items'], 'productId'));
         $this->assertNotContains($this->bIds['variant'], array_column($a->get('/stock/movements?pageSize=100')->body['items'], 'variantId'));
         $this->assertNotContains($this->bIds['count'], array_column($a->get('/stock-counts')->body, 'id'));
+        $this->assertNotContains($this->bIds['supplier'], array_column($a->get('/suppliers')->body, 'id'));
+        $this->assertNotContains($this->bIds['purchase'], array_column($a->get('/purchases?pageSize=100')->body['items'], 'id'));
         $this->assertNotContains($this->bIds['register'], array_column($a->get('/registers')->body, 'id'));
         $this->assertNotContains($this->bIds['paymentMethod'], array_column($a->get('/payment-methods')->body, 'id'));
         $this->assertNotContains($this->bIds['shift'], array_column($a->get('/shifts')->body['items'], 'id'));
@@ -133,6 +143,12 @@ class IsolationTest extends TestCase
                 'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
                 'paymentMethodId' => $this->bIds['paymentMethod'], 'lines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
             ],
+            '/suppliers/{id}' => ['name' => 'Hackeo', 'status' => 'inactive'],
+            '/sales/{id}/exchanges' => [
+                'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
+                'returnLines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
+                'lines' => [['variantId' => $this->bIds['variant'], 'quantity' => '1']], 'payments' => [], 'expectedTotal' => '1000.00',
+            ],
         ];
         $idFor = fn (string $path) => match (true) {
             str_starts_with($path, '/subscription/payments') => $this->bIds['subscriptionPayment'],
@@ -147,6 +163,8 @@ class IsolationTest extends TestCase
             str_starts_with($path, '/payment-methods') => $this->bIds['paymentMethod'],
             str_starts_with($path, '/shifts') => $this->bIds['shift'],
             str_starts_with($path, '/sales') => $this->bIds['sale'],
+            str_starts_with($path, '/suppliers') => $this->bIds['supplier'],
+            str_starts_with($path, '/purchases') => $this->bIds['purchase'],
             default => null,
         };
         $checked = [];
@@ -171,7 +189,7 @@ class IsolationTest extends TestCase
             'GET /products/{id}', 'GET /products/{id}/history', 'PUT /products/{id}', 'POST /products/{id}/status',
             'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
             'PUT /registers/{id}', 'PUT /payment-methods/{id}', 'GET /shifts/{id}', 'POST /shifts/{id}/movements', 'POST /shifts/{id}/counts',
-            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns',
+            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'PUT /suppliers/{id}', 'GET /purchases/{id}',
         ] as $expected) {
             $this->assertContains($expected, $checked);
         }

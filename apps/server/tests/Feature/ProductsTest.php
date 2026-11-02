@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\ProductsController;
 use App\Support\Catalog;
 use App\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
@@ -316,6 +317,30 @@ class ProductsTest extends TestCase
         $dto = $owner->get("/products/{$dto['id']}")->body;
         $more = [...self::productUpdate($dto), 'variants' => [...self::productUpdate($dto)['variants'], $v(['XL'])]];
         $this->assertSame('VARIANTS_PLAN', $owner->put("/products/{$dto['id']}", $more)->body['code']);
+    }
+
+    /** Etiquetas: lo que no tiene código recibe un EAN-13 interno (prefijo 29) que el lector encuentra. */
+    public function test_genera_codigos_internos_para_lo_que_no_tiene(): void
+    {
+        $this->assertSame('4006381333931', ProductsController::ean13('400638133393'));
+        ['client' => $owner] = $this->registerTenant();
+        $with = $this->createProduct($owner);
+        $without = $this->createProduct($owner, ['barcodes' => []]);
+        $other = $this->createProduct($owner, ['barcodes' => []]);
+
+        $res = $owner->post('/products/barcodes', ['variantIds' => [$with['variantId'], $without['variantId']]]);
+        $this->assertSame(200, $res->status, json_encode($res->body));
+        $this->assertSame(1, $res->body['generated']);
+        $this->assertSame($with['variants'][0]['barcodes'], $res->body['items'][0]['barcodes']);
+        $code = $res->body['items'][1]['barcodes'][0]['code'];
+        $this->assertMatchesRegularExpression('/^29\d{11}$/', $code);
+        $this->assertSame($code, ProductsController::ean13(substr($code, 0, 12)));
+        $this->assertSame($without['variantId'], $owner->get('/products/lookup?code='.$code)->body['item']['variantId']);
+
+        // No se repiten ni se pisan: el siguiente toma el número que sigue.
+        $this->assertSame(0, $owner->post('/products/barcodes', ['variantIds' => [$without['variantId']]])->body['generated']);
+        $next = $owner->post('/products/barcodes', ['variantIds' => [$other['variantId']]])->body['items'][0]['barcodes'][0]['code'];
+        $this->assertSame((int) substr($code, 2, 10) + 1, (int) substr($next, 2, 10));
     }
 
     private function withPlan(string $tenantId, string $code): void

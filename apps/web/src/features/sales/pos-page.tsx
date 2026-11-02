@@ -1,4 +1,4 @@
-import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type ProductDto, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
+import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -21,6 +21,7 @@ import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQ
 import { PrintTicket } from './ticket';
 import { InvoiceDialog } from '@/features/fiscal/invoice-dialog';
 import { ProductForm } from '@/features/catalog/product-form';
+import { itemOf } from '@/features/catalog/item';
 
 interface CartLine {
   product: ItemDto;
@@ -159,14 +160,6 @@ const UNIT: Record<string, string> = { weight: 'kg', length: 'm', volume: 'l' };
 const isMeasured = (p: ItemDto) => p.saleMode !== 'unit';
 /** «Remera · M / Rojo». */
 const itemName = (p: ItemDto) => variantDisplayName(p.name, p.variantLabel ?? null);
-/** La primera variante de un producto recién creado, lista para la venta. */
-const itemOf = (p: ProductDto): ItemDto => {
-  const v = p.variants[0]!;
-  return {
-    productId: p.id, variantId: v.id, name: p.name, variantLabel: v.label, kind: p.kind, saleMode: p.saleMode, trackStock: p.trackStock,
-    minStock: p.minStock, sku: v.sku, price: v.price, barcodes: v.barcodes, stock: v.stock, status: p.status,
-  };
-};
 const QUANTITY_RE = /^\d+(\.\d{1,3})?$/;
 /** Medios en los que se pide, opcionalmente, quién paga. */
 const PAYER_KINDS: string[] = ['transfer', 'qr'];

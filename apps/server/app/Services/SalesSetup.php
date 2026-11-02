@@ -21,7 +21,7 @@ class SalesSetup
         ['QR o billetera', 'qr', true, 5],
     ];
 
-    public const DOC_TYPES = ['sale', 'return'];
+    public const DOC_TYPES = ['sale', 'return', 'purchase'];
 
     public function forTenant(): void
     {
