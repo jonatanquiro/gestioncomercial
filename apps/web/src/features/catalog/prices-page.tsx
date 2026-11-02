@@ -176,7 +176,7 @@ export function PricesPage() {
                 <tr key={r.variantId}>
                   <Td className="font-medium">
                     {r.name}
-                    {r.variantLabel && <span className="ml-1.5 text-slate-600">{r.variantLabel}</span>}
+                    {r.variantLabel && <span className="block text-slate-600 sm:ml-1.5 sm:inline">{r.variantLabel}</span>}
                   </Td>
                   {seeCost && <Td className="text-right text-slate-600">{r.cost ? formatArs(r.cost) : '—'}</Td>}
                   <Td className="text-right">{formatArs(r.oldPrice)}</Td>

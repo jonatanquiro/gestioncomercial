@@ -327,7 +327,9 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
   const [restock, setRestock] = useState<Record<string, boolean>>({});
   const register = registerId || (openRegisters.find((r) => r.id === sale.registerId) ?? openRegisters[0])?.id || '';
   const activeMethods = (methods.data ?? []).filter((m) => m.active);
-  const method = methodId || activeMethods.find((m) => m.kind === 'cash')?.id || activeMethods[0]?.id || '';
+  // Se reintegra por donde se cobró (el medio con el que más se pagó): una venta con tarjeta no se devuelve del cajón.
+  const paidWith = [...sale.payments].sort((a, b) => dec(b.amount).cmp(a.amount)).find((p) => activeMethods.some((m) => m.id === p.paymentMethodId));
+  const method = methodId || paidWith?.paymentMethodId || activeMethods.find((m) => m.kind === 'cash')?.id || activeMethods[0]?.id || '';
 
   const lines = pending
     .map((l) => {
@@ -381,8 +383,8 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
                 <tr>
                   <th className="py-2">Artículo</th>
                   <th className="py-2 text-right">Queda</th>
-                  <th className="w-28 py-2">Devuelve</th>
-                  <th className="py-2">Vuelve al stock</th>
+                  <th className="w-28 py-2 pl-3">Devuelve</th>
+                  <th className="py-2 pl-3">Vuelve al stock</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -423,7 +425,7 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
             <Field label="Caja">
               {(p) => (
                 <Select {...p} value={register} onChange={(e) => setRegisterId(e.target.value)}>
-                  {openRegisters.length === 0 && <option value="">No hay cajas abiertas</option>}
+                  {openRegisters.length === 0 && <option value="">{registers.isLoading ? 'Cargando…' : 'No hay cajas abiertas'}</option>}
                   {openRegisters.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.branchName} · {r.name}

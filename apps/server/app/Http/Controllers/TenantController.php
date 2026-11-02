@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Branch;
 use App\Models\Membership;
+use App\Models\Product;
+use App\Models\Sale;
 use App\Models\Tenant;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
@@ -147,6 +149,9 @@ class TenantController extends Controller
             'usage' => [
                 'branches' => Branch::where('status', 'active')->count(),
                 'users' => Membership::where('status', 'active')->count(),
+                'products' => Product::where('status', 'active')->count(),
+                // Para la guía de primeros pasos del inicio.
+                'hasSales' => Sale::exists(),
             ],
         ];
     }

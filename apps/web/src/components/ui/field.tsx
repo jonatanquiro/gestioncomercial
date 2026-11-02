@@ -1,8 +1,14 @@
 import { forwardRef, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, useId } from 'react';
 import { cn } from './cn';
 
-const control =
-  'block w-full rounded-lg border bg-white px-3 text-sm text-slate-900 shadow-xs transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/10 disabled:bg-slate-100';
+const controlBase =
+  'block rounded-lg border bg-white px-3 text-sm text-slate-900 shadow-xs transition-colors placeholder:text-slate-400 hover:border-slate-400 focus:border-brand-500 focus:ring-3 focus:ring-brand-500/10 disabled:bg-slate-100';
+
+/**
+ * Ocupa todo el ancho salvo que la pantalla le dé uno propio («w-40»): cn solo concatena, y en el
+ * CSS w-full le ganaría a cualquier otro ancho sin prefijo.
+ */
+const control = (className?: string) => cn(controlBase, /(^|\s)w-/.test(className ?? '') ? null : 'w-full');
 
 interface FieldProps {
   label: string;
@@ -38,7 +44,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   return (
     <input
       ref={ref}
-      className={cn(control, 'h-11', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
+      className={cn(control(className), 'h-11', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
       {...props}
     />
   );
@@ -48,7 +54,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   return (
     <select
       ref={ref}
-      className={cn(control, 'h-11 pr-8', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
+      className={cn(control(className), 'h-11 pr-8', props['aria-invalid'] ? 'border-red-500' : 'border-slate-300', className)}
       {...props}
     />
   );

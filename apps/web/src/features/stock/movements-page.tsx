@@ -103,7 +103,7 @@ export function MovementsPage() {
                     <Link to="/app/stock/movimientos" search={{ productId: m.productId }} className="font-medium hover:underline">
                       {m.productName}
                     </Link>
-                    {m.variantLabel && <span className="ml-1.5 text-slate-600">{m.variantLabel}</span>}
+                    {m.variantLabel && <span className="block text-slate-600 sm:ml-1.5 sm:inline">{m.variantLabel}</span>}
                   </Td>
                 ) : (
                   hasVariants && <Td className="font-medium">{m.variantLabel}</Td>

@@ -13,7 +13,7 @@ import {
 import { dec, marginPercentOf, markupPercentOf } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Alert } from '@/components/ui/misc';
@@ -40,7 +40,7 @@ interface FormState {
   variants: VariantsState;
 }
 
-function initialState(p?: ProductDto): FormState {
+function initialState(p?: ProductDto, code?: string): FormState {
   return {
     kind: p?.kind ?? 'good',
     name: p?.name ?? '',
@@ -53,7 +53,7 @@ function initialState(p?: ProductDto): FormState {
     minStock: toInputDecimal(p?.minStock),
     blockNegativeStock: p?.blockNegativeStock ?? false,
     hasVariants: (p?.optionNames.length ?? 0) > 0,
-    variants: p ? { optionNames: p.optionNames, optionValues: valuesFrom(p.optionNames, rowsFrom(p)), rows: rowsFrom(p) } : { optionNames: [], optionValues: [], rows: [{ ...emptyRow(), barcodes: [{ code: '', quantityFactor: '1' }] }] },
+    variants: p ? { optionNames: p.optionNames, optionValues: valuesFrom(p.optionNames, rowsFrom(p)), rows: rowsFrom(p) } : { optionNames: [], optionValues: [], rows: [{ ...emptyRow(), barcodes: [{ code: code ?? '', quantityFactor: '1' }] }] },
   };
 }
 
@@ -73,13 +73,14 @@ function MarginHint({ cost, price }: { cost: string; price: string }) {
   );
 }
 
-export function ProductForm({ product, onDone }: { product?: ProductDto; onDone: (saved: ProductDto) => void }) {
+/** initialCode: alta desde un código escaneado que no estaba cargado (por ejemplo, en el POS). */
+export function ProductForm({ product, initialCode, onDone }: { product?: ProductDto; initialCode?: string; onDone: (saved: ProductDto) => void }) {
   const can = useCan();
   const toast = useToast();
   const queryClient = useQueryClient();
   const categories = useQuery(categoriesQuery);
   const brands = useQuery(brandsQuery);
-  const [form, setForm] = useState<FormState>(() => initialState(product));
+  const [form, setForm] = useState<FormState>(() => initialState(product, initialCode));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [newBrand, setNewBrand] = useState<string | null>(null);
@@ -151,6 +152,14 @@ export function ProductForm({ product, onDone }: { product?: ProductDto; onDone:
     }
     setSuggested(ref);
   }
+
+  // Alta desde un código escaneado: se busca la sugerencia de Precios Claros una sola vez, con las marcas ya cargadas.
+  const askedReference = useRef(false);
+  useEffect(() => {
+    if (!initialCode || askedReference.current || !brands.isSuccess) return;
+    askedReference.current = true;
+    void suggestFrom(initialCode);
+  }, [initialCode, brands.isSuccess]);
 
   function submit(e: FormEvent) {
     e.preventDefault();

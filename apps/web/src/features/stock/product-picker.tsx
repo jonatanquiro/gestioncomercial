@@ -20,6 +20,7 @@ export function ProductPicker({
   autoFocus,
   inputClassName,
   multiplier = false,
+  onMissingCode,
 }: {
   onPick: (item: ItemDto, quantityFactor: string) => void;
   label?: string;
@@ -30,10 +31,13 @@ export function ProductPicker({
   inputClassName?: string;
   /** Permite «cantidad * código»: «12*» y escanear carga 12 de una vez. */
   multiplier?: boolean;
+  /** Si se pasa, un código que no está cargado ofrece crearlo en el momento. */
+  onMissingCode?: (code: string) => void;
 }) {
   const [term, setTerm] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [times, setTimes] = useState<string | null>(null);
+  const [missing, setMissing] = useState<string | null>(null);
   const q = term.trim().replace(multiplier ? /^\d+(?:[.,]\d{1,3})?\s*[*×]\s*/ : /^$/, '');
   const results = useQuery({
     queryKey: ['products', 'picker', q],
@@ -73,6 +77,7 @@ export function ProductPicker({
     // Liberar el lector al enviar el pedido: una respuesta anterior no debe borrar el siguiente escaneo.
     setTerm('');
     setMessage(null);
+    setMissing(null);
     try {
       const found = await http.get<ProductLookupDto>(`/products/lookup?code=${encodeURIComponent(code)}`);
       const name = variantDisplayName(found.item.name, found.item.variantLabel);
@@ -82,7 +87,8 @@ export function ProductPicker({
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 404) {
         if (options.length === 1) return deliver(options[0]!, '1.000', by);
-        return setMessage('No hay ningún artículo con ese código');
+        setMissing(code);
+        return setMessage(`No hay ningún artículo con el código ${code}`);
       }
       setMessage('No se pudo buscar el código');
     }
@@ -98,8 +104,17 @@ export function ProductPicker({
           </button>
         </span>
       )}
-      <Input ref={inputRef} autoFocus={autoFocus} className={inputClassName} type="search" autoComplete="off" aria-label={label} placeholder={label} value={term} onChange={(e) => (setTerm(e.target.value), setMessage(null))} onKeyDown={(e) => void onKeyDown(e)} />
-      {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
+      <Input ref={inputRef} autoFocus={autoFocus} className={inputClassName} type="search" autoComplete="off" aria-label={label} placeholder={label} value={term} onChange={(e) => (setTerm(e.target.value), setMessage(null), setMissing(null))} onKeyDown={(e) => void onKeyDown(e)} />
+      {message && (
+        <p className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-red-600">
+          {message}
+          {missing && onMissingCode && (
+            <button type="button" className="font-semibold text-brand-700 underline underline-offset-2" onClick={() => (onMissingCode(missing), setMessage(null), setMissing(null))}>
+              Crear producto con este código
+            </button>
+          )}
+        </p>
+      )}
       {q.length >= 2 && options.length > 0 && (
         <ul className="absolute z-10 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg" role="listbox">
           {options.map((p) => (
@@ -110,7 +125,12 @@ export function ProductPicker({
                   {p.variantLabel && <span className="ml-1.5 font-semibold text-brand-700">{p.variantLabel}</span>}
                 </span>
                 <span className="shrink-0 text-xs text-slate-500">
-                  {[p.sku ?? p.barcodes[0]?.code, p.stock !== null ? `stock ${formatQty(p.stock, p.saleMode)}` : null].filter(Boolean).join(' · ')}
+                  {p.sku ?? p.barcodes[0]?.code}
+                  {p.stock !== null && (
+                    <span className={dec(p.stock).lte(0) ? 'ml-2 font-semibold text-red-700' : 'ml-2'}>
+                      {dec(p.stock).lte(0) ? 'sin stock' : `stock ${formatQty(p.stock, p.saleMode)}`}
+                    </span>
+                  )}
                 </span>
               </button>
             </li>

@@ -1,4 +1,4 @@
-import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
+import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type ProductDto, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
@@ -20,6 +20,7 @@ import { PinDialog } from './pin-dialog';
 import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQuery, rememberedRegister, rememberRegister } from './queries';
 import { PrintTicket } from './ticket';
 import { InvoiceDialog } from '@/features/fiscal/invoice-dialog';
+import { ProductForm } from '@/features/catalog/product-form';
 
 interface CartLine {
   product: ItemDto;
@@ -158,6 +159,14 @@ const UNIT: Record<string, string> = { weight: 'kg', length: 'm', volume: 'l' };
 const isMeasured = (p: ItemDto) => p.saleMode !== 'unit';
 /** «Remera · M / Rojo». */
 const itemName = (p: ItemDto) => variantDisplayName(p.name, p.variantLabel ?? null);
+/** La primera variante de un producto recién creado, lista para la venta. */
+const itemOf = (p: ProductDto): ItemDto => {
+  const v = p.variants[0]!;
+  return {
+    productId: p.id, variantId: v.id, name: p.name, variantLabel: v.label, kind: p.kind, saleMode: p.saleMode, trackStock: p.trackStock,
+    minStock: p.minStock, sku: v.sku, price: v.price, barcodes: v.barcodes, stock: v.stock, status: p.status,
+  };
+};
 const QUANTITY_RE = /^\d+(\.\d{1,3})?$/;
 /** Medios en los que se pide, opcionalmente, quién paga. */
 const PAYER_KINDS: string[] = ['transfer', 'qr'];
@@ -177,6 +186,8 @@ function Counter({ register }: { register: RegisterDto }) {
   const [lastSale, setLastSale] = useState<SaleDto | null>(null);
   const [printing, setPrinting] = useState<SaleDto | null>(null);
   const [invoicing, setInvoicing] = useState<SaleDto | null>(null);
+  /** Código escaneado que no estaba cargado y se está dando de alta sin salir de la venta. */
+  const [creating, setCreating] = useState<string | null>(null);
   const scanner = useRef<HTMLInputElement>(null);
   const focusScanner = useCallback(() => window.setTimeout(() => scanner.current?.focus(), 0), []);
 
@@ -218,14 +229,14 @@ function Counter({ register }: { register: RegisterDto }) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'F2' && allValid && !checkout && !editing) {
+      if (e.key === 'F2' && allValid && !checkout && !editing && creating === null) {
         e.preventDefault();
         setCheckout(true);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [allValid, checkout, editing]);
+  }, [allValid, checkout, editing, creating]);
 
   function done(sale: SaleDto) {
     setCheckout(false);
@@ -258,7 +269,16 @@ function Counter({ register }: { register: RegisterDto }) {
     <div className={`grid gap-6 lg:grid-cols-[1fr_26rem] ${cart.lines.length > 0 ? 'pb-28 lg:pb-0' : ''}`}>
       <div className="space-y-4">
         <div>
-          <ProductPicker inputRef={scanner} autoFocus multiplier onlyStock={false} onPick={add} label="Escaneá o buscá un artículo" inputClassName="h-14 text-lg" />
+          <ProductPicker
+            inputRef={scanner}
+            autoFocus
+            multiplier
+            onlyStock={false}
+            onPick={add}
+            onMissingCode={can('products.create') ? setCreating : undefined}
+            label="Escaneá o buscá un artículo"
+            inputClassName="h-14 text-lg"
+          />
           <p className="mt-1.5 text-xs text-slate-500">Para cargar varios: escribí <kbd className="rounded border border-slate-300 bg-white px-1 font-sans">12*</kbd> y escaneá.</p>
         </div>
         {notice && <Alert kind="info">{notice}</Alert>}
@@ -424,6 +444,18 @@ function Counter({ register }: { register: RegisterDto }) {
         />
       )}
       {printing && tenant.data && <PrintTicket sale={printing} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
+      {creating !== null && (
+        <Dialog open onOpenChange={(o) => !o && (setCreating(null), focusScanner())} wide title="Nuevo producto" description="Al guardarlo se suma a la venta.">
+          <ProductForm
+            initialCode={creating}
+            onDone={(saved) => {
+              setCreating(null);
+              if (saved.optionNames.length === 0) add(itemOf(saved), '1.000');
+              else focusScanner();
+            }}
+          />
+        </Dialog>
+      )}
       {invoicing && <InvoiceDialog sale={invoicing} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => (setInvoicing(null), focusScanner())} />}
     </div>
   );

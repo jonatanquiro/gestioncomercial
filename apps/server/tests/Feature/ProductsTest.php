@@ -31,6 +31,8 @@ class ProductsTest extends TestCase
             'barcodes' => [['code' => '7790001112223', 'quantityFactor' => '1'], ['code' => '17790001112220', 'quantityFactor' => '12']],
             'initialStock' => '24',
         ]);
+        // La guía de primeros pasos del inicio se apoya en este uso.
+        $this->assertSame(['products' => 1, 'hasSales' => false], array_intersect_key($owner->get('/tenant')->body['usage'], ['products' => 1, 'hasSales' => 1]));
         $this->assertSame($category['name'], $p['categoryName']);
         $this->assertSame($brand['name'], $p['brandName']);
         $this->assertSame([], $p['optionNames']);
@@ -227,6 +229,14 @@ class ProductsTest extends TestCase
         $this->assertSame(201, $sale->status, json_encode($sale->body));
         $this->assertSame('Remera lisa · M / Rojo', $sale->body['lines'][0]['description']);
         $this->assertSame('3.000', $owner->get("/products/{$p['id']}")->body['variants'][1]['stock']);
+
+        // Sin stock (la tienda de ropa no vende en negativo): el mensaje dice qué variante falta.
+        $short = $owner->post('/sales', [
+            'clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $p['variants'][2]['id'], 'quantity' => '1']],
+            'payments' => [['paymentMethodId' => $cash['id'], 'amount' => '17000']], 'expectedTotal' => '17000.00',
+        ]);
+        $this->assertSame('INSUFFICIENT_STOCK', $short->body['code']);
+        $this->assertStringContainsString('Remera lisa · XL / Negro (hay 0)', $short->body['message']);
 
         // Las filas de stock son por variante.
         $rows = collect($owner->get('/stock?q=remera')->body['items']);

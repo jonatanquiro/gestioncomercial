@@ -2,7 +2,7 @@ import type { PermissionCode, TenantDto } from '@gc/contracts';
 import { formatArs } from '@gc/domain';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ArrowRight, ArrowUpRight, Boxes, Package, Receipt, ShoppingCart, Wallet } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Boxes, Check, Package, Receipt, ShoppingCart, Wallet } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Alert, Card } from '@/components/ui/misc';
 import { errorMessage, http } from '@/lib/api';
@@ -66,6 +66,77 @@ function Usage({ label, used, limit }: { label: string; used: number; limit?: nu
   );
 }
 
+/**
+ * Guía para el comercio recién registrado: cargar productos y hacer la primera venta. Desaparece
+ * cuando las dos cosas están hechas.
+ */
+function FirstSteps({ tenant }: { tenant: TenantDto }) {
+  const can = useCan();
+  const { products, hasSales, users } = tenant.usage;
+  if (products > 0 && hasSales) return null;
+  const steps = [
+    can('products.create') && {
+      done: products > 0,
+      title: 'Cargá tus productos',
+      detail: 'Elegí varios del catálogo de Precios Claros y ponele tu precio, o cargalos uno por uno. Lo que no tiene código de barras se vende buscándolo por nombre.',
+      links: [
+        { to: '/app/productos/catalogo', label: 'Agregar desde catálogo' },
+        { to: '/app/productos', label: 'Nuevo producto' },
+      ],
+    },
+    can('sales.create') && {
+      done: hasSales,
+      title: 'Abrí la caja y hacé tu primera venta',
+      detail: 'Contá el efectivo con el que arrancás, escaneá o buscá los artículos y cobrá. Si escaneás algo que no cargaste, lo podés crear ahí mismo.',
+      links: [{ to: '/app/vender', label: 'Ir a vender' }],
+    },
+    can('users.manage') && {
+      done: users > 1,
+      title: 'Sumá a tu equipo (opcional)',
+      detail: 'Cada empleado entra con su usuario y su rol: el cajero vende sin ver costos ni cambiar precios.',
+      links: [{ to: '/app/empleados', label: 'Agregar empleado' }],
+    },
+  ].filter((x): x is Exclude<typeof x, false> => Boolean(x));
+  if (steps.length === 0) return null;
+  return (
+    <Card className="mb-8 p-6">
+      <h2 className="font-display text-xl font-bold">Primeros pasos</h2>
+      <p className="mt-1 text-sm text-slate-600">Con esto ya podés vender. Lo demás lo configurás cuando lo necesites.</p>
+      <ol className="mt-5 space-y-4">
+        {steps.map((step, i) => (
+          <li key={step.title} className="flex gap-4">
+            <span
+              className={`flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${step.done ? 'bg-emerald-600 text-white' : 'bg-almacen-700 text-white'}`}
+              aria-label={step.done ? 'Hecho' : `Paso ${i + 1}`}
+            >
+              {step.done ? <Check className="size-4" aria-hidden /> : i + 1}
+            </span>
+            <div className="min-w-0">
+              <p className={`font-semibold ${step.done ? 'text-slate-500 line-through' : ''}`}>{step.title}</p>
+              {!step.done && (
+                <>
+                  <p className="mt-0.5 text-sm text-slate-600">{step.detail}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {step.links.map((l, j) => (
+                      <Link
+                        key={l.to}
+                        to={l.to}
+                        className={`inline-flex h-10 items-center rounded-lg px-4 text-sm font-semibold ${j === 0 ? 'bg-brand-600 text-white hover:bg-brand-700' : 'border border-slate-300 bg-white hover:bg-slate-50'}`}
+                      >
+                        {l.label}
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
+
 export function HomePage() {
   const me = useMe();
   const can = useCan();
@@ -91,6 +162,8 @@ export function HomePage() {
           </Link>
         )}
       </section>
+
+      {tenant.data && <FirstSteps tenant={tenant.data} />}
 
       {today.error && (
         <div className="mb-6">
@@ -161,6 +234,7 @@ export function HomePage() {
           <div className="space-y-4">
             <Usage label="Sucursales activas" used={tenant.data.usage.branches} limit={tenant.data.plan.limits.max_branches} />
             <Usage label="Usuarios activos" used={tenant.data.usage.users} limit={tenant.data.plan.limits.max_users} />
+            <Usage label="Productos activos" used={tenant.data.usage.products} limit={tenant.data.plan.limits.max_products} />
           </div>
         </Card>
       )}

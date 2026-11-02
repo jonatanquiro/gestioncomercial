@@ -4,6 +4,7 @@ SaaS multiempresa de gestión comercial para comercios minoristas de Argentina: 
 
 El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendición de cobros, apariencia por comercio y primera integración ARCA para bienes en pesos, en PHP + MySQL.** Incluye:
 - inicio con el resumen del día: lo vendido, el efectivo en caja, los cobros sin rendir y el stock bajo, según los permisos de cada usuario;
+- guía de primeros pasos para el comercio recién registrado (cargar productos, primera venta, sumar al equipo), que desaparece al completarse;
 - registro de comercios, sesiones y recuperación de contraseña;
 - sucursales, empleados, roles y permisos;
 - auditoría y aislamiento entre comercios;
@@ -12,7 +13,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - variantes por talle, color u otra propiedad (hasta 3 por producto), cada una con su precio, código y stock; lo que no tiene código de barras se vende buscándolo por nombre y propiedad («remera m rojo»). Depende de la función «Variantes» del plan;
 - stock por depósito con movimientos inalterables, ajustes, mermas y vencimientos con motivo, alerta de stock mínimo e inventario físico;
 - cambio masivo de precios con vista previa exacta, recargo sobre costo o margen sobre precio y redondeo;
-- punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados, nombre y teléfono opcionales de quien transfiere o paga con QR, «cantidad * código» (por ejemplo `12*` y escanear), barra fija para cobrar en el celular y ticket interno de 80 mm;
+- punto de venta pensado también para pantallas táctiles: lector de códigos, accesos rápidos a los más vendidos, botones de cantidad, carga de peso o medida (o del importe que pide el cliente), medios de pago en botones, billetes sugeridos con vuelto, teclado numérico en pantalla (aparece solo en pantallas táctiles y se puede activar o esconder), descuentos con tope y autorización por PIN, pagos combinados, nombre y teléfono opcionales de quien transfiere o paga con QR, «cantidad * código» (por ejemplo `12*` y escanear), alta en el momento de un código escaneado que no estaba cargado (se suma a la venta al guardarlo), barra fija para cobrar en el celular y ticket interno de 80 mm;
 - caja por turnos: apertura con fondo, retiros e ingresos, arqueos, cierre ciego con diferencia y totales por medio de pago;
 - historial de ventas con anulación en el turno y devoluciones parciales, con movimientos inversos de stock y caja.
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;

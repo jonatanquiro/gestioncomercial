@@ -194,7 +194,11 @@ export function ProductsPage() {
         {products.isLoading && <Spinner />}
         {products.error && <div className="p-4"><Alert>{errorMessage(products.error)}</Alert></div>}
         {products.data && products.data.items.length === 0 && (
-          <EmptyState>{search || categoryId || status !== 'active' ? 'Ningún producto coincide con la búsqueda.' : 'Todavía no hay productos cargados.'}</EmptyState>
+          <EmptyState>
+            {search || categoryId || status !== 'active'
+              ? 'Ningún producto coincide con la búsqueda.'
+              : 'Todavía no hay productos cargados. Elegí varios con «Agregar desde catálogo» o cargalos de a uno con «Nuevo producto».'}
+          </EmptyState>
         )}
         {products.data && products.data.items.length > 0 && (
           <Table

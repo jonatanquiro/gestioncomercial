@@ -253,7 +253,7 @@ export function CountDetailPage() {
                 <Td>
                   <div className="font-medium">
                     {l.name}
-                    {l.variantLabel && <span className="ml-1.5 font-semibold text-brand-700">{l.variantLabel}</span>}
+                    {l.variantLabel && <span className="block font-semibold text-brand-700 sm:ml-1.5 sm:inline">{l.variantLabel}</span>}
                   </div>
                   <div className="text-xs text-slate-500">Contado {formatDateTime(l.countedAt)}</div>
                 </Td>

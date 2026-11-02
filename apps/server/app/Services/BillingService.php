@@ -305,7 +305,7 @@ class BillingService
         try {
             foreach ($this->noticeRecipients() as $user) {
                 Mail::to($user->email)->send(new SubscriptionNoticeMail(
-                    $user->name, $tenant->trade_name, $stage, self::localDate($e['dueAt']), self::localDate($e['blockAt']), $link, $plan->name, self::pesos((string) $plan->price),
+                    $user->name, $tenant->trade_name, $stage, self::localDate($e['dueAt']), self::localDate($e['blockAt']), $link, $plan->name, Money::pesos((string) $plan->price),
                 ));
             }
         } catch (Throwable $ex) {
@@ -516,14 +516,5 @@ class BillingService
     private static function localDate(?Carbon $date): string
     {
         return $date ? $date->copy()->setTimezone('America/Argentina/Buenos_Aires')->format('d/m/Y') : '';
-    }
-
-    /** "$ 15.000" o "$ 1.234,50", como se muestra en la web. */
-    private static function pesos(string $amount): string
-    {
-        [$int, $dec] = explode('.', Money::round($amount));
-        $grouped = ltrim(strrev(implode('.', str_split(strrev($int), 3))), '.');
-
-        return '$ '.$grouped.($dec === '00' ? '' : ','.$dec);
     }
 }

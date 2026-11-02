@@ -103,7 +103,7 @@ export interface TenantDto {
   settings: TenantSettings;
   appearance?: Appearance;
   plan: { code: string; name: string; limits: Record<string, number>; features: string[] } | null;
-  usage: { branches: number; users: number };
+  usage: { branches: number; users: number; products: number; hasSales: boolean };
 }
 
 export interface BranchDto {

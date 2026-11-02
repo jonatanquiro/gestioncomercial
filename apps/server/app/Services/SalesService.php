@@ -228,7 +228,7 @@ class SalesService
             }
         }
         if ($paid->isLessThan($total)) {
-            throw AppError::validation([['path' => 'payments', 'message' => 'Falta cobrar '.Money::round($total->minus($paid))]]);
+            throw AppError::validation([['path' => 'payments', 'message' => 'Falta cobrar '.Money::pesos($total->minus($paid))]]);
         }
         if ($nonCash->isGreaterThan($total)) {
             throw AppError::validation([['path' => 'payments', 'message' => 'Los pagos que no son en efectivo no pueden superar el total: no se da vuelto con tarjeta ni transferencia']]);
@@ -353,7 +353,7 @@ class SalesService
             $quantity = BigDecimal::of(Money::quantity($l['quantity']));
             $remaining = BigDecimal::of($line->quantity)->minus($line->returned_quantity);
             if ($quantity->isGreaterThan($remaining)) {
-                throw AppError::validation([['path' => "lines.{$i}.quantity", 'message' => 'Quedan '.Money::quantity($remaining)." de {$line->description} para devolver"]]);
+                throw AppError::validation([['path' => "lines.{$i}.quantity", 'message' => 'Quedan '.Money::plainQuantity($remaining)." de {$line->description} para devolver"]]);
             }
             if ($line->sale_mode === 'unit' && $quantity->hasNonZeroFractionalPart()) {
                 throw AppError::validation([['path' => "lines.{$i}.quantity", 'message' => 'En la venta por unidad, la cantidad tiene que ser entera']]);
@@ -366,7 +366,7 @@ class SalesService
         }
 
         if ($method->kind === 'cash' && $total->isGreaterThan($this->cash->expectedCash($shift))) {
-            throw AppError::conflict('CASH_INSUFFICIENT', 'No hay suficiente efectivo en la caja para devolver '.Money::round($total));
+            throw AppError::conflict('CASH_INSUFFICIENT', 'No hay suficiente efectivo en la caja para devolver '.Money::pesos($total).'. Elegí otro medio de reintegro o registrá un ingreso de efectivo.');
         }
 
         $saleReturn = SaleReturn::create([

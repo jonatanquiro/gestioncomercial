@@ -19,14 +19,6 @@ const PAGE_SIZE = 25;
 
 type Operation = 'adjust' | 'waste';
 
-function stockError(err: unknown) {
-  if (err instanceof ApiRequestError && err.code === 'INSUFFICIENT_STOCK') {
-    const d = (err.details as Array<{ name: string; onHand: string }>)[0];
-    return `No hay stock suficiente de ${d?.name ?? 'este artículo'} (hay ${formatQty(d?.onHand)}) y el comercio no permite stock negativo.`;
-  }
-  return errorMessage(err);
-}
-
 /** Ajuste ("el stock real es…" o "sumar/restar") o merma de un artículo. */
 function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowDto; warehouseId: string; operation: Operation; onDone: () => void }) {
   const queryClient = useQueryClient();
@@ -49,7 +41,7 @@ function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowD
     },
     onError: (err) => {
       if (err instanceof ApiRequestError) setErrors(err.fieldErrors());
-      setError(stockError(err));
+      setError(errorMessage(err));
     },
   });
   function submit(e: FormEvent) {
@@ -212,7 +204,7 @@ export function StockPage() {
                 <Td>
                   <div className="font-medium">
                     {r.name}
-                    {r.variantLabel && <span className="ml-1.5 font-semibold text-brand-700">{r.variantLabel}</span>}
+                    {r.variantLabel && <span className="block font-semibold text-brand-700 sm:ml-1.5 sm:inline">{r.variantLabel}</span>}
                   </div>
                   {r.sku && <div className="text-xs text-slate-500">{r.sku}</div>}
                 </Td>
