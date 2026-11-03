@@ -267,7 +267,10 @@ export function SaleDetailPage() {
                 <Td className="font-medium">{l.description}</Td>
                 <Td className="text-right">{formatQty(l.quantity, l.saleMode)}</Td>
                 <Td className="text-right">{formatArs(l.unitPrice)}</Td>
-                <Td className="text-right">{l.discountPercent === '0.00' ? '—' : `${l.discountPercent.replace('.', ',')} %`}</Td>
+                <Td className="text-right">
+                  {l.discountPercent === '0.00' ? (l.promotionName ? '' : '—') : `${l.discountPercent.replace('.', ',')} %`}
+                  {l.promotionName && <span className="block text-xs font-semibold text-emerald-700">{l.promotionName} −{formatArs(l.promotionDiscount)}</span>}
+                </Td>
                 <Td className="text-right font-semibold">{formatArs(l.total)}</Td>
                 <Td className="text-right">{dec(l.returnedQuantity).gt(0) ? formatQty(l.returnedQuantity, l.saleMode) : '—'}</Td>
               </tr>

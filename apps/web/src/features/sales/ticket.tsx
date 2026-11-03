@@ -54,6 +54,7 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
             </span>
             <span>{formatArs(l.total)}</span>
           </div>
+          {l.promotionName && <div>  {l.promotionName} −{formatArs(l.promotionDiscount)}</div>}
         </div>
       ))}
       <hr className="my-1 border-dashed border-black" />

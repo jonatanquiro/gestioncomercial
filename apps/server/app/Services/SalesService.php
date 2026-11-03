@@ -44,6 +44,7 @@ class SalesService
         private readonly AuditService $audit,
         private readonly GiftCardService $giftCards,
         private readonly CustomerAccountService $accounts,
+        private readonly PromotionService $promotions,
     ) {}
 
     /**
@@ -96,32 +97,10 @@ class SalesService
         $warehouse = Warehouse::where('branch_id', $register->branch_id)->where('is_default', true)->first()
             ?? throw AppError::notFound('Depósito');
 
-        // Precios y datos vigentes del catálogo: lo que diga el pedido no cuenta.
-        $variants = ProductVariant::whereIn('id', array_column($input['lines'], 'variantId'))->get()->keyBy('id');
-        $products = Product::whereIn('id', $variants->pluck('product_id'))->get()->keyBy('id');
-        $lines = [];
-        $subtotal = BigDecimal::zero();
-        $discountTotal = BigDecimal::zero();
-        $total = BigDecimal::zero();
-        foreach ($input['lines'] as $i => $line) {
-            $variant = $variants[$line['variantId']] ?? throw AppError::validation([['path' => "lines.{$i}.variantId", 'message' => 'El artículo no existe']]);
-            $product = $products[$variant->product_id];
-            if ($product->status !== 'active' || $variant->status !== 'active') {
-                throw new AppError(409, 'PRODUCT_INACTIVE', ProductVariant::displayName($product->name, $variant->label).' está desactivado: no se puede vender', ['variantId' => $variant->id]);
-            }
-            if ($product->sale_mode === 'unit' && BigDecimal::of($line['quantity'])->hasNonZeroFractionalPart()) {
-                throw AppError::validation([['path' => "lines.{$i}.quantity", 'message' => "{$product->name} se vende por unidad: la cantidad tiene que ser entera"]]);
-            }
-            $quantity = Money::quantity($line['quantity']);
-            $discountPercent = Money::round($line['discountPercent'] ?? '0');
-            $amounts = Pricing::saleLine($quantity, $variant->price, $discountPercent);
-            $lines[] = compact('variant', 'product', 'quantity', 'discountPercent', 'amounts');
-            $subtotal = $subtotal->plus($amounts['gross']);
-            $discountTotal = $discountTotal->plus($amounts['discount']);
-            $total = $total->plus($amounts['total']);
-        }
+        // Precios y promociones vigentes: lo que diga el pedido no cuenta. Un cambio no aplica promociones.
+        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discountTotal, 'total' => $total] = $this->price($input['lines'], $credit === null);
         if (! $total->isEqualTo($input['expectedTotal'])) {
-            throw new AppError(409, 'PRICE_CHANGED', 'Cambió el precio de algún artículo: revisá el total antes de cobrar', [
+            throw new AppError(409, 'PRICE_CHANGED', 'Cambió el precio de algún artículo o una promoción: revisá el total antes de cobrar', [
                 'total' => Money::round($total),
                 'prices' => array_map(fn ($l) => ['variantId' => $l['variant']->id, 'unitPrice' => Money::round($l['variant']->price)], $lines),
             ]);
@@ -184,8 +163,10 @@ class SalesService
                 'unit_cost' => $l['variant']->cost,
                 'discount_percent' => $l['discountPercent'],
                 'discount_amount' => $l['amounts']['discount'],
+                'promotion_id' => $l['promotion']?->id,
+                'promotion_discount' => $l['promotionDiscount'],
                 'vat_rate' => $l['product']->vat_rate,
-                'line_total' => $l['amounts']['total'],
+                'line_total' => $l['lineTotal'],
             ]);
             if ($l['product']->track_stock) {
                 $stockLines[] = [
@@ -233,6 +214,57 @@ class SalesService
         if (! $cash->isZero()) {
             $this->cash->addMovement($actor, $shift, 'sale', $cash, ['reason' => "Venta N° {$sale->number}", 'source_type' => 'sale', 'source_id' => $sale->id]);
         }
+    }
+
+    /**
+     * Precio de cada línea con el catálogo vigente y las promociones (ADR 0020). Lo usan la venta
+     * y la cotización de la caja, así el total que ve el cajero es el que se cobra.
+     *
+     * @return array{lines: list<array>, subtotal: BigDecimal, discountTotal: BigDecimal, total: BigDecimal}
+     */
+    public function price(array $input, bool $withPromotions = true): array
+    {
+        $variants = ProductVariant::whereIn('id', array_column($input, 'variantId'))->get()->keyBy('id');
+        $products = Product::whereIn('id', $variants->pluck('product_id'))->get()->keyBy('id');
+        $lines = [];
+        foreach ($input as $i => $line) {
+            $variant = $variants[$line['variantId']] ?? throw AppError::validation([['path' => "lines.{$i}.variantId", 'message' => 'El artículo no existe']]);
+            $product = $products[$variant->product_id];
+            if ($product->status !== 'active' || $variant->status !== 'active') {
+                throw new AppError(409, 'PRODUCT_INACTIVE', ProductVariant::displayName($product->name, $variant->label).' está desactivado: no se puede vender', ['variantId' => $variant->id]);
+            }
+            if ($product->sale_mode === 'unit' && BigDecimal::of($line['quantity'])->hasNonZeroFractionalPart()) {
+                throw AppError::validation([['path' => "lines.{$i}.quantity", 'message' => "{$product->name} se vende por unidad: la cantidad tiene que ser entera"]]);
+            }
+            $quantity = Money::quantity($line['quantity']);
+            $discountPercent = Money::round($line['discountPercent'] ?? '0');
+            $amounts = Pricing::saleLine($quantity, $variant->price, $discountPercent);
+            $lines[] = compact('variant', 'product', 'quantity', 'discountPercent', 'amounts') + ['promotion' => null, 'promotionDiscount' => '0.00', 'lineTotal' => $amounts['total']];
+        }
+        if ($withPromotions && $lines !== []) {
+            $applied = $this->promotions->apply(array_map(fn ($l) => [
+                'productId' => $l['product']->id, 'categoryId' => $l['product']->category_id, 'saleMode' => $l['product']->sale_mode,
+                'quantity' => $l['quantity'], 'unitPrice' => Money::round($l['variant']->price), 'discountPercent' => $l['discountPercent'], 'total' => BigDecimal::of($l['amounts']['total']),
+            ], $lines));
+            foreach ($applied as $i => $a) {
+                if ($a !== null) {
+                    $amount = BigDecimal::min($a['amount'], BigDecimal::of($lines[$i]['amounts']['total']));
+                    $lines[$i]['promotion'] = $a['promotion'];
+                    $lines[$i]['promotionDiscount'] = Money::round($amount);
+                    $lines[$i]['lineTotal'] = Money::round(BigDecimal::of($lines[$i]['amounts']['total'])->minus($amount));
+                }
+            }
+        }
+        $subtotal = BigDecimal::zero();
+        $discountTotal = BigDecimal::zero();
+        $total = BigDecimal::zero();
+        foreach ($lines as $l) {
+            $subtotal = $subtotal->plus($l['amounts']['gross']);
+            $discountTotal = $discountTotal->plus($l['amounts']['discount'])->plus($l['promotionDiscount']);
+            $total = $total->plus($l['lineTotal']);
+        }
+
+        return compact('lines', 'subtotal', 'discountTotal', 'total');
     }
 
     /**

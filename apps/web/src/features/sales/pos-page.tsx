@@ -1,4 +1,4 @@
-import { createSaleSchema, type CustomerDto, type GiftCardDto, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
+import { createSaleSchema, type CustomerDto, type SaleQuoteDto, type GiftCardDto, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -199,9 +199,22 @@ function Counter({ register }: { register: RegisterDto }) {
       }),
     [cart.lines],
   );
-  const total = sumMoney(computed.map((l) => l.amounts.total));
-  const discount = sumMoney(computed.map((l) => l.amounts.discount));
   const allValid = computed.length > 0 && computed.every((l) => l.valid);
+  // Con promociones vigentes, el servidor calcula el total (ADR 0020): así el cajero cobra lo que se registra.
+  const promotions = useQuery({ queryKey: ['pos-promotions'], queryFn: () => http.get<Array<{ id: string; name: string }>>('/pos/promotions'), staleTime: 60_000 });
+  const hasPromotions = (promotions.data?.length ?? 0) > 0;
+  const quoteLines = cart.lines.map((l) => ({ variantId: l.product.variantId, quantity: l.quantity, discountPercent: l.discountPercent }));
+  const quote = useQuery({
+    queryKey: ['sale-quote', JSON.stringify(quoteLines)],
+    queryFn: () => http.post<SaleQuoteDto>('/sales/quote', { lines: quoteLines }),
+    enabled: hasPromotions && allValid,
+    staleTime: 30_000,
+    retry: false,
+  });
+  const promoOf = (i: number) => (hasPromotions && quote.data ? quote.data.lines[i] : undefined);
+  const total = hasPromotions && quote.data ? quote.data.total : sumMoney(computed.map((l) => l.amounts.total));
+  const discount = hasPromotions && quote.data ? quote.data.discountTotal : sumMoney(computed.map((l) => l.amounts.discount));
+  const quoting = hasPromotions && allValid && !quote.data;
 
   function addQuantity(product: ItemDto, quantity: string) {
     setCart((c) => {
@@ -229,14 +242,14 @@ function Counter({ register }: { register: RegisterDto }) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'F2' && allValid && !checkout && !editing && creating === null) {
+      if (e.key === 'F2' && allValid && !quoting && !checkout && !editing && creating === null) {
         e.preventDefault();
         setCheckout(true);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [allValid, checkout, editing, creating]);
+  }, [allValid, quoting, checkout, editing, creating]);
 
   function done(sale: SaleDto) {
     setCheckout(false);
@@ -259,7 +272,9 @@ function Counter({ register }: { register: RegisterDto }) {
       }),
     }));
     setCheckout(false);
-    setNotice('Cambió el precio de algún artículo mientras armabas la venta. Ya está actualizado: revisá el total y cobrá de nuevo.');
+    void queryClient.invalidateQueries({ queryKey: ['sale-quote'] });
+    void queryClient.invalidateQueries({ queryKey: ['pos-promotions'] });
+    setNotice('Cambió el precio de algún artículo o una promoción mientras armabas la venta. Ya está actualizado: revisá el total y cobrá de nuevo.');
   }
 
   const editingLine = editing?.index != null ? cart.lines[editing.index] : undefined;
@@ -348,7 +363,14 @@ function Counter({ register }: { register: RegisterDto }) {
                       <Plus className="size-4" />
                     </button>
                   )}
-                  <span className="ml-auto font-semibold tabular-nums">{formatArs(l.amounts.total)}</span>
+                  <span className="ml-auto text-right font-semibold tabular-nums">
+                    {formatArs(promoOf(i)?.total ?? l.amounts.total)}
+                    {promoOf(i)?.promotionName && (
+                      <span className="block text-xs font-semibold text-emerald-700">
+                        {promoOf(i)!.promotionName} −{formatArs(promoOf(i)!.promotionDiscount)}
+                      </span>
+                    )}
+                  </span>
                   <button type="button" className="flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-700" aria-label={`Quitar ${itemName(l.product)}`} onClick={() => remove(i)}>
                     <Trash2 className="size-4" />
                   </button>
@@ -370,7 +392,7 @@ function Counter({ register }: { register: RegisterDto }) {
               {formatArs(total)}
             </span>
           </div>
-          <Button className="h-16 w-full text-xl" disabled={!allValid} onClick={() => setCheckout(true)}>
+          <Button className="h-16 w-full text-xl" disabled={!allValid || quoting} loading={quoting && quote.isFetching} onClick={() => setCheckout(true)}>
             Cobrar (F2)
           </Button>
           {cart.lines.length > 0 && (
@@ -423,7 +445,7 @@ function Counter({ register }: { register: RegisterDto }) {
             <p className="text-xs text-slate-500">{cart.lines.length === 1 ? '1 artículo' : `${cart.lines.length} artículos`}</p>
             <p className="font-display text-2xl font-bold tabular-nums">{formatArs(total)}</p>
           </div>
-          <Button className="h-14 flex-1 text-lg" disabled={!allValid} onClick={() => setCheckout(true)}>
+          <Button className="h-14 flex-1 text-lg" disabled={!allValid || quoting} onClick={() => setCheckout(true)}>
             Cobrar
           </Button>
         </div>

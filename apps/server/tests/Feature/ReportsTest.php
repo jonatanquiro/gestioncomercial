@@ -2,9 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Plan;
-use App\Models\Subscription;
-use App\Tenancy\TenantContext;
 use Illuminate\Support\Carbon;
 use Tests\Support\ApiClient;
 use Tests\TestCase;
@@ -15,7 +12,7 @@ class ReportsTest extends TestCase
     private function shop(string $plan): array
     {
         $t = $this->registerTenant();
-        app(TenantContext::class)->run($t['tenantId'], fn () => Subscription::first()->forceFill(['plan_id' => Plan::where('code', $plan)->value('id')])->save());
+        $this->usePlan($t['tenantId'], $plan === 'inicial' ? ['fiscal_arca'] : ['fiscal_arca', 'advanced_reports', 'promotions']);
         $register = $t['client']->get('/registers')->body[0];
         $this->assertSame(201, $t['client']->post('/shifts', ['registerId' => $register['id'], 'openingFloat' => '0'])->status);
         $methods = collect($t['client']->get('/payment-methods')->body)->keyBy('kind')->all();

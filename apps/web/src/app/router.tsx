@@ -27,6 +27,7 @@ import { RolesPage } from '@/features/roles/roles-page';
 import { PosPage } from '@/features/sales/pos-page';
 import { CustomerDetailPage, CustomersPage } from '@/features/customers/customers-page';
 import { ReportsPage } from '@/features/reports/reports-page';
+import { PromotionsPage } from '@/features/promotions/promotions-page';
 import { GiftCardsPage } from '@/features/gift-cards/gift-cards-page';
 import { SaleDetailPage, SalesPage } from '@/features/sales/sales-page';
 import { SettingsPage } from '@/features/settings/settings-page';
@@ -157,6 +158,7 @@ const posRoute = createRoute({ getParentRoute: () => appRoute, path: 'vender', c
 const customersRoute = createRoute({ getParentRoute: () => appRoute, path: 'clientes', component: CustomersPage });
 const customerDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'clientes/$id', component: CustomerDetailPage });
 const reportsRoute = createRoute({ getParentRoute: () => appRoute, path: 'reportes', component: ReportsPage });
+const promotionsRoute = createRoute({ getParentRoute: () => appRoute, path: 'promociones', component: PromotionsPage });
 const giftCardsRoute = createRoute({ getParentRoute: () => appRoute, path: 'gift-cards', component: GiftCardsPage });
 const salesRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas', component: SalesPage, validateSearch: z.object({ numero: z.number().int().positive().optional().catch(undefined) }) });
 const saleDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas/$id', component: SaleDetailPage });
@@ -192,6 +194,7 @@ const routeTree = rootRoute.addChildren([
     posRoute,
     salesRoute,
     giftCardsRoute,
+    promotionsRoute,
     reportsRoute,
     customersRoute,
     customerDetailRoute,

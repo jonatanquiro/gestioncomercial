@@ -2,6 +2,10 @@
 
 namespace Tests;
 
+use App\Models\Plan;
+use App\Models\PlanFeature;
+use App\Models\Subscription;
+use App\Tenancy\TenantContext;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
@@ -64,6 +68,21 @@ abstract class TestCase extends BaseTestCase
         $me = $client->get('/auth/me')->body;
 
         return ['client' => $client, 'input' => $input, 'me' => $me, 'tenantId' => $me['tenant']['id']];
+    }
+
+    /**
+     * Pasa el comercio a un plan propio de la prueba con esas funciones, sin límites. No usa los
+     * planes sembrados: otras pruebas los editan desde la plataforma.
+     *
+     * @param  list<string>  $features
+     */
+    protected function usePlan(string $tenantId, array $features): void
+    {
+        $plan = Plan::create(['code' => 'prueba-'.bin2hex(random_bytes(6)), 'name' => 'Plan de prueba', 'price' => '0', 'active' => false, 'sort_order' => 99]);
+        foreach ($features as $feature) {
+            PlanFeature::create(['plan_id' => $plan->id, 'feature' => $feature]);
+        }
+        app(TenantContext::class)->run($tenantId, fn () => Subscription::first()->forceFill(['plan_id' => $plan->id])->save());
     }
 
     /**

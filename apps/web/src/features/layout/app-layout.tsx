@@ -1,7 +1,7 @@
 import type { PermissionCode, TenantDto } from '@gc/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { AlertTriangle, ArrowRightLeft, Barcode, Boxes, Building2, ChartColumn, ChevronDown, ClipboardList, CreditCard, Gift, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Truck, UserRound, Users, Wallet, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, BadgePercent, Barcode, Boxes, Building2, ChartColumn, ChevronDown, ClipboardList, CreditCard, Gift, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Truck, UserRound, Users, Wallet, X } from 'lucide-react';
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -38,6 +38,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/categorias', label: 'Categorías y marcas', icon: Tags, anyOf: ['products.read'] },
     { to: '/app/precios', label: 'Cambio de precios', icon: Percent, anyOf: ['prices.bulk_update'] },
     { to: '/app/etiquetas', label: 'Etiquetas', icon: Barcode, anyOf: ['products.read'] },
+    { to: '/app/promociones', label: 'Promociones', icon: BadgePercent, anyOf: ['promotions.manage'] },
   ] },
   { id: 'inventario', label: 'Inventario', items: [
     { to: '/app/stock', label: 'Stock', icon: Boxes, anyOf: ['stock.read'] },

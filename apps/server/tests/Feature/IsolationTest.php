@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
+use App\Models\Promotion;
 use App\Models\Role;
 use App\Models\Subscription;
 use App\Models\SubscriptionPayment;
@@ -81,6 +82,9 @@ class IsolationTest extends TestCase
         $customer = $this->b['client']->post('/customers', ['name' => 'Cliente B', 'documentType' => null, 'documentNumber' => null, 'vatCondition' => 5, 'creditLimit' => '5000']);
         $this->assertSame(201, $customer->status, json_encode($customer->body));
         $this->bIds['customer'] = $customer->body['id'];
+        $this->bIds['promotion'] = app(TenantContext::class)->run($this->b['tenantId'], fn () => Promotion::create([
+            'name' => 'Promo B', 'kind' => 'percent', 'percent' => '10', 'scope' => 'all', 'status' => 'active',
+        ]))->id;
         $this->bIds['subscriptionPayment'] = app(TenantContext::class)->run($this->b['tenantId'], fn () => SubscriptionPayment::create([
             'plan_id' => Subscription::first()->plan_id, 'months' => 1, 'amount' => '1000.00', 'method' => 'mercadopago', 'status' => 'pending',
         ]))->id;
@@ -155,6 +159,7 @@ class IsolationTest extends TestCase
             '/suppliers/{id}/payments' => ['clientUuid' => self::uuid(), 'amount' => '1', 'method' => 'transfer'],
             '/suppliers/{id}/adjustments' => ['amount' => '1', 'notes' => 'Hackeo'],
             '/customers/{id}' => ['name' => 'Hackeo', 'documentType' => null, 'documentNumber' => null, 'vatCondition' => 5, 'status' => 'inactive'],
+            '/promotions/{id}' => ['name' => 'Hackeo', 'kind' => 'percent', 'percent' => '100', 'scope' => 'all', 'status' => 'active'],
             '/customers/{id}/adjustments' => ['amount' => '-100000', 'notes' => 'Hackeo'],
             '/customers/{id}/payments' => [
                 'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'amount' => '1',
@@ -182,6 +187,7 @@ class IsolationTest extends TestCase
             str_starts_with($path, '/suppliers') => $this->bIds['supplier'],
             str_starts_with($path, '/purchases') => $this->bIds['purchase'],
             str_starts_with($path, '/customers') => $this->bIds['customer'],
+            str_starts_with($path, '/promotions') => $this->bIds['promotion'],
             default => null,
         };
         $checked = [];
@@ -207,7 +213,7 @@ class IsolationTest extends TestCase
             'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
             'PUT /registers/{id}', 'PUT /payment-methods/{id}', 'GET /shifts/{id}', 'POST /shifts/{id}/movements', 'POST /shifts/{id}/counts',
             'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'POST /sales/{id}/credit-notes', 'PUT /suppliers/{id}', 'GET /suppliers/{id}', 'POST /suppliers/{id}/payments', 'POST /suppliers/{id}/adjustments', 'GET /purchases/{id}',
-            'GET /customers/{id}', 'PUT /customers/{id}', 'POST /customers/{id}/adjustments', 'POST /customers/{id}/payments',
+            'GET /customers/{id}', 'PUT /customers/{id}', 'PUT /promotions/{id}', 'POST /customers/{id}/adjustments', 'POST /customers/{id}/payments',
         ] as $expected) {
             $this->assertContains($expected, $checked);
         }

@@ -446,6 +446,9 @@ export interface SaleLineDto {
   unitCost: string | null;
   discountPercent: string;
   discountAmount: string;
+  /** Promoción aplicada a la línea y cuánto descontó (ADR 0020). */
+  promotionName: string | null;
+  promotionDiscount: string;
   vatRate: VatRate;
   total: string;
   returnedQuantity: string;
@@ -693,4 +696,33 @@ export interface SalesReportDto {
 export interface StaleReportDto {
   rows: Array<{ variantId: string; productId: string; name: string; stock: string; lastSaleAt: string | null; stockValue: string | null }>;
   profit: boolean;
+}
+
+// ---------------------------------------------------------------- Promociones (ADR 0020)
+
+export interface PromotionDto {
+  id: string;
+  name: string;
+  kind: 'percent' | 'nxm';
+  percent: string | null;
+  buyQuantity: number | null;
+  payQuantity: number | null;
+  scope: 'all' | 'category' | 'product';
+  categoryId: string | null;
+  productId: string | null;
+  /** Nombre de la categoría o del producto. */
+  targetName: string | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  status: 'active' | 'inactive';
+  /** Activa y dentro de las fechas: se aplica hoy. */
+  current: boolean;
+}
+
+/** Total de la venta en curso con promociones, calculado por el servidor. */
+export interface SaleQuoteDto {
+  lines: Array<{ variantId: string; unitPrice: string; promotionId: string | null; promotionName: string | null; promotionDiscount: string; total: string }>;
+  subtotal: string;
+  discountTotal: string;
+  total: string;
 }

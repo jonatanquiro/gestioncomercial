@@ -571,6 +571,31 @@ export const supplierPaymentSchema = z
   })
   .refine((p) => p.method !== 'cash' || p.registerId, { path: ['registerId'], message: 'Elegí la caja de la que sale el efectivo' });
 
+/** Promoción (ADR 0020): porcentaje o N×M sobre todo, una categoría o un producto. */
+export const promotionSchema = z
+  .object({
+    name: trimmed(80),
+    kind: z.enum(['percent', 'nxm']),
+    percent: discountPercentSchema.nullable(),
+    buyQuantity: z.number().int().min(2, 'Tiene que llevar al menos 2').max(100).nullable(),
+    payQuantity: z.number().int().min(1).max(99).nullable(),
+    scope: z.enum(['all', 'category', 'product']),
+    categoryId: uuidSchema.nullable(),
+    productId: uuidSchema.nullable(),
+    startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  })
+  .superRefine((p, ctx) => {
+    if (p.kind === 'percent' && (!p.percent || Number(p.percent) <= 0)) ctx.addIssue({ code: 'custom', path: ['percent'], message: 'Ingresá el porcentaje' });
+    if (p.kind === 'nxm' && !p.buyQuantity) ctx.addIssue({ code: 'custom', path: ['buyQuantity'], message: 'Ingresá cuántas lleva' });
+    if (p.kind === 'nxm' && !p.payQuantity) ctx.addIssue({ code: 'custom', path: ['payQuantity'], message: 'Ingresá cuántas paga' });
+    if (p.kind === 'nxm' && p.buyQuantity && p.payQuantity && p.payQuantity >= p.buyQuantity) ctx.addIssue({ code: 'custom', path: ['payQuantity'], message: 'Tiene que pagar menos de las que lleva' });
+    if (p.scope === 'category' && !p.categoryId) ctx.addIssue({ code: 'custom', path: ['categoryId'], message: 'Elegí la categoría' });
+    if (p.scope === 'product' && !p.productId) ctx.addIssue({ code: 'custom', path: ['productId'], message: 'Elegí el producto' });
+    if (p.startsOn && p.endsOn && p.endsOn < p.startsOn) ctx.addIssue({ code: 'custom', path: ['endsOn'], message: 'La fecha de fin no puede ser anterior a la de inicio' });
+  });
+export type PromotionInput = z.infer<typeof promotionSchema>;
+
 export const posPinSchema = z.object({
   password: z.string().min(1, 'Obligatorio'),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN tiene que tener de 4 a 6 números'),

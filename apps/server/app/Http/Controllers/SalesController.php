@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\GiftCard;
 use App\Models\PaymentMethod;
+use App\Models\Promotion;
 use App\Models\Register;
 use App\Models\Sale;
 use App\Models\SaleLine;
@@ -15,6 +16,7 @@ use App\Models\SaleReturn;
 use App\Models\SaleReturnLine;
 use App\Models\User;
 use App\Services\GiftCardService;
+use App\Services\PromotionService;
 use App\Services\SalesService;
 use App\Support\AppError;
 use App\Support\Dates;
@@ -86,6 +88,31 @@ class SalesController extends Controller
         ['sale' => $sale, 'created' => $created] = $this->sales->collectAccount($actor, $customerId, $input);
 
         return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
+    }
+
+    /**
+     * Total de la venta en curso con las promociones vigentes (ADR 0020): la caja lo muestra y lo
+     * manda como expectedTotal, así el total que ve el cajero es el que se cobra.
+     */
+    public function quote(Request $request): JsonResponse
+    {
+        $input = Input::validate($this->body($request), array_intersect_key(self::saleRules(), array_flip(['lines', 'lines.*', 'lines.*.variantId', 'lines.*.quantity', 'lines.*.discountPercent'])), self::saleMessages());
+        self::assertSaleAmounts(['lines' => $input['lines'], 'payments' => []]);
+        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discount, 'total' => $total] = $this->sales->price($input['lines']);
+
+        return $this->json([
+            'lines' => array_map(fn ($l) => [
+                'variantId' => $l['variant']->id, 'unitPrice' => Money::round($l['variant']->price), 'promotionId' => $l['promotion']?->id,
+                'promotionName' => $l['promotion']?->name, 'promotionDiscount' => $l['promotionDiscount'], 'total' => $l['lineTotal'],
+            ], $lines),
+            'subtotal' => Money::round($subtotal), 'discountTotal' => Money::round($discount), 'total' => Money::round($total),
+        ]);
+    }
+
+    /** Promociones vigentes, para mostrarlas en la caja y saber si hace falta cotizar. */
+    public function activePromotions(): JsonResponse
+    {
+        return $this->json(app(PromotionService::class)->active()->map(fn (Promotion $p) => ['id' => $p->id, 'name' => $p->name])->values()->all());
     }
 
     public function index(Request $request): JsonResponse
@@ -280,6 +307,7 @@ class SalesController extends Controller
     private function dto(Sale $sale, Actor $actor): array
     {
         $lines = SaleLine::where('sale_id', $sale->id)->orderBy('line_no')->get();
+        $promotionNames = Promotion::whereIn('id', $lines->pluck('promotion_id')->filter()->unique())->pluck('name', 'id');
         $payments = SalePayment::where('sale_id', $sale->id)->get();
         $returns = SaleReturn::where('sale_id', $sale->id)->orderBy('created_at')->get();
         $returnLines = SaleReturnLine::whereIn('return_id', $returns->pluck('id'))->get()->groupBy('return_id');
@@ -323,6 +351,8 @@ class SalesController extends Controller
                 'unitCost' => $seeCost && $l->unit_cost !== null ? Money::roundUnit($l->unit_cost) : null,
                 'discountPercent' => Money::round($l->discount_percent),
                 'discountAmount' => Money::round($l->discount_amount),
+                'promotionName' => $promotionNames[$l->promotion_id] ?? null,
+                'promotionDiscount' => Money::round($l->promotion_discount),
                 'vatRate' => $l->vat_rate,
                 'total' => Money::round($l->line_total),
                 'returnedQuantity' => Money::quantity($l->returned_quantity),

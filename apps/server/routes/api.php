@@ -17,6 +17,7 @@ use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\PricesController;
 use App\Http\Controllers\ProductsController;
+use App\Http\Controllers\PromotionsController;
 use App\Http\Controllers\PurchasesController;
 use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RolesController;
@@ -183,6 +184,11 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
 
     // Ventas. Anular y devolver llegan también a quien vende: sin el permiso, piden el PIN de un encargado.
     Route::post('sales', [SalesController::class, 'store'])->middleware('perm:sales.create');
+    Route::post('sales/quote', [SalesController::class, 'quote'])->middleware('perm:sales.create');
+    Route::get('pos/promotions', [SalesController::class, 'activePromotions'])->middleware('perm:sales.create');
+    Route::get('promotions', [PromotionsController::class, 'index'])->middleware('perm:promotions.manage');
+    Route::post('promotions', [PromotionsController::class, 'store'])->middleware('perm:promotions.manage');
+    Route::put('promotions/{id}', [PromotionsController::class, 'update'])->middleware('perm:promotions.manage');
     Route::get('sales', [SalesController::class, 'index'])->middleware('perm:sales.read_own,sales.read_all');
     Route::get('sales/{id}', [SalesController::class, 'show'])->middleware('perm:sales.read_own,sales.read_all');
     Route::post('sales/{id}/void', [SalesController::class, 'void'])->middleware('perm:sales.create,sales.void');
