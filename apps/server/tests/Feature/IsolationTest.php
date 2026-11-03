@@ -102,6 +102,9 @@ class IsolationTest extends TestCase
         $this->assertNotContains($this->bIds['supplier'], array_column($a->get('/suppliers')->body, 'id'));
         $this->assertNotContains($this->bIds['purchase'], array_column($a->get('/purchases?pageSize=100')->body['items'], 'id'));
         $this->assertNotContains($this->bIds['customer'], array_column($a->get('/customers?pageSize=100&status=all')->body['items'], 'id'));
+        $today = now('America/Buenos_Aires')->toDateString();
+        $this->assertNotContains($this->bIds['variant'], array_column($a->get("/reports/sales?from={$today}&to={$today}&groupBy=variant")->body['rows'], 'key'));
+        $this->assertNotContains($this->bIds['variant'], array_column($a->get('/reports/stale?days=30')->body['rows'], 'variantId'));
         $this->assertNotContains($this->bIds['register'], array_column($a->get('/registers')->body, 'id'));
         $this->assertNotContains($this->bIds['paymentMethod'], array_column($a->get('/payment-methods')->body, 'id'));
         $this->assertNotContains($this->bIds['shift'], array_column($a->get('/shifts')->body['items'], 'id'));

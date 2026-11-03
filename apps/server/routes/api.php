@@ -18,6 +18,7 @@ use App\Http\Controllers\PosController;
 use App\Http\Controllers\PricesController;
 use App\Http\Controllers\ProductsController;
 use App\Http\Controllers\PurchasesController;
+use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RolesController;
 use App\Http\Controllers\SalesController;
 use App\Http\Controllers\SettlementsController;
@@ -84,6 +85,8 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::post('sales/{id}/credit-notes', [FiscalController::class, 'creditNote'])->middleware('perm:fiscal.manage,fiscal.issue');
     Route::get('payments', [PaymentsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::get('dashboard/today', [DashboardController::class, 'today'])->middleware('perm:sales.read_own,sales.read_all,cash.read_all,stock.read');
+    Route::get('reports/sales', [ReportsController::class, 'sales'])->middleware('perm:reports.sales');
+    Route::get('reports/stale', [ReportsController::class, 'stale'])->middleware('perm:reports.sales');
     Route::get('settlements', [SettlementsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::post('settlements', [SettlementsController::class, 'store'])->middleware('perm:cash.read_all');
     Route::get('settlements/{id}', [SettlementsController::class, 'show'])->middleware('perm:cash.read_all');

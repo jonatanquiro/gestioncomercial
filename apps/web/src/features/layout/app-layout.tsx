@@ -1,7 +1,7 @@
 import type { PermissionCode, TenantDto } from '@gc/contracts';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router';
-import { AlertTriangle, ArrowRightLeft, Barcode, Boxes, Building2, ChevronDown, ClipboardList, CreditCard, Gift, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Truck, UserRound, Users, Wallet, X } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, Barcode, Boxes, Building2, ChartColumn, ChevronDown, ClipboardList, CreditCard, Gift, History, Home, KeyRound, LogOut, Menu, Package, Percent, Receipt, Settings, ShieldCheck, ShoppingCart, Store, Tags, Truck, UserRound, Users, Wallet, X } from 'lucide-react';
 import { type ComponentType, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -45,6 +45,7 @@ const GROUPS: { id: string; label: string; items: NavItem[] }[] = [
     { to: '/app/compras', label: 'Compras', icon: Truck, anyOf: ['purchases.create', 'purchases.receive', 'suppliers.manage'] },
   ] },
   { id: 'administracion', label: 'Administración', items: [
+    { to: '/app/reportes', label: 'Reportes', icon: ChartColumn, anyOf: ['reports.sales'] },
     { to: '/app/sucursales', label: 'Sucursales', icon: Building2 },
     { to: '/app/empleados', label: 'Empleados', icon: Users, anyOf: ['users.manage'] },
     { to: '/app/roles', label: 'Roles y permisos', icon: ShieldCheck, anyOf: ['roles.manage'] },

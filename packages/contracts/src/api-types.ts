@@ -667,3 +667,30 @@ export interface PurchaseDto {
   lines: Array<{ variantId: string; description: string; quantity: string; unitCost: string | null }> | null;
 }
 
+
+// ---------------------------------------------------------------- Reportes (ADR 0019)
+
+export type ReportGroupBy = 'day' | 'product' | 'variant' | 'category' | 'cashier' | 'payment';
+
+export interface SalesReportDto {
+  summary: {
+    count: number;
+    gross: string;
+    returns: string;
+    net: string;
+    averageTicket: string;
+    units: string;
+    /** Solo con margen: permiso reports.profit y plan con reportes avanzados. */
+    cost?: string;
+    margin?: string;
+    /** Líneas vendidas sin costo cargado: el margen queda sobreestimado. */
+    missingCost?: number;
+  };
+  rows: Array<{ key: string; label: string; detail?: string; quantity?: string; count?: number; total: string; cost?: string; margin?: string; missingCost?: number }>;
+  profit: boolean;
+}
+
+export interface StaleReportDto {
+  rows: Array<{ variantId: string; productId: string; name: string; stock: string; lastSaleAt: string | null; stockValue: string | null }>;
+  profit: boolean;
+}
