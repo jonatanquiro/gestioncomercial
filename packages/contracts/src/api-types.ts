@@ -596,7 +596,7 @@ export interface CashShiftDto {
   difference: string | null;
   totalsByMethod: ShiftTotalsByMethod[] | null;
   closingNotes: string | null;
-  movements: Array<{ id: string; type: 'sale' | 'refund' | 'void' | 'withdrawal' | 'deposit'; amount: string; reason: string | null; userName: string; occurredAt: string }>;
+  movements: Array<{ id: string; type: 'sale' | 'refund' | 'void' | 'withdrawal' | 'deposit' | 'supplier_payment'; amount: string; reason: string | null; userName: string; occurredAt: string }>;
   counts: Array<{ kind: 'partial' | 'closing'; counted: string; expected: string | null; difference: string | null; countedByName: string; countedAt: string }>;
 }
 
@@ -627,6 +627,23 @@ export interface SupplierDto {
   email: string | null;
   notes: string | null;
   status: 'active' | 'inactive';
+  /** Positivo: lo que se le debe. Negativo: pagos adelantados (ADR 0018). */
+  balance: string;
+}
+
+export interface SupplierDetailDto extends SupplierDto {
+  movements: Array<{
+    id: string;
+    kind: 'purchase' | 'payment' | 'adjustment';
+    amount: string;
+    balanceAfter: string;
+    method: 'cash' | 'transfer' | 'check' | 'other' | null;
+    reference: string | null;
+    notes: string | null;
+    createdAt: string;
+    userName: string;
+    purchase: { id: string; number: number; document: string | null } | null;
+  }>;
 }
 
 export interface PurchaseDto {
@@ -642,6 +659,8 @@ export interface PurchaseDto {
   /** null si falta el costo de alguna línea o el usuario no puede ver costos. */
   totalCost: string | null;
   updatedCosts: boolean;
+  /** Lo que la compra dejó para pagar al proveedor; null si no quedó deuda. */
+  payableAmount: string | null;
   createdByName: string | null;
   lineCount: number;
   /** Solo en el detalle. */

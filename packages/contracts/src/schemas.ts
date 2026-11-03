@@ -558,6 +558,19 @@ export const paymentMethodSchema = z.object({
 });
 export type PaymentMethodInput = z.infer<typeof paymentMethodSchema>;
 
+/** Pago a un proveedor: en efectivo sale de una caja abierta (ADR 0018). */
+export const SUPPLIER_PAYMENT_METHODS = { cash: 'Efectivo de la caja', transfer: 'Transferencia', check: 'Cheque', other: 'Otro' } as const;
+export const supplierPaymentSchema = z
+  .object({
+    clientUuid: uuidSchema,
+    amount: positiveMoney,
+    method: z.enum(['cash', 'transfer', 'check', 'other']),
+    registerId: uuidSchema.nullable(),
+    reference: optionalText(80),
+    notes: optionalText(200),
+  })
+  .refine((p) => p.method !== 'cash' || p.registerId, { path: ['registerId'], message: 'Elegí la caja de la que sale el efectivo' });
+
 export const posPinSchema = z.object({
   password: z.string().min(1, 'Obligatorio'),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN tiene que tener de 4 a 6 números'),
@@ -605,6 +618,8 @@ export const createPurchaseSchema = z.object({
   document: optionalText(60),
   notes: optionalText(300),
   updateCosts: z.boolean(),
+  /** Lo que queda para pagar al proveedor (la factura, con impuestos); requiere proveedor (ADR 0018). */
+  payableAmount: positiveMoney.nullable().optional(),
   lines: z
     .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, unitCost: costSchema.nullable() }))
     .min(1, 'Agregá al menos un artículo')

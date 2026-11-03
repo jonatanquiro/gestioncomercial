@@ -137,9 +137,12 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
 
     // Inventario
     // Compras: proveedores e ingreso de mercadería (ADR 0014).
-    Route::get('suppliers', [PurchasesController::class, 'suppliers'])->middleware('perm:suppliers.manage,purchases.create,purchases.receive');
+    Route::get('suppliers', [PurchasesController::class, 'suppliers'])->middleware('perm:suppliers.manage,purchases.create,purchases.receive,purchases.pay');
     Route::post('suppliers', [PurchasesController::class, 'storeSupplier'])->middleware('perm:suppliers.manage');
     Route::put('suppliers/{id}', [PurchasesController::class, 'updateSupplier'])->middleware('perm:suppliers.manage');
+    Route::get('suppliers/{id}', [PurchasesController::class, 'showSupplier'])->middleware('perm:suppliers.manage,purchases.create,purchases.pay');
+    Route::post('suppliers/{id}/payments', [PurchasesController::class, 'paySupplier'])->middleware('perm:purchases.pay');
+    Route::post('suppliers/{id}/adjustments', [PurchasesController::class, 'adjustSupplier'])->middleware('perm:purchases.pay');
     Route::get('purchases', [PurchasesController::class, 'index'])->middleware('perm:purchases.create,purchases.receive');
     Route::post('purchases', [PurchasesController::class, 'store'])->middleware('perm:purchases.create,purchases.receive');
     Route::get('purchases/{id}', [PurchasesController::class, 'show'])->middleware('perm:purchases.create,purchases.receive');

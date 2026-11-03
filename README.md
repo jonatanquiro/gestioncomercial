@@ -23,6 +23,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - gift cards: se venden por un monto, valen hasta 6 meses y se usan como medio de pago en una o varias compras, en cualquier sucursal, con el saldo vigente a la vista;
 - clientes con datos para facturarles y cuenta corriente: venta fiada con límite de crédito, cobro de la deuda que entra a la caja, devoluciones que bajan la deuda y saldo inicial;
 - notas de crédito ARCA: una venta facturada se devuelve o anula y después se emite la nota de crédito asociada a la factura, por lo devuelto;
+- cuenta corriente con proveedores: la compra deja el importe a pagar, los pagos (en efectivo salen de la caja) lo bajan, y cada proveedor tiene su ficha con saldo y movimientos;
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
 - estilo propio «Almacén de barrio» (papel crema, menú verde almacén y acento tomate) con logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior configurables por comercio;
@@ -252,4 +253,5 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0015 · Gift cards](docs/adr/0015-gift-cards.md)
 - [0016 · Clientes y cuenta corriente](docs/adr/0016-clientes-y-cuenta-corriente.md)
 - [0017 · Notas de crédito ARCA](docs/adr/0017-notas-de-credito.md)
+- [0018 · Cuenta corriente con proveedores](docs/adr/0018-cuenta-con-proveedores.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

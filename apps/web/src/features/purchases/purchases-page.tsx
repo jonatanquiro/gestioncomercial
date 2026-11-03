@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatCuit, formatDateTime, formatQty, parseDecimalInput, toInputDecimal } from '@/lib/format';
 import { useCan } from '@/lib/session';
+import { SupplierBalance } from './supplier-page';
 
 const PAGE_SIZE = 25;
 const suppliersQuery = { queryKey: ['suppliers'], queryFn: () => http.get<SupplierDto[]>('/suppliers') };
@@ -119,6 +120,7 @@ function SuppliersList() {
   const can = useCan();
   const suppliers = useQuery(suppliersQuery);
   const [editing, setEditing] = useState<SupplierDto | 'new' | null>(null);
+  const payableTotal = (suppliers.data ?? []).reduce((sum, s) => (dec(s.balance).gt(0) ? sum.plus(s.balance) : sum), dec(0));
   return (
     <>
       {can('suppliers.manage') && (
@@ -128,19 +130,30 @@ function SuppliersList() {
           </Button>
         </div>
       )}
+      {payableTotal.gt(0) && (
+        <Card className="mb-4 p-4">
+          <p className="text-sm text-slate-600">A pagar a proveedores</p>
+          <p className="font-display text-3xl font-bold tabular-nums">{formatArs(payableTotal.toFixed(2))}</p>
+        </Card>
+      )}
       <Card>
         {suppliers.isLoading && <Spinner />}
         {suppliers.data && suppliers.data.length === 0 && <EmptyState>Todavía no cargaste proveedores.</EmptyState>}
         {suppliers.data && suppliers.data.length > 0 && (
-          <Table head={<><Th>Proveedor</Th><Th>CUIT</Th><Th>Contacto</Th><Th>Estado</Th><Th className="text-right">Acciones</Th></>}>
+          <Table head={<><Th>Proveedor</Th><Th>CUIT</Th><Th>Contacto</Th><Th className="text-right">Saldo</Th><Th>Estado</Th><Th className="text-right">Acciones</Th></>}>
             {suppliers.data.map((s) => (
               <tr key={s.id}>
                 <Td>
-                  <div className="font-medium">{s.name}</div>
+                  <Link to="/app/compras/proveedores/$id" params={{ id: s.id }} className="font-semibold text-brand-700 hover:underline">
+                    {s.name}
+                  </Link>
                   {s.notes && <div className="text-xs text-slate-500">{s.notes}</div>}
                 </Td>
                 <Td>{s.cuit ? formatCuit(s.cuit) : '—'}</Td>
                 <Td>{[s.phone, s.email].filter(Boolean).join(' · ') || '—'}</Td>
+                <Td className="text-right">
+                  <SupplierBalance balance={s.balance} />
+                </Td>
                 <Td>{s.status === 'active' ? <Badge tone="green">Activo</Badge> : <Badge>Inactivo</Badge>}</Td>
                 <Td className="text-right">
                   {can('suppliers.manage') && (
@@ -239,6 +252,9 @@ export function NewPurchasePage() {
   const [notes, setNotes] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [updateCosts, setUpdateCosts] = useState(true);
+  // Lo que queda para pagar al proveedor (ADR 0018); por defecto, el total de la compra.
+  const [payable, setPayable] = useState(false);
+  const [payableAmount, setPayableAmount] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -287,6 +303,7 @@ export function NewPurchasePage() {
       document,
       notes,
       updateCosts: editCost && updateCosts,
+      payableAmount: payable && supplierId ? parseDecimalInput(payableAmount || (total ? toInputDecimal(total) : '')) : null,
       lines: lines.map((l) => ({ variantId: l.item.variantId, quantity: l.quantity, unitCost: editCost ? l.unitCost : null })),
     };
     const parsed = createPurchaseSchema.safeParse(body);
@@ -403,6 +420,25 @@ export function NewPurchasePage() {
               </label>
             )}
             {editCost && total && <p className="text-lg">Total de la compra: <span className="font-bold">{formatArs(total)}</span></p>}
+            {can('purchases.create') && supplierId && (
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" className="size-4 rounded border-slate-300" checked={payable} onChange={(e) => setPayable(e.target.checked)} />
+                  Queda para pagar al proveedor
+                </label>
+                {payable && (
+                  <Input
+                    aria-label="Importe a pagar al proveedor"
+                    inputMode="decimal"
+                    className="h-9 w-40"
+                    placeholder={total ? toInputDecimal(total) : 'Importe de la factura'}
+                    value={payableAmount}
+                    onChange={(e) => setPayableAmount(e.target.value)}
+                  />
+                )}
+                {errors.payableAmount && <span className="text-red-600">{errors.payableAmount}</span>}
+              </div>
+            )}
           </div>
           <Button type="submit" className="h-12 px-6" loading={save.isPending} disabled={rows.length === 0}>
             Registrar ingreso
@@ -461,6 +497,15 @@ export function PurchaseDetailPage() {
           ))}
         </Table>
         {seeCost && p.totalCost && <p className="border-t border-slate-200 px-4 py-3 text-right text-lg">Total <span className="font-bold">{formatArs(p.totalCost)}</span></p>}
+        {p.payableAmount && p.supplierId && (
+          <p className="border-t border-slate-200 px-4 py-3 text-right text-sm">
+            Quedó para pagar a{' '}
+            <Link to="/app/compras/proveedores/$id" params={{ id: p.supplierId }} className="font-semibold text-brand-700 hover:underline">
+              {p.supplierName}
+            </Link>
+            : <span className="font-bold">{formatArs(p.payableAmount)}</span>
+          </p>
+        )}
         {p.notes && <p className="border-t border-slate-200 px-4 py-3 text-sm text-slate-600">{p.notes}</p>}
       </Card>
     </>

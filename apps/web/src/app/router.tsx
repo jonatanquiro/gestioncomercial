@@ -33,6 +33,7 @@ import { AppearancePage } from '@/features/settings/appearance-page';
 import { FiscalPage } from '@/features/settings/fiscal-page';
 import { CountDetailPage, CountsPage } from '@/features/stock/counts-page';
 import { NewPurchasePage, PurchaseDetailPage, PurchasesPage } from '@/features/purchases/purchases-page';
+import { SupplierDetailPage } from '@/features/purchases/supplier-page';
 import { LabelsPage } from '@/features/catalog/labels-page';
 import { SubscriptionExpiredPage, SubscriptionPage } from '@/features/subscription/subscription-page';
 import { MovementsPage } from '@/features/stock/movements-page';
@@ -148,6 +149,7 @@ const movementsRoute = createRoute({
 const countsRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios', component: CountsPage });
 const purchasesRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras', component: PurchasesPage });
 const newPurchaseRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras/nueva', component: NewPurchasePage });
+const supplierDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras/proveedores/$id', component: SupplierDetailPage });
 const purchaseDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras/$id', component: PurchaseDetailPage });
 const countDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios/$id', component: CountDetailPage });
 const posRoute = createRoute({ getParentRoute: () => appRoute, path: 'vender', component: PosPage });
@@ -207,6 +209,7 @@ const routeTree = rootRoute.addChildren([
     labelsRoute,
     newPurchaseRoute,
     purchaseDetailRoute,
+    supplierDetailRoute,
     countDetailRoute,
     branchesRoute,
     employeesRoute,

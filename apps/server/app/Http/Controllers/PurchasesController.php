@@ -8,12 +8,14 @@ use App\Models\ProductVariant;
 use App\Models\Purchase;
 use App\Models\PurchaseLine;
 use App\Models\Supplier;
+use App\Models\SupplierMovement;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\AuditService;
 use App\Services\ProductService;
 use App\Services\SalesSetup;
 use App\Services\StockService;
+use App\Services\SupplierAccountService;
 use App\Support\AppError;
 use App\Support\Cuit;
 use App\Support\Dates;
@@ -34,6 +36,7 @@ class PurchasesController extends Controller
 {
     public function __construct(
         private readonly AuditService $audit,
+        private readonly SupplierAccountService $accounts,
         private readonly StockService $stock,
         private readonly ProductService $products,
         private readonly SalesSetup $setup,
@@ -76,6 +79,82 @@ class PurchasesController extends Controller
         return $this->json($this->supplierDto($supplier));
     }
 
+    /** Ficha del proveedor con los movimientos de su cuenta (ADR 0018). */
+    public function showSupplier(Request $request, string $id): JsonResponse
+    {
+        $supplier = Supplier::find($id) ?? throw AppError::notFound('Proveedor');
+        $moves = SupplierMovement::where('supplier_id', $id)->orderByDesc('created_at')->orderByDesc('id')->limit(200)->get();
+        $purchases = Purchase::whereIn('id', $moves->pluck('purchase_id')->filter())->get(['id', 'number', 'document'])->keyBy('id');
+        $users = User::whereIn('id', $moves->pluck('user_id')->unique())->pluck('name', 'id');
+
+        return $this->json($this->supplierDto($supplier) + [
+            'movements' => $moves->map(fn (SupplierMovement $m) => [
+                'id' => $m->id, 'kind' => $m->kind, 'amount' => Money::round($m->amount), 'balanceAfter' => Money::round($m->balance_after),
+                'method' => $m->method, 'reference' => $m->reference, 'notes' => $m->notes, 'createdAt' => Dates::iso($m->created_at), 'userName' => $users[$m->user_id] ?? '',
+                'purchase' => isset($purchases[$m->purchase_id]) ? ['id' => $m->purchase_id, 'number' => (int) $purchases[$m->purchase_id]->number, 'document' => $purchases[$m->purchase_id]->document] : null,
+            ])->all(),
+        ]);
+    }
+
+    /** Pago al proveedor: en efectivo sale de una caja abierta; se reintenta sin duplicar. */
+    public function paySupplier(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'clientUuid' => ['required', 'string', 'uuid'],
+            'amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'method' => ['required', 'in:cash,transfer,check,other'],
+            'registerId' => ['required_if:method,cash', 'nullable', 'string', 'uuid'],
+            'reference' => ['nullable', 'string', 'max:80'],
+            'notes' => ['nullable', 'string', 'max:200'],
+        ], ['registerId.required_if' => 'Elegí la caja de la que sale el efectivo']);
+        if (Money::of($v['amount'])->isZero()) {
+            throw AppError::validation([['path' => 'amount', 'message' => 'El importe no puede ser cero']]);
+        }
+        Supplier::whereKey($id)->exists() || throw AppError::notFound('Proveedor');
+        if (SupplierMovement::where('client_uuid', $v['clientUuid'])->exists()) {
+            return $this->json($this->supplierDto(Supplier::find($id)));
+        }
+        try {
+            $supplier = DB::transaction(function () use ($actor, $id, $v) {
+                $supplier = Supplier::whereKey($id)->lockForUpdate()->first();
+                $before = Money::round($supplier->balance);
+                $this->accounts->pay($actor, $supplier, $v);
+                $this->record($actor, 'supplier.paid', 'supplier', $id, ['balance' => $before], ['balance' => Money::round($supplier->balance), 'amount' => Money::round($v['amount']), 'method' => $v['method']]);
+
+                return $supplier;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            SupplierMovement::where('client_uuid', $v['clientUuid'])->exists() || throw $e;
+            $supplier = Supplier::find($id);
+        }
+
+        return $this->json($this->supplierDto($supplier), 201);
+    }
+
+    /** Saldo inicial al empezar a usar el sistema, o una corrección con motivo. */
+    public function adjustSupplier(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'amount' => ['required', 'string', 'regex:/^-?\d{1,12}(\.\d{1,2})?$/'],
+            'notes' => ['required', 'string', 'max:200'],
+        ], ['amount.regex' => 'Importe inválido']);
+        if (Money::of($v['amount'])->isZero()) {
+            throw AppError::validation([['path' => 'amount', 'message' => 'El importe no puede ser cero']]);
+        }
+        $supplier = DB::transaction(function () use ($actor, $id, $v) {
+            $supplier = Supplier::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Proveedor');
+            $before = Money::round($supplier->balance);
+            $this->accounts->adjust($actor, $supplier, Money::of($v['amount']), trim($v['notes']));
+            $this->record($actor, 'supplier.balance_adjusted', 'supplier', $id, ['balance' => $before], ['balance' => Money::round($supplier->balance), 'amount' => Money::round($v['amount']), 'notes' => trim($v['notes'])]);
+
+            return $supplier;
+        });
+
+        return $this->json($this->supplierDto($supplier));
+    }
+
     /** Mismos límites que supplierSchema de packages/contracts. */
     private function supplierInput(Request $request, bool $withStatus = false): array
     {
@@ -106,7 +185,7 @@ class PurchasesController extends Controller
 
     private function supplierDto(Supplier $s): array
     {
-        return ['id' => $s->id, 'name' => $s->name, 'cuit' => $s->cuit, 'phone' => $s->phone, 'email' => $s->email, 'notes' => $s->notes, 'status' => $s->status];
+        return ['id' => $s->id, 'name' => $s->name, 'cuit' => $s->cuit, 'phone' => $s->phone, 'email' => $s->email, 'notes' => $s->notes, 'status' => $s->status, 'balance' => Money::round($s->balance ?? '0')];
     }
 
     // ------------------------------------------------------------------ Compras
@@ -140,6 +219,7 @@ class PurchasesController extends Controller
             'document' => ['nullable', 'string', 'max:60'],
             'notes' => ['nullable', 'string', 'max:300'],
             'updateCosts' => ['present', Input::strictBoolean()],
+            'payableAmount' => ['nullable', ...Input::decimal(Input::MONEY, 'Importe inválido')],
             'lines' => ['required', 'array', 'list', 'min:1', 'max:300'],
             'lines.*' => ['array'],
             'lines.*.variantId' => ['required', 'string', 'uuid', 'distinct'],
@@ -154,6 +234,18 @@ class PurchasesController extends Controller
         // Cargar el costo de lo que se compra es ver y cambiar costos.
         if (collect($v['lines'])->contains(fn ($l) => isset($l['unitCost'])) && ! $actor->can('costs.update')) {
             throw AppError::forbidden('costs.update');
+        }
+        // Lo que queda para pagar al proveedor es información de compras, no de quien solo recibe.
+        if (isset($v['payableAmount'])) {
+            if (! $actor->can('purchases.create')) {
+                throw AppError::forbidden('purchases.create');
+            }
+            if (! $v['supplierId']) {
+                throw AppError::validation([['path' => 'payableAmount', 'message' => 'Para dejar un importe a pagar, elegí el proveedor']]);
+            }
+            if (Money::of($v['payableAmount'])->isZero()) {
+                throw AppError::validation([['path' => 'payableAmount', 'message' => 'El importe no puede ser cero']]);
+            }
         }
         if ($existing = Purchase::where('client_uuid', $v['clientUuid'])->first()) {
             return $this->json($this->dtos(collect([$existing]), $actor, true)[0]);
@@ -173,7 +265,7 @@ class PurchasesController extends Controller
     private function receive(Actor $actor, array $v): Purchase
     {
         $warehouse = Warehouse::find($v['warehouseId']) ?? throw AppError::notFound('Depósito');
-        $supplier = $v['supplierId'] ? (Supplier::find($v['supplierId']) ?? throw AppError::notFound('Proveedor')) : null;
+        $supplier = $v['supplierId'] ? (Supplier::whereKey($v['supplierId'])->when(isset($v['payableAmount']), fn ($q) => $q->lockForUpdate())->first() ?? throw AppError::notFound('Proveedor')) : null;
         $variants = ProductVariant::whereIn('id', array_column($v['lines'], 'variantId'))->lockForUpdate()->get()->keyBy('id');
         $products = Product::whereIn('id', $variants->pluck('product_id'))->get()->keyBy('id');
         $total = BigDecimal::zero();
@@ -201,6 +293,7 @@ class PurchasesController extends Controller
             'notes' => $v['notes'] ?? null,
             'total_cost' => $allCosts ? Money::roundUnit($total) : null,
             'updated_costs' => (bool) $v['updateCosts'],
+            'payable_amount' => isset($v['payableAmount']) ? Money::round($v['payableAmount']) : null,
             'created_by' => $actor->userId,
             'created_at' => now(),
         ]);
@@ -221,11 +314,15 @@ class PurchasesController extends Controller
                 $this->products->setCost($variant, $cost, 'purchase', $actor->userId);
             }
         }
+        if ($purchase->payable_amount !== null) {
+            $this->accounts->purchase($actor, $supplier, $purchase->id, Money::of($purchase->payable_amount));
+        }
         $reason = "Compra N° {$purchase->number}".($supplier ? " · {$supplier->name}" : '').($purchase->document ? " · {$purchase->document}" : '');
         $this->stock->apply($stockLines, ['sourceType' => 'purchase', 'sourceId' => $purchase->id, 'reason' => $reason, 'userId' => $actor->userId]);
         $this->record($actor, 'purchase.created', 'purchase', $purchase->id, null, [
             'number' => $purchase->number, 'supplier' => $supplier?->name, 'document' => $purchase->document, 'lines' => count($stockLines),
             'totalCost' => $purchase->total_cost === null ? null : Money::round($purchase->total_cost), 'updatedCosts' => $purchase->updated_costs,
+            'payableAmount' => $purchase->payable_amount === null ? null : Money::round($purchase->payable_amount),
         ]);
 
         return $purchase;
@@ -256,6 +353,7 @@ class PurchasesController extends Controller
             'notes' => $p->notes,
             'totalCost' => $seeCost && $p->total_cost !== null ? Money::round($p->total_cost) : null,
             'updatedCosts' => $p->updated_costs,
+            'payableAmount' => $p->payable_amount === null ? null : Money::round($p->payable_amount),
             'createdByName' => $users[$p->created_by] ?? null,
             'lineCount' => (int) ($counts[$p->id] ?? 0),
             'lines' => $withLines ? collect($lines->get($p->id, []))->map(fn (PurchaseLine $l) => [
