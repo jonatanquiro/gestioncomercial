@@ -12,7 +12,7 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, PageHeader } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
-import { barcodeModules } from '@/lib/barcode';
+import { BarcodeSvg } from '@/components/barcode-svg';
 import { formatQty } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { itemOf } from './item';
@@ -188,27 +188,6 @@ function Label({ item, format, showPrice, store }: { item: ItemDto; format: Form
       <BarcodeSvg code={code} className="mt-auto min-h-0 w-full flex-1" />
       <div className="text-center font-mono text-[6.5pt] leading-none tracking-[0.15em]">{code}</div>
     </div>
-  );
-}
-
-/** Código de barras en SVG, con margen blanco a los costados para que el lector lo tome. */
-function BarcodeSvg({ code, className }: { code: string; className?: string }) {
-  const encoded = barcodeModules(code);
-  if (!encoded) return <div className={className} />;
-  const quiet = 10;
-  const bars: Array<[number, number]> = [];
-  for (let i = 0; i < encoded.modules.length; i++) {
-    if (encoded.modules[i] !== '1') continue;
-    const start = i;
-    while (encoded.modules[i + 1] === '1') i++;
-    bars.push([start, i - start + 1]);
-  }
-  return (
-    <svg className={className} viewBox={`0 0 ${encoded.modules.length + quiet * 2} 40`} preserveAspectRatio="none" role="img" aria-label={`Código ${code}`} shapeRendering="crispEdges">
-      {bars.map(([x, w]) => (
-        <rect key={x} x={x + quiet} y={0} width={w} height={40} fill="#000" />
-      ))}
-    </svg>
   );
 }
 

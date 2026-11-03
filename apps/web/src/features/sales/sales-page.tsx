@@ -1,9 +1,9 @@
 import { type Paginated, type PermissionCode, type SaleDto, type SaleSummaryDto } from '@gc/contracts';
 import { dec, formatArs, proportionalAmount, roundMoney, sumMoney } from '@gc/domain';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { Printer } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import { paymentMethodsQuery, registersQuery } from './queries';
 import { useAuthorized } from './use-authorized';
 import { ExchangeDialog } from './exchange-dialog';
 import { PrintTicket } from './ticket';
+import { parseSaleTicketCode } from './exchange-ticket';
 import { InvoiceDialog, invoiceNumber, saleInvoicesQuery } from '@/features/fiscal/invoice-dialog';
 import { InvoicePrint } from '@/features/fiscal/invoice';
 
@@ -27,13 +28,27 @@ const PAGE_SIZE = 25;
 export function SalesPage() {
   const can = useCan();
   const allowed = can('sales.read_own', 'sales.read_all');
+  const navigate = useNavigate();
+  const search = useSearch({ from: '/app/ventas' });
   const [page, setPage] = useState(1);
-  const [number, setNumber] = useState('');
+  const [number, setNumber] = useState(search.numero ? String(search.numero) : '');
   const [day, setDay] = useState('');
+  // Con el lector sobre un ticket de cambio llega «V123»: se busca la venta 123.
+  const wanted = parseSaleTicketCode(number) ?? (/^\d+$/.test(number.trim()) ? Number(number.trim()) : null);
   const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
-  if (/^\d+$/.test(number.trim())) params.set('number', number.trim());
+  if (wanted !== null) params.set('number', String(wanted));
   if (day) (params.set('from', day), params.set('to', day));
   const sales = useQuery({ queryKey: ['sales', params.toString()], queryFn: () => http.get<Paginated<SaleSummaryDto>>(`/sales?${params}`), enabled: allowed });
+  const only = wanted !== null && sales.data?.items.length === 1 ? sales.data.items[0]! : null;
+
+  // Si se llegó escaneando el ticket en la caja y hay una sola venta con ese número, se abre directo.
+  useEffect(() => {
+    if (search.numero && only && only.number === search.numero) void navigate({ to: '/app/ventas/$id', params: { id: only.id }, replace: true });
+  }, [search.numero, only, navigate]);
+
+  function onNumberKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' && only) void navigate({ to: '/app/ventas/$id', params: { id: only.id } });
+  }
 
   if (!allowed) return <Forbidden />;
   return (
@@ -51,7 +66,7 @@ export function SalesPage() {
       />
       <Card>
         <div className="flex flex-wrap gap-3 border-b border-slate-200 p-4">
-          <Input aria-label="Número de venta" placeholder="N° de venta" className="w-40" inputMode="numeric" value={number} onChange={(e) => (setNumber(e.target.value), setPage(1))} />
+          <Input aria-label="Número de venta" placeholder="N° o ticket de cambio" className="w-52" value={number} onChange={(e) => (setNumber(e.target.value), setPage(1))} onKeyDown={onNumberKey} />
           <Input aria-label="Día" type="date" className="w-48" value={day} onChange={(e) => (setDay(e.target.value), setPage(1))} />
         </div>
         {sales.isLoading && <Spinner />}
@@ -105,7 +120,7 @@ export function SaleDetailPage() {
   const can = useCan();
   const sale = useQuery({ queryKey: ['sales', 'detail', id], queryFn: () => http.get<SaleDto>(`/sales/${id}`) });
   const tenant = useQuery(tenantQuery);
-  const [printing, setPrinting] = useState(false);
+  const [printing, setPrinting] = useState<'sale' | 'exchange' | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
   const [exchanging, setExchanging] = useState(false);
@@ -127,9 +142,14 @@ export function SaleDetailPage() {
         description={`${formatDateTime(s.confirmedAt)} · ${s.branchName} · ${s.registerName} · Atendió ${s.cashierName}`}
         actions={
           <>
-            <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting(true)}>
+            <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('sale')}>
               <Printer className="size-4" /> Reimprimir ticket
             </Button>
+            {s.status === 'confirmed' && returnable && (
+              <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('exchange')}>
+                <Printer className="size-4" /> Ticket de cambio
+              </Button>
+            )}
             {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
             {s.status === 'confirmed' && can('sales.create', 'sales.return') && returnable && (
               <Button variant="secondary" onClick={() => setReturning(true)}>
@@ -267,7 +287,7 @@ export function SaleDetailPage() {
       {voiding && <VoidDialog sale={s} onClose={() => setVoiding(false)} />}
       {returning && <ReturnDialog sale={s} onClose={() => setReturning(false)} />}
       {exchanging && <ExchangeDialog sale={s} onClose={() => setExchanging(false)} />}
-      {printing && tenant.data && <PrintTicket sale={s} tenant={tenant.data} onDone={() => setPrinting(false)} />}
+      {printing && tenant.data && <PrintTicket sale={s} exchange={printing === 'exchange'} tenant={tenant.data} onDone={() => setPrinting(null)} />}
       {invoicing && <InvoiceDialog sale={s} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => setInvoicing(false)} />}
       {printingInvoice && <InvoicePrint invoice={printingInvoice} onClose={() => setPrintingInvoice(null)} />}
     </>

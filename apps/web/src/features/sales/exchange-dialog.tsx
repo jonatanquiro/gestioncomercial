@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Trash2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
-import { newClientUuid } from '@/features/catalog/queries';
+import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
 import { ProductPicker } from '@/features/stock/product-picker';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
@@ -12,7 +12,8 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { http } from '@/lib/api';
-import { formatQty, parseDecimalInput } from '@/lib/format';
+import { formatDate, formatQty, parseDecimalInput } from '@/lib/format';
+import { exchangeDeadline } from './exchange-ticket';
 import { paymentMethodsQuery, registersQuery } from './queries';
 import { useAuthorized } from './use-authorized';
 
@@ -28,6 +29,8 @@ export function ExchangeDialog({ sale, onClose }: { sale: SaleDto; onClose: () =
   const toast = useToast();
   const registers = useQuery(registersQuery);
   const methods = useQuery(paymentMethodsQuery);
+  const tenant = useQuery(tenantQuery);
+  const deadline = exchangeDeadline(sale.confirmedAt, tenant.data?.settings.exchangeDays);
   const openRegisters = (registers.data ?? []).filter((r) => r.openShift);
   const activeMethods = (methods.data ?? []).filter((m) => m.active);
   const [clientUuid] = useState(newClientUuid);
@@ -125,6 +128,11 @@ export function ExchangeDialog({ sale, onClose }: { sale: SaleDto; onClose: () =
       <Dialog open onOpenChange={(o) => !o && onClose()} title={`Cambio de la venta N° ${sale.number}`} description="Lo que devuelve queda como crédito para lo que se lleva." wide>
         <form onSubmit={submit} className="space-y-5" noValidate>
           {error && <Alert>{error}</Alert>}
+          {deadline && deadline.getTime() < Date.now() && (
+            <Alert kind="info">
+              El plazo para cambios ({tenant.data?.settings.exchangeDays} días) venció el {formatDate(deadline.toISOString())}. Podés hacer el cambio igual si el comercio lo acepta.
+            </Alert>
+          )}
           <section>
             <h3 className="mb-2 text-sm font-semibold">1. Qué devuelve</h3>
             <div className="overflow-x-auto">

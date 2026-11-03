@@ -149,7 +149,7 @@ const newPurchaseRoute = createRoute({ getParentRoute: () => appRoute, path: 'co
 const purchaseDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'compras/$id', component: PurchaseDetailPage });
 const countDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'inventarios/$id', component: CountDetailPage });
 const posRoute = createRoute({ getParentRoute: () => appRoute, path: 'vender', component: PosPage });
-const salesRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas', component: SalesPage });
+const salesRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas', component: SalesPage, validateSearch: z.object({ numero: z.number().int().positive().optional().catch(undefined) }) });
 const saleDetailRoute = createRoute({ getParentRoute: () => appRoute, path: 'ventas/$id', component: SaleDetailPage });
 const cashRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja', component: CashPage });
 const shiftRoute = createRoute({ getParentRoute: () => appRoute, path: 'caja/$id', component: ShiftPage });

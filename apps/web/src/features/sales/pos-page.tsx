@@ -1,7 +1,7 @@
 import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Minus, Plus, Printer, Trash2, X } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
@@ -177,7 +177,8 @@ function Counter({ register }: { register: RegisterDto }) {
   const [editing, setEditing] = useState<{ product: ItemDto; index: number | null } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<SaleDto | null>(null);
-  const [printing, setPrinting] = useState<SaleDto | null>(null);
+  const [printing, setPrinting] = useState<{ sale: SaleDto; exchange: boolean } | null>(null);
+  const navigate = useNavigate();
   const [invoicing, setInvoicing] = useState<SaleDto | null>(null);
   /** Código escaneado que no estaba cargado y se está dando de alta sin salir de la venta. */
   const [creating, setCreating] = useState<string | null>(null);
@@ -269,6 +270,7 @@ function Counter({ register }: { register: RegisterDto }) {
             onlyStock={false}
             onPick={add}
             onMissingCode={can('products.create') ? setCreating : undefined}
+            onSaleTicket={(numero) => void navigate({ to: '/app/ventas', search: { numero } })}
             label="Escaneá o buscá un artículo"
             inputClassName="h-14 text-lg"
           />
@@ -380,11 +382,14 @@ function Counter({ register }: { register: RegisterDto }) {
                 </div>
               )}
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting(lastSale)}>
+                <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting({ sale: lastSale, exchange: false })}>
                   <Printer className="size-4" /> Imprimir ticket
                 </Button>
+                <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting({ sale: lastSale, exchange: true })}>
+                  <Printer className="size-4" /> Ticket de cambio
+                </Button>
                 {can('fiscal.issue', 'fiscal.manage') && (
-                  <Button variant="secondary" className="h-12" onClick={() => setInvoicing(lastSale)}>
+                  <Button variant="secondary" className="col-span-2 h-12" onClick={() => setInvoicing(lastSale)}>
                     Facturar
                   </Button>
                 )}
@@ -436,7 +441,7 @@ function Counter({ register }: { register: RegisterDto }) {
           onPriceChanged={pricesChanged}
         />
       )}
-      {printing && tenant.data && <PrintTicket sale={printing} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
+      {printing && tenant.data && <PrintTicket sale={printing.sale} exchange={printing.exchange} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
       {creating !== null && (
         <Dialog open onOpenChange={(o) => !o && (setCreating(null), focusScanner())} wide title="Nuevo producto" description="Al guardarlo se suma a la venta.">
           <ProductForm

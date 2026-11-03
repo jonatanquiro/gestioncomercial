@@ -6,6 +6,7 @@ import { type KeyboardEvent, type Ref, useState } from 'react';
 import { Input } from '@/components/ui/field';
 import { formatQty } from '@/lib/format';
 import { ApiRequestError, http } from '@/lib/api';
+import { parseSaleTicketCode } from '@/features/sales/exchange-ticket';
 
 /**
  * Buscador de artículos para cargar cantidades: el lector de códigos escribe el código y manda
@@ -21,6 +22,7 @@ export function ProductPicker({
   inputClassName,
   multiplier = false,
   onMissingCode,
+  onSaleTicket,
 }: {
   onPick: (item: ItemDto, quantityFactor: string) => void;
   label?: string;
@@ -33,6 +35,8 @@ export function ProductPicker({
   multiplier?: boolean;
   /** Si se pasa, un código que no está cargado ofrece crearlo en el momento. */
   onMissingCode?: (code: string) => void;
+  /** Si se pasa, escanear un ticket de cambio («V123») abre esa venta. */
+  onSaleTicket?: (saleNumber: number) => void;
 }) {
   const [term, setTerm] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -86,6 +90,8 @@ export function ProductPicker({
       deliver(found.item, found.quantityFactor, by);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 404) {
+        const saleNumber = parseSaleTicketCode(code);
+        if (saleNumber !== null && onSaleTicket) return onSaleTicket(saleNumber);
         if (options.length === 1) return deliver(options[0]!, '1.000', by);
         setMissing(code);
         return setMessage(`No hay ningún artículo con el código ${code}`);

@@ -2,7 +2,9 @@ import { type SaleDto, TAX_CONDITION_LABELS, type TenantDto } from '@gc/contract
 import { dec, formatArs, roundMoney } from '@gc/domain';
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { formatCuit, formatDateTime, formatQty } from '@/lib/format';
+import { BarcodeSvg } from '@/components/barcode-svg';
+import { formatCuit, formatDate, formatDateTime, formatQty } from '@/lib/format';
+import { exchangeDeadline, saleTicketCode } from './exchange-ticket';
 
 /**
  * Ticket interno de 80 mm. No es un comprobante fiscal: la factura electrónica llega en la
@@ -77,8 +79,43 @@ function lastCash(sale: SaleDto) {
 }
 const addChange = (amount: string, change: string) => roundMoney(dec(amount).plus(dec(change)));
 
-/** Imprime el ticket en cuanto se monta y avisa al terminar. */
-export function PrintTicket({ sale, tenant, onDone }: { sale: SaleDto; tenant: TenantDto; onDone: () => void }) {
+/**
+ * Ticket de cambio: lo que se llevó, sin precios (sirve también de ticket de regalo), el plazo
+ * para cambiar y un código de barras con el número de venta para encontrarla escaneándolo.
+ */
+export function ExchangeTicket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
+  const deadline = exchangeDeadline(sale.confirmedAt, tenant.settings.exchangeDays);
+  const lines = sale.lines.filter((l) => dec(l.quantity).gt(l.returnedQuantity));
+  return (
+    <div className="ticket font-mono text-[12px] leading-snug text-black">
+      <div className="text-center">
+        {tenant.appearance?.logoData && <img src={tenant.appearance.logoData} alt="" className="mx-auto mb-2 h-12 max-w-40 object-contain" />}
+        <div className="text-[14px] font-bold">{tenant.tradeName}</div>
+        {tenant.address && <div>{tenant.address}</div>}
+        <div>{sale.branchName}</div>
+      </div>
+      <hr className="my-1 border-dashed border-black" />
+      <div className="text-center text-[15px] font-bold">TICKET DE CAMBIO</div>
+      <div>Venta N° {String(sale.number).padStart(8, '0')}</div>
+      <div>{formatDate(sale.confirmedAt)}</div>
+      <hr className="my-1 border-dashed border-black" />
+      {lines.map((l) => (
+        <div key={l.id} className="mb-0.5 flex gap-2">
+          <span className="shrink-0">{formatQty(dec(l.quantity).minus(l.returnedQuantity).toFixed(3), l.saleMode)} x</span>
+          <span>{l.description}</span>
+        </div>
+      ))}
+      <hr className="my-1 border-dashed border-black" />
+      {deadline && <div className="text-center font-bold">Válido para cambio hasta el {formatDate(deadline.toISOString())}</div>}
+      <div className="text-center">Presentá este ticket para cambiar talle, color o artículo.</div>
+      <BarcodeSvg code={saleTicketCode(sale.number)} className="mx-auto mt-2 h-14 w-48" />
+      <div className="text-center tracking-[0.2em]">{saleTicketCode(sale.number)}</div>
+    </div>
+  );
+}
+
+/** Imprime el ticket (o el ticket de cambio) en cuanto se monta y avisa al terminar. */
+export function PrintTicket({ sale, tenant, onDone, exchange = false }: { sale: SaleDto; tenant: TenantDto; onDone: () => void; exchange?: boolean }) {
   useEffect(() => {
     const after = () => onDone();
     window.addEventListener('afterprint', after, { once: true });
@@ -87,7 +124,7 @@ export function PrintTicket({ sale, tenant, onDone }: { sale: SaleDto; tenant: T
   }, [onDone]);
   return createPortal(
     <div id="print-root">
-      <Ticket sale={sale} tenant={tenant} />
+      {exchange ? <ExchangeTicket sale={sale} tenant={tenant} /> : <Ticket sale={sale} tenant={tenant} />}
     </div>,
     document.body,
   );

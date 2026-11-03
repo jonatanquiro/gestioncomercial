@@ -23,6 +23,9 @@ use Illuminate\Validation\Rule;
 /** Datos del comercio activo. El id sale siempre de la sesión, nunca del pedido. */
 class TenantController extends Controller
 {
+    /** Plazo de cambio impreso en el ticket de cambio si el comercio no lo configuró. */
+    public const DEFAULT_EXCHANGE_DAYS = 30;
+
     public function __construct(
         private readonly EntitlementsService $entitlements,
         private readonly AuditService $audit,
@@ -53,6 +56,11 @@ class TenantController extends Controller
             'settings.priceRoundingStep' => ['present', Input::oneOfIntegers([0, 1, 5, 10, 50, 100])],
             'settings.discountLimitPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Porcentaje inválido')],
             'settings.referenceCatalog' => ['present', Input::strictBoolean()],
+            'settings.exchangeDays' => ['present', 'integer', 'min:0', 'max:365'],
+        ], [
+            'settings.exchangeDays.integer' => 'Ingresá un número entero de días',
+            'settings.exchangeDays.min' => 'No puede ser negativo',
+            'settings.exchangeDays.max' => 'Como máximo 365 días',
         ]);
         $discountLimit = Money::round($input['settings']['discountLimitPercent'] ?? SalesService::DEFAULT_DISCOUNT_LIMIT);
         if (Money::of($discountLimit)->isGreaterThan(100)) {
@@ -71,6 +79,7 @@ class TenantController extends Controller
                 'priceRoundingStep' => (int) $input['settings']['priceRoundingStep'],
                 'discountLimitPercent' => $discountLimit,
                 'referenceCatalog' => (bool) $input['settings']['referenceCatalog'],
+                'exchangeDays' => (int) $input['settings']['exchangeDays'],
             ],
         ];
 
@@ -149,6 +158,7 @@ class TenantController extends Controller
             'settings' => $t->settings + [
                 'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
                 'referenceCatalog' => (bool) (collect(Catalog::businessTypes())->firstWhere('code', $t->business_type_code)['defaultSettings']['referenceCatalog'] ?? true),
+                'exchangeDays' => self::DEFAULT_EXCHANGE_DAYS,
             ],
             'appearance' => ($t->appearance ?? []) + Appearance::DEFAULTS,
             'plan' => $this->entitlements->plan(),

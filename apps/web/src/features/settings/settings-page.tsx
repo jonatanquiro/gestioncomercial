@@ -134,6 +134,9 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
         >
           {(p) => <Input {...p} inputMode="decimal" className="max-w-40" {...register('settings.discountLimitPercent', { setValueAs: (v: string) => parseDecimalInput(v) })} />}
         </Field>
+        <Field label="Plazo para cambios (días)" error={e.settings?.exchangeDays?.message} hint="Se imprime en el ticket de cambio y el sistema avisa si ya venció. Con 0 no se imprime plazo.">
+          {(p) => <Input {...p} inputMode="numeric" className="max-w-40" {...register('settings.exchangeDays', { setValueAs: (v: string) => (/^\d+$/.test(String(v).trim()) ? Number(v) : NaN) })} />}
+        </Field>
       </Card>
       <div className="flex justify-end">
         <Button type="submit" loading={save.isPending}>
