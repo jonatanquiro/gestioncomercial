@@ -22,7 +22,7 @@ export const GIFT_CARD_STATES: Record<GiftCardState, { label: string; tone: 'gre
   voided: { label: 'Anulada', tone: 'red' },
 };
 
-const MOVEMENT_LABELS = { issue: 'Venta de la tarjeta', redeem: 'Compra', reversal: 'Anulación de la compra', void: 'Anulación de la tarjeta' } as const;
+const MOVEMENT_LABELS = { issue: 'Venta de la tarjeta', redeem: 'Compra', reversal: 'Anulación de la compra', void: 'Anulación de la tarjeta', refund: 'Devolución de la compra' } as const;
 
 /** Gift cards vendidas (ADR 0015): saldo de cada una y lo que el comercio todavía debe en mercadería. */
 export function GiftCardsPage() {

@@ -300,7 +300,13 @@ export function SaleDetailPage() {
                     </span>
                   )}
                 </Td>
-                <Td>{r.paymentMethodName}</Td>
+                <Td>
+                  {dec(r.giftCardAmount).gt(0)
+                    ? dec(r.giftCardAmount).eq(r.total)
+                      ? 'Gift card'
+                      : `Gift card ${formatArs(r.giftCardAmount)} · ${r.paymentMethodName}`
+                    : r.paymentMethodName}
+                </Td>
                 <Td>
                   {r.userName}
                   {r.authorizedByName && <span className="block text-xs text-slate-500">Autorizó {r.authorizedByName}</span>}
@@ -399,6 +405,11 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
     })
     .filter((x) => x.typed);
   const total = sumMoney(lines.map((l) => l.amount));
+  // Lo pagado con gift card vuelve a la tarjeta (ADR 0015); solo el resto sale por el medio elegido.
+  const giftPaid = sumMoney(sale.payments.filter((p) => p.kind === 'gift_card').map((p) => p.amount));
+  const giftPending = dec(giftPaid).minus(sumMoney(sale.returns.map((r) => r.giftCardAmount)));
+  const toCard = giftPending.gt(0) ? roundMoney(dec(total).lt(giftPending) ? dec(total) : giftPending) : '0.00';
+  const rest = roundMoney(dec(total).minus(toCard));
 
   const { mutation, error, setError, dialog, waitingPin } = useAuthorized(
     (authorization) =>
@@ -468,7 +479,7 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Motivo">{(p) => <Input {...p} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />}</Field>
-            <Field label="Se reintegra en">
+            <Field label={dec(toCard).gt(0) ? 'El resto se reintegra en' : 'Se reintegra en'}>
               {(p) => (
                 <Select {...p} value={method} onChange={(e) => setMethodId(e.target.value)}>
                   {activeMethods.map((m) => (
@@ -493,8 +504,15 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
             </Field>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <span className="text-lg">
-              A devolver: <span className="font-bold">{formatArs(total)}</span>
+            <span>
+              <span className="text-lg">
+                A devolver: <span className="font-bold">{formatArs(total)}</span>
+              </span>
+              {dec(toCard).gt(0) && (
+                <span className="block text-sm text-slate-600">
+                  {formatArs(toCard)} vuelven a la gift card{dec(rest).gt(0) ? ` y ${formatArs(rest)} con el medio elegido` : ''}.
+                </span>
+              )}
             </span>
             <div className="flex gap-2">
               <Button variant="secondary" onClick={onClose}>

@@ -502,8 +502,11 @@ class SalesService
             $total = $total->plus($amount);
         }
 
-        if ($method->kind === 'cash' && $total->isGreaterThan($this->cash->expectedCash($shift))) {
-            throw AppError::conflict('CASH_INSUFFICIENT', 'No hay suficiente efectivo en la caja para devolver '.Money::pesos($total).'. Elegí otro medio de reintegro o registrá un ingreso de efectivo.');
+        // Lo pagado con gift card vuelve a la tarjeta (ADR 0015); en un cambio, el crédito paga la venta nueva.
+        $toCards = ($input['exchange'] ?? false) ? BigDecimal::zero() : BigDecimal::min($total, GiftCardService::refundable($sale));
+        $rest = $total->minus($toCards);
+        if ($method->kind === 'cash' && $rest->isGreaterThan($this->cash->expectedCash($shift))) {
+            throw AppError::conflict('CASH_INSUFFICIENT', 'No hay suficiente efectivo en la caja para devolver '.Money::pesos($rest).'. Elegí otro medio de reintegro o registrá un ingreso de efectivo.');
         }
 
         $saleReturn = SaleReturn::create([
@@ -515,6 +518,7 @@ class SalesService
             'reason' => $input['reason'],
             'payment_method_id' => $method->id,
             'total' => Money::round($total),
+            'gift_card_amount' => Money::round($toCards),
             'user_id' => $actor->userId,
             'authorized_by' => $authorizedBy,
             'created_at' => Carbon::now(),
@@ -539,13 +543,16 @@ class SalesService
         }
         $this->stock->apply($stockLines, ['sourceType' => 'sale_return', 'sourceId' => $saleReturn->id, 'reason' => "Devolución de la venta {$sale->number}: {$input['reason']}", 'userId' => $actor->userId]);
 
-        if ($method->kind === 'cash' && $total->isPositive()) {
-            $this->cash->addMovement($actor, $shift, 'refund', $total->negated(), [
+        if ($toCards->isPositive()) {
+            $this->giftCards->refund($actor, $sale, $saleReturn, $toCards);
+        }
+        if ($method->kind === 'cash' && $rest->isPositive()) {
+            $this->cash->addMovement($actor, $shift, 'refund', $rest->negated(), [
                 'reason' => $input['reason'], 'source_type' => 'sale_return', 'source_id' => $saleReturn->id, 'authorized_by' => $authorizedBy,
             ]);
         }
         $this->record($actor, 'sale.returned', $sale->id, [
-            'number' => $sale->number, 'returnNumber' => $saleReturn->number, 'total' => $saleReturn->total, 'method' => $method->name,
+            'number' => $sale->number, 'returnNumber' => $saleReturn->number, 'total' => $saleReturn->total, 'method' => $method->name, 'giftCardAmount' => Money::round($toCards),
             'reason' => $input['reason'], 'authorizedBy' => $authorizedBy,
         ]);
 

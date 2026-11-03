@@ -317,6 +317,7 @@ class SalesController extends Controller
                 'number' => (int) $r->number,
                 'createdAt' => Dates::iso($r->created_at),
                 'total' => Money::round($r->total),
+                'giftCardAmount' => Money::round($r->gift_card_amount),
                 'reason' => $r->reason,
                 'paymentMethodName' => $methods[$r->payment_method_id] ?? '',
                 'userName' => $users[$r->user_id] ?? '',

@@ -478,6 +478,8 @@ export interface SaleDto {
     number: number;
     createdAt: string;
     total: string;
+    /** Parte de la devolución que volvió a la gift card con que se pagó (ADR 0015). */
+    giftCardAmount: string;
     reason: string;
     paymentMethodName: string;
     userName: string;
@@ -516,7 +518,7 @@ export interface GiftCardDto {
   branchName: string;
   sale: { id: string; number: number };
   /** Solo en la consulta por código. */
-  movements?: Array<{ kind: 'issue' | 'redeem' | 'reversal' | 'void'; amount: string; balanceAfter: string; createdAt: string; sale: { id: string; number: number } | null }>;
+  movements?: Array<{ kind: 'issue' | 'redeem' | 'reversal' | 'void' | 'refund'; amount: string; balanceAfter: string; createdAt: string; sale: { id: string; number: number } | null }>;
 }
 
 export interface GiftCardListDto extends Paginated<GiftCardDto> {

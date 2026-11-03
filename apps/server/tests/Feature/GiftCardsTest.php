@@ -161,6 +161,42 @@ class GiftCardsTest extends TestCase
         $this->assertSame('GIFT_CARD_NOT_INVOICED', $res->body['code']);
     }
 
+    /** Lo pagado con gift card vuelve a la tarjeta, no sale de la caja; el resto se reintegra con el medio elegido. */
+    public function test_la_devolucion_vuelve_primero_a_la_tarjeta(): void
+    {
+        $shop = $this->shop();
+        $owner = $shop['client'];
+        $code = $this->issue($owner, $shop, '12000', [$this->cash($shop, '12000')])->body['giftCard']['code'];
+        $remera = $this->createProduct($owner, ['name' => 'Remera', 'price' => '9000', 'initialStock' => '5']);
+        $sale = $owner->post('/sales', [
+            'clientUuid' => self::uuid(), 'registerId' => $shop['register']['id'],
+            'lines' => [['variantId' => $remera['variantId'], 'quantity' => '2']],
+            'payments' => [$this->cash($shop, '6000')], 'giftCards' => [['code' => $code, 'amount' => '12000']], 'expectedTotal' => '18000.00',
+        ])->body;
+        $return = fn (string $quantity) => $owner->post("/sales/{$sale['id']}/returns", [
+            'clientUuid' => self::uuid(), 'registerId' => $shop['register']['id'], 'reason' => 'No le gustó',
+            'paymentMethodId' => $shop['methods']['cash']['id'], 'lines' => [['saleLineId' => $sale['lines'][0]['id'], 'quantity' => $quantity, 'restock' => true]],
+        ]);
+
+        // Primera remera (9.000): todo a la tarjeta, la caja no se toca. La tarjeta venció: recibe 30 días más.
+        app(TenantContext::class)->run($shop['tenantId'], fn () => GiftCard::where('code', $code)->update(['expires_on' => Carbon::now('America/Buenos_Aires')->subDay()->toDateString()]));
+        $cash = $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash'];
+        $first = $return('1');
+        $this->assertSame(201, $first->status, json_encode($first->body));
+        $this->assertSame('9000.00', $first->body['returns'][0]['giftCardAmount']);
+        $this->assertSame($cash, $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash']);
+        $card = $owner->get("/gift-cards/lookup?code={$code}")->body;
+        $this->assertSame(['9000.00', 'active'], [$card['balance'], $card['state']]);
+        $this->assertSame(Carbon::now('America/Buenos_Aires')->addDays(30)->toDateString(), $card['expiresOn']);
+        $this->assertSame('refund', end($card['movements'])['kind']);
+
+        // Segunda (9.000): quedaban 3.000 pagados con la tarjeta; los otros 6.000 salen en efectivo.
+        $second = $return('1');
+        $this->assertSame('3000.00', $second->body['returns'][1]['giftCardAmount']);
+        $this->assertSame('12000.00', $owner->get("/gift-cards/lookup?code={$code}")->body['balance']);
+        $this->assertSame(number_format((float) $cash - 6000, 2, '.', ''), $owner->get("/shifts/{$shop['shiftId']}")->body['expectedCash']);
+    }
+
     public function test_la_tarjeta_de_otro_comercio_no_existe(): void
     {
         $a = $this->shop();

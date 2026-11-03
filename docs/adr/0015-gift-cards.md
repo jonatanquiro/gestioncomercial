@@ -16,10 +16,10 @@ Los comercios de ropa, calzado y regalería venden órdenes de compra: alguien p
 6. **«Vendido hoy»** cuenta la plata cuando entra, al vender la tarjeta. Lo que después se paga con ella se descuenta, igual que el crédito por cambio.
 7. **Anulaciones.** Si se anula una compra pagada con gift card, el saldo vuelve a la tarjeta. La venta de una tarjeta se puede anular solo si la tarjeta no se usó, y en ese caso la tarjeta queda anulada.
 8. **Facturación.** La venta de la tarjeta no se factura. Se factura la venta en la que se usa, con lo que se lleva el cliente.
+9. **Devoluciones.** Lo que se pagó con gift card vuelve a la tarjeta como saldo, no sale de la caja: primero a las tarjetas, hasta lo que se pagó con ellas, y el resto con el medio que elija el cajero. Así una gift card no se convierte en efectivo. Si la tarjeta ya venció, recibe 30 días más para poder usar ese saldo. En un cambio no aplica: el crédito paga la venta nueva.
 
 ## Límites conocidos
 
-- **Devoluciones.** En una devolución de algo que se pagó con gift card, el reintegro se hace con un medio común: no vuelve a la tarjeta.
 - **Saldo vencido.** Si la tarjeta vence con saldo, el saldo queda en el listado como vencido. No hay todavía un asiento contable que lo dé de baja.
 
 ## Verificación

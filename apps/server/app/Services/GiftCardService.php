@@ -7,6 +7,7 @@ use App\Models\GiftCard;
 use App\Models\GiftCardMovement;
 use App\Models\PaymentMethod;
 use App\Models\Sale;
+use App\Models\SaleReturn;
 use App\Support\AppError;
 use App\Support\Money;
 use Brick\Math\BigDecimal;
@@ -19,6 +20,9 @@ use Illuminate\Support\Carbon;
 class GiftCardService
 {
     public const MAX_MONTHS = 6;
+
+    /** Días de uso que se le dan a una tarjeta vencida cuando recibe saldo de una devolución. */
+    public const REFUND_EXTENSION_DAYS = 30;
 
     /** Sin letras ni números que se confundan al leerlos (O/0, I/1). */
     private const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -103,6 +107,52 @@ class GiftCardService
             $card->forceFill(['balance' => Money::round($balance)])->save();
             $this->movement($actor, $card, 'reversal', BigDecimal::of($m->amount)->negated(), $balance, $sale);
         }
+    }
+
+    /** Lo que de esta venta se pagó con gift card y todavía no volvió a la tarjeta. */
+    public static function refundable(Sale $sale): BigDecimal
+    {
+        $moves = GiftCardMovement::where('sale_id', $sale->id)->whereIn('kind', ['redeem', 'refund'])->sum('amount');
+
+        // Los usos son negativos y las devoluciones positivas: lo pendiente es la suma cambiada de signo.
+        return BigDecimal::max(BigDecimal::zero(), Money::of((string) $moves)->negated());
+    }
+
+    /**
+     * Devolución de una venta pagada con gift card: lo devuelto vuelve primero a las tarjetas,
+     * hasta lo que se pagó con ellas, en el orden en que se usaron. Una tarjeta vencida recibe
+     * unos días más para poder usar ese saldo. Devuelve cuánto fue a las tarjetas.
+     */
+    public function refund(Actor $actor, Sale $sale, SaleReturn $saleReturn, BigDecimal $total): BigDecimal
+    {
+        $left = BigDecimal::min($total, self::refundable($sale));
+        $refunded = BigDecimal::zero();
+        $byCard = GiftCardMovement::where('sale_id', $sale->id)->whereIn('kind', ['redeem', 'refund'])->orderBy('created_at')->get()->groupBy('gift_card_id');
+        foreach ($byCard as $cardId => $moves) {
+            if (! $left->isPositive()) {
+                break;
+            }
+            $pending = Money::of((string) $moves->sum('amount'))->negated();
+            $take = BigDecimal::min($left, $pending);
+            if (! $take->isPositive()) {
+                continue;
+            }
+            $card = GiftCard::whereKey($cardId)->lockForUpdate()->first();
+            $balance = Money::of($card->balance)->plus($take);
+            $changes = ['balance' => Money::round($balance)];
+            if ($card->expires_on->toDateString() < self::today()) {
+                $changes['expires_on'] = Carbon::now('America/Buenos_Aires')->addDays(self::REFUND_EXTENSION_DAYS)->toDateString();
+            }
+            $card->forceFill($changes)->save();
+            GiftCardMovement::create([
+                'gift_card_id' => $card->id, 'kind' => 'refund', 'amount' => Money::round($take), 'balance_after' => Money::round($balance),
+                'sale_id' => $sale->id, 'sale_return_id' => $saleReturn->id, 'branch_id' => $saleReturn->branch_id, 'user_id' => $actor->userId,
+            ]);
+            $left = $left->minus($take);
+            $refunded = $refunded->plus($take);
+        }
+
+        return $refunded;
     }
 
     /** @param  array{amount: string, validMonths: int, recipientName?: ?string, fromName?: ?string}  $input */
