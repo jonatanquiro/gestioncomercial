@@ -61,7 +61,13 @@ class FiscalPayload
     {
         $xml = '';
         foreach ($payload as $key => $value) {
-            if ($key === 'Iva') {
+            if ($key === 'CbtesAsoc') {
+                $xml .= '<CbtesAsoc>';
+                foreach ($value as $row) {
+                    $xml .= '<CbteAsoc>'.self::xml($row).'</CbteAsoc>';
+                }
+                $xml .= '</CbtesAsoc>';
+            } elseif ($key === 'Iva') {
                 $xml .= '<Iva>';
                 foreach ($value as $row) {
                     $xml .= '<AlicIva>'.self::xml($row).'</AlicIva>';

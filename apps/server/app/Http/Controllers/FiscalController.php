@@ -177,9 +177,26 @@ class FiscalController extends Controller
         return ['environment' => $s->environment, 'cuit' => $s->cuit, 'pointOfSale' => $s->point_of_sale, 'credentialMode' => $s->credential_mode, 'grossIncomeNumber' => $s->issuer_metadata['grossIncomeNumber'] ?? null, 'activityStartDate' => $s->issuer_metadata['activityStartDate'] ?? null, 'hasCertificate' => (bool) $s->certificate_enc, 'hasPrivateKey' => (bool) $s->private_key_enc, 'certificateExpiresOn' => isset($certificate['validTo_time_t']) ? gmdate('Y-m-d', $certificate['validTo_time_t']) : null, 'csr' => $s->csr];
     }
 
+    /** Nota de crédito de una devolución (saleReturnId) o de la anulación de la venta (null). */
+    public function creditNote(Request $request, string $id): JsonResponse
+    {
+        Sale::find($id) ?? throw AppError::notFound('Venta');
+        $v = Input::validate($this->body($request), [
+            'environment' => ['required', 'in:homologacion,produccion'],
+            'saleReturnId' => ['nullable', 'uuid'],
+            'confirmProduction' => ['nullable', Input::strictBoolean()],
+        ]);
+        if ($v['environment'] === 'produccion' && ($v['confirmProduction'] ?? false) !== true) {
+            throw AppError::badRequest('FISCAL_CONFIRMATION', 'Confirmá que querés emitir un comprobante fiscal real');
+        }
+        $note = app(FiscalIssuer::class)->creditNote($this->actor($request), $id, $v['saleReturnId'] ?? null, $v['environment']);
+
+        return $this->json($this->invoiceDto($note));
+    }
+
     private function invoiceDto(FiscalInvoice $i): array
     {
-        return ['id' => $i->id, 'saleId' => $i->sale_id, 'environment' => $i->environment, 'cuit' => $i->cuit, 'pointOfSale' => $i->point_of_sale, 'voucherType' => $i->voucher_type, 'number' => $i->number, 'status' => $i->status, 'cae' => $i->cae, 'caeExpiresOn' => $i->cae_expires_on, 'message' => $i->message, 'payload' => $i->payload];
+        return ['id' => $i->id, 'saleId' => $i->sale_id, 'kind' => $i->kind, 'saleReturnId' => $i->sale_return_id, 'associatedInvoiceId' => $i->associated_invoice_id, 'environment' => $i->environment, 'cuit' => $i->cuit, 'pointOfSale' => $i->point_of_sale, 'voucherType' => $i->voucher_type, 'number' => $i->number, 'status' => $i->status, 'cae' => $i->cae, 'caeExpiresOn' => $i->cae_expires_on, 'message' => $i->message, 'payload' => $i->payload];
     }
 
     private function record(Actor $actor, string $action, string $id, array $after): void

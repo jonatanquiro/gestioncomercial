@@ -21,7 +21,8 @@ import { ExchangeDialog } from './exchange-dialog';
 import { PrintTicket } from './ticket';
 import { parseSaleTicketCode } from './exchange-ticket';
 import { InvoiceDialog, invoiceNumber, saleInvoicesQuery } from '@/features/fiscal/invoice-dialog';
-import { InvoicePrint } from '@/features/fiscal/invoice';
+import { type Invoice, InvoicePrint } from '@/features/fiscal/invoice';
+import { CreditNoteDialog } from '@/features/fiscal/credit-note-dialog';
 import { formatExpiry, formatGiftCardCode } from '@/features/gift-cards/gift-card-ticket';
 import { GIFT_CARD_STATES, GiftCardDetailDialog } from '@/features/gift-cards/gift-cards-page';
 
@@ -138,12 +139,19 @@ export function SaleDetailPage() {
   const canInvoice = can('fiscal.issue', 'fiscal.manage');
   const invoices = useQuery({ ...saleInvoicesQuery(id), enabled: canInvoice });
   const [printingInvoice, setPrintingInvoice] = useState<NonNullable<typeof invoices.data>[number] | null>(null);
+  const [crediting, setCrediting] = useState<{ saleReturnId: string | null; amount: string } | null>(null);
 
   if (!can('sales.read_own', 'sales.read_all')) return <Forbidden />;
   if (sale.isLoading) return <Spinner />;
   if (sale.error) return <Alert>{errorMessage(sale.error)}</Alert>;
   const s = sale.data!;
   const returnable = s.lines.some((l) => dec(l.quantity).gt(l.returnedQuantity));
+  // Factura autorizada (la de producción si hay) y la nota de crédito de cada devolución o de la anulación (ADR 0017).
+  const authorized = (invoices.data ?? []).filter((i) => i.kind === 'invoice' && i.status === 'authorized');
+  const invoice = authorized.find((i) => i.environment === 'produccion') ?? authorized[0];
+  const noteFor = (saleReturnId: string | null): Invoice | undefined =>
+    (invoices.data ?? []).find((i) => i.kind === 'credit_note' && i.environment === invoice?.environment && i.saleReturnId === saleReturnId);
+  const voidNote = invoice && s.status === 'voided' ? noteFor(null) : undefined;
 
   return (
     <>
@@ -183,6 +191,16 @@ export function SaleDetailPage() {
               venta N° {s.exchangeOf.saleNumber}
             </Link>
             : lo devuelto dejó un crédito de {formatArs(s.exchangeOf.credit)}.
+          </Alert>
+        </div>
+      )}
+      {invoice && s.status === 'voided' && voidNote?.status !== 'authorized' && (
+        <div className="mb-4">
+          <Alert kind="info">
+            La venta estaba facturada: falta la nota de crédito por la anulación.{' '}
+            <button type="button" className="font-semibold underline" onClick={() => setCrediting({ saleReturnId: null, amount: s.total })}>
+              Emitir nota de crédito
+            </button>
           </Alert>
         </div>
       )}
@@ -325,7 +343,14 @@ export function SaleDetailPage() {
                   {r.userName}
                   {r.authorizedByName && <span className="block text-xs text-slate-500">Autorizó {r.authorizedByName}</span>}
                 </Td>
-                <Td className="text-right font-semibold">{formatArs(r.total)}</Td>
+                <Td className="text-right font-semibold">
+                  {formatArs(r.total)}
+                  {invoice && noteFor(r.id)?.status !== 'authorized' && (
+                    <button type="button" className="block w-full text-right text-xs font-semibold text-brand-700 underline" onClick={() => setCrediting({ saleReturnId: r.id, amount: r.total })}>
+                      Emitir nota de crédito
+                    </button>
+                  )}
+                </Td>
               </tr>
             ))}
           </Table>
@@ -337,6 +362,9 @@ export function SaleDetailPage() {
       {showingCard && s.giftCard && <GiftCardDetailDialog code={s.giftCard.code} onClose={() => setShowingCard(false)} />}
       {printing && tenant.data && <PrintTicket sale={s} exchange={printing === 'exchange'} tenant={tenant.data} onDone={() => setPrinting(null)} />}
       {invoicing && <InvoiceDialog sale={s} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => setInvoicing(false)} />}
+      {crediting && invoice && (
+        <CreditNoteDialog invoice={invoice} saleReturnId={crediting.saleReturnId} amount={crediting.amount} existing={noteFor(crediting.saleReturnId)} onClose={() => setCrediting(null)} />
+      )}
       {printingInvoice && <InvoicePrint invoice={printingInvoice} onClose={() => setPrintingInvoice(null)} />}
     </>
   );

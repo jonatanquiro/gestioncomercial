@@ -143,6 +143,7 @@ class IsolationTest extends TestCase
             '/shifts/{id}/close' => ['counted' => '0'],
             '/sales/{id}/void' => ['reason' => 'Hackeo'],
             '/sales/{id}/invoice' => [],
+            '/sales/{id}/credit-notes' => ['environment' => 'homologacion'],
             '/sales/{id}/returns' => [
                 'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
                 'paymentMethodId' => $this->bIds['paymentMethod'], 'lines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
@@ -200,7 +201,7 @@ class IsolationTest extends TestCase
             'GET /products/{id}', 'GET /products/{id}/history', 'PUT /products/{id}', 'POST /products/{id}/status',
             'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
             'PUT /registers/{id}', 'PUT /payment-methods/{id}', 'GET /shifts/{id}', 'POST /shifts/{id}/movements', 'POST /shifts/{id}/counts',
-            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'PUT /suppliers/{id}', 'GET /purchases/{id}',
+            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'POST /sales/{id}/credit-notes', 'PUT /suppliers/{id}', 'GET /purchases/{id}',
             'GET /customers/{id}', 'PUT /customers/{id}', 'POST /customers/{id}/adjustments', 'POST /customers/{id}/payments',
         ] as $expected) {
             $this->assertContains($expected, $checked);

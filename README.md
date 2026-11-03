@@ -22,6 +22,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - ticket de cambio sin precios, con el plazo para cambiar y un código que abre la venta al escanearlo;
 - gift cards: se venden por un monto, valen hasta 6 meses y se usan como medio de pago en una o varias compras, en cualquier sucursal, con el saldo vigente a la vista;
 - clientes con datos para facturarles y cuenta corriente: venta fiada con límite de crédito, cobro de la deuda que entra a la caja, devoluciones que bajan la deuda y saldo inicial;
+- notas de crédito ARCA: una venta facturada se devuelve o anula y después se emite la nota de crédito asociada a la factura, por lo devuelto;
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
 - estilo propio «Almacén de barrio» (papel crema, menú verde almacén y acento tomate) con logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior configurables por comercio;
@@ -159,7 +160,9 @@ Desde una venta se puede abrir **Facturar en ARCA**, o elegirla en la pantalla f
 
 Los comprobantes autorizados tienen impresión con CAE y QR generado localmente. Los de homologación llevan la marca **sin validez fiscal**; el ticket interno de caja sigue siendo un documento distinto. Antes de usar producción se deben validar los datos del emisor y del receptor, el certificado, la habilitación de WSFE, el punto de venta y el circuito completo en homologación. Producción exige además razón social, domicilio, CUIT del comercio, Ingresos Brutos/información de exención y fecha de inicio de actividades, y una confirmación expresa en cada solicitud.
 
-**Alcance pendiente:** notas de crédito, servicios, otras monedas, impuestos internos y otros tributos, exportaciones, comprobantes especiales y validación en vivo con certificados habilitados. Una venta con factura de producción autorizada o pendiente no puede anularse ni devolverse desde caja: requiere resolver su estado y la nota de crédito fiscal, que esta versión todavía no emite. No usar la emisión de esta versión para operaciones que necesiten los conceptos pendientes. Las pruebas fiscales automáticas simulan las respuestas del organismo; no emiten comprobantes reales.
+**Notas de crédito:** una venta con factura autorizada se devuelve o anula desde caja, y después se emite desde la venta la nota de crédito asociada (una por cada devolución, o una por la anulación). Con una factura pendiente de confirmación no se puede devolver ni anular hasta consultarla.
+
+**Alcance pendiente:** servicios, otras monedas, impuestos internos y otros tributos, exportaciones, comprobantes especiales y validación en vivo con certificados habilitados. No usar la emisión de esta versión para operaciones que necesiten los conceptos pendientes. Las pruebas fiscales automáticas simulan las respuestas del organismo; no emiten comprobantes reales.
 
 Referencias oficiales: [WSAA y asociación de certificados](https://www.afip.gob.ar/ws/documentacion/wsaa.asp), [manuales WSFE](https://www.afip.gob.ar/fe/ayuda/webservice.asp), [especificaciones del QR](https://www.afip.gob.ar/fe/qr/).
 
@@ -248,4 +251,5 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0014 · Ingreso de mercadería, cambios y etiquetas](docs/adr/0014-compras-cambios-y-etiquetas.md)
 - [0015 · Gift cards](docs/adr/0015-gift-cards.md)
 - [0016 · Clientes y cuenta corriente](docs/adr/0016-clientes-y-cuenta-corriente.md)
+- [0017 · Notas de crédito ARCA](docs/adr/0017-notas-de-credito.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

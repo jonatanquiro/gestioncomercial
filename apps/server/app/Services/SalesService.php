@@ -640,8 +640,10 @@ class SalesService
 
     private function assertNoFiscalVoucher(string $saleId): void
     {
-        if (FiscalInvoice::where('sale_id', $saleId)->where('environment', 'produccion')->whereIn('status', ['pending', 'authorized'])->exists()) {
-            throw AppError::conflict('FISCAL_CREDIT_NOTE_REQUIRED', 'La venta tiene un comprobante fiscal real o pendiente. Requiere resolver su estado y la nota de crédito fiscal antes de anular o devolver. Este módulo todavía no emite notas de crédito.');
+        // Con la factura autorizada se devuelve o anula y después se emite la nota de crédito (ADR 0017).
+        // Con una pendiente no: hasta que ARCA confirme, no se sabe si la venta quedó facturada.
+        if (FiscalInvoice::where('sale_id', $saleId)->where('status', 'pending')->exists()) {
+            throw AppError::conflict('FISCAL_PENDING', 'La venta tiene un comprobante fiscal pendiente de confirmación en ARCA. Consultalo desde la venta antes de anular o devolver.');
         }
     }
 

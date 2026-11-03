@@ -81,6 +81,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::get('fiscal/status', [FiscalController::class, 'status'])->middleware('perm:fiscal.manage,fiscal.issue');
     Route::get('fiscal/invoices', [FiscalController::class, 'invoices'])->middleware('perm:fiscal.manage,fiscal.issue');
     Route::post('sales/{id}/invoice', [FiscalController::class, 'issue'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::post('sales/{id}/credit-notes', [FiscalController::class, 'creditNote'])->middleware('perm:fiscal.manage,fiscal.issue');
     Route::get('payments', [PaymentsController::class, 'index'])->middleware('perm:cash.read_all');
     Route::get('dashboard/today', [DashboardController::class, 'today'])->middleware('perm:sales.read_own,sales.read_all,cash.read_all,stock.read');
     Route::get('settlements', [SettlementsController::class, 'index'])->middleware('perm:cash.read_all');

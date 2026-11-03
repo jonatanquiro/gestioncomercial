@@ -55,7 +55,7 @@ export function InvoiceDialog({ sale, taxCondition, canConfigure, onClose }: { s
       }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['fiscal-invoices'] }),
   });
-  const forEnv = existing.data?.filter((i) => i.environment === env) ?? [];
+  const forEnv = existing.data?.filter((i) => i.environment === env && i.kind === 'invoice') ?? [];
   const result = issue.data ?? forEnv.find((i) => i.status === 'authorized') ?? forEnv.find((i) => i.status === 'pending');
   const chooseBuyer = (b: Buyer) => {
     setBuyer(b);

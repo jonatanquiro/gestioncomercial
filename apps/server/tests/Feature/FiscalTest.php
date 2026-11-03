@@ -192,4 +192,89 @@ class FiscalTest extends TestCase
         Http::assertSentCount(3);
         Http::assertSent(fn ($request) => str_contains($request->body(), '<FECompConsultar'));
     }
+
+    /** Fake de ARCA que autoriza todo y numera desde $last; guarda cada pedido de CAE. */
+    private function arcaAuthorizing(array &$requests, int $last = 0): void
+    {
+        Http::preventStrayRequests();
+        Http::fake(function ($request) use (&$requests, &$last) {
+            $xml = $request->body();
+            if (str_contains($xml, '<loginCms')) {
+                return $this->ticket();
+            }
+            if (str_contains($xml, '<FECompUltimoAutorizado')) {
+                return $this->response('FECompUltimoAutorizado', '<CbteNro>'.$last.'</CbteNro>');
+            }
+            $requests[] = $xml;
+            $last++;
+
+            return $this->response('FECAESolicitar', '<FeDetResp><FECAEDetResponse><Resultado>A</Resultado><CAE>7000000000000'.count($requests).'</CAE><CAEFchVto>20261120</CAEFchVto></FECAEDetResponse></FeDetResp>');
+        });
+    }
+
+    public function test_devolucion_de_venta_facturada_emite_nota_de_credito_asociada(): void
+    {
+        [$owner, $sale] = $this->prepare();
+        $requests = [];
+        $this->arcaAuthorizing($requests);
+        $invoice = $owner->post("/sales/{$sale}/invoice", $this->body())->body;
+        $this->assertSame(['authorized', 1], [$invoice['status'], $invoice['number']]);
+
+        // Antes, una venta facturada no admitía devoluciones; ahora sí, y queda la nota de crédito por emitir.
+        $detail = $owner->get("/sales/{$sale}")->body;
+        $register = $owner->get('/registers')->body[0];
+        $cash = collect($owner->get('/payment-methods')->body)->firstWhere('kind', 'cash');
+        $return = $owner->post("/sales/{$sale}/returns", [
+            'clientUuid' => self::uuid(), 'registerId' => $register['id'], 'reason' => 'Falla', 'paymentMethodId' => $cash['id'],
+            'lines' => [['saleLineId' => $detail['lines'][0]['id'], 'quantity' => '1', 'restock' => true]],
+        ]);
+        $this->assertSame(201, $return->status, json_encode($return->body));
+        $returnId = $return->body['returns'][0]['id'];
+
+        $note = $owner->post("/sales/{$sale}/credit-notes", ['environment' => 'homologacion', 'saleReturnId' => $returnId]);
+        $this->assertSame(200, $note->status, json_encode($note->body));
+        $this->assertSame(['credit_note', 13, 'authorized', $returnId, $invoice['id']], [$note->body['kind'], $note->body['voucherType'], $note->body['status'], $note->body['saleReturnId'], $note->body['associatedInvoiceId']]);
+        $xml = end($requests);
+        $this->assertStringContainsString('<CbteTipo>13</CbteTipo>', $xml);
+        $this->assertStringContainsString('<CbtesAsoc><CbteAsoc><Tipo>11</Tipo><PtoVta>3</PtoVta><Nro>1</Nro><Cuit>20123456786</Cuit>', $xml);
+        $this->assertStringContainsString('<ImpTotal>121.00</ImpTotal>', $xml);
+
+        // Un reintento devuelve la misma nota; la factura no se vuelve a emitir con devoluciones.
+        $this->assertSame($note->body['id'], $owner->post("/sales/{$sale}/credit-notes", ['environment' => 'homologacion', 'saleReturnId' => $returnId])->body['id']);
+        $this->assertCount(2, $requests);
+        $this->assertSame(2, count($owner->get("/fiscal/invoices?saleId={$sale}")->body));
+    }
+
+    public function test_anulacion_de_venta_facturada_y_factura_pendiente_bloquea(): void
+    {
+        [$owner, $sale] = $this->prepare();
+        $requests = [];
+        $this->arcaAuthorizing($requests, 7);
+        $owner->post("/sales/{$sale}/invoice", $this->body());
+        $this->assertSame('FISCAL_NOT_VOIDED', $owner->post("/sales/{$sale}/credit-notes", ['environment' => 'homologacion'])->body['code']);
+        $this->assertSame(200, $owner->post("/sales/{$sale}/void", ['reason' => 'Error de carga'])->status);
+        $note = $owner->post("/sales/{$sale}/credit-notes", ['environment' => 'homologacion']);
+        $this->assertSame(['authorized', 13, null], [$note->body['status'], $note->body['voucherType'], $note->body['saleReturnId']]);
+
+        // Sin factura no hay nota de crédito.
+        $register = $owner->get('/registers')->body[0];
+        $cash = collect($owner->get('/payment-methods')->body)->firstWhere('kind', 'cash');
+        $product = $this->createProduct($owner, ['price' => '50', 'initialStock' => '5']);
+        $other = $owner->post('/sales', ['clientUuid' => self::uuid(), 'registerId' => $register['id'], 'lines' => [['variantId' => $product['variantId'], 'quantity' => '1']], 'payments' => [['paymentMethodId' => $cash['id'], 'amount' => '50']], 'expectedTotal' => '50.00'])->body;
+        $this->assertSame('FISCAL_NO_INVOICE', $owner->post("/sales/{$other['id']}/credit-notes", ['environment' => 'homologacion'])->body['code']);
+
+        // Con la factura pendiente de confirmación, no se devuelve ni se anula.
+        Http::fake(function ($request) {
+            $xml = $request->body();
+            if (str_contains($xml, '<loginCms')) {
+                return $this->ticket();
+            }
+            if (str_contains($xml, '<FECompUltimoAutorizado')) {
+                return $this->response('FECompUltimoAutorizado', '<CbteNro>20</CbteNro>');
+            }
+            throw new ConnectionException('Timeout simulado');
+        });
+        $owner->post("/sales/{$other['id']}/invoice", $this->body());
+        $this->assertSame('FISCAL_PENDING', $owner->post("/sales/{$other['id']}/void", ['reason' => 'Error'])->body['code']);
+    }
 }
