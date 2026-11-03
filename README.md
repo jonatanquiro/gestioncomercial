@@ -21,6 +21,7 @@ El desarrollo avanza por fases. **Estado actual: punto de venta y caja, rendici�
 - cambios de talle o de artículo en una sola operación: lo devuelto queda como crédito y se cobra solo la diferencia;
 - ticket de cambio sin precios, con el plazo para cambiar y un código que abre la venta al escanearlo;
 - gift cards: se venden por un monto, valen hasta 6 meses y se usan como medio de pago en una o varias compras, en cualquier sucursal, con el saldo vigente a la vista;
+- clientes con datos para facturarles y cuenta corriente: venta fiada con límite de crédito, cobro de la deuda que entra a la caja, devoluciones que bajan la deuda y saldo inicial;
 - listado de cobros electrónicos (transferencias, QR, tarjetas) con filtros, estado de rendición y señales de N° de operación repetido o faltante;
 - rendiciones de cobros electrónicos con importación CSV configurable, revisión manual, vinculación y cierre auditado;
 - estilo propio «Almacén de barrio» (papel crema, menú verde almacén y acento tomate) con logo, fuente, colores, tamaño de texto, tablas compactas y menú lateral o superior configurables por comercio;
@@ -246,4 +247,5 @@ Están documentadas en [`apps/server/.env.example`](apps/server/.env.example). N
 - [0013 · Variantes de producto (talle, color)](docs/adr/0013-variantes-de-producto.md)
 - [0014 · Ingreso de mercadería, cambios y etiquetas](docs/adr/0014-compras-cambios-y-etiquetas.md)
 - [0015 · Gift cards](docs/adr/0015-gift-cards.md)
+- [0016 · Clientes y cuenta corriente](docs/adr/0016-clientes-y-cuenta-corriente.md)
 - Históricas: [0001](docs/adr/0001-stack-y-estructura.md) y [0002](docs/adr/0002-aislamiento-multiempresa.md), del stack anterior en Node y PostgreSQL

@@ -43,6 +43,7 @@ class SalesService
         private readonly PinAuthorization $pins,
         private readonly AuditService $audit,
         private readonly GiftCardService $giftCards,
+        private readonly CustomerAccountService $accounts,
     ) {}
 
     /**
@@ -126,9 +127,23 @@ class SalesService
             ]);
         }
 
-        // Las gift cards se bloquean antes de tocar nada: dos cajas no pueden gastar el mismo saldo.
+        // Las gift cards y la cuenta del cliente se bloquean antes de tocar nada: dos cajas no pueden gastar el mismo saldo.
         $cards = $this->giftCards->lockForPayment($input['giftCards'] ?? []);
+        $onAccount = BigDecimal::of(Money::round($input['accountAmount'] ?? '0'));
+        $customer = ($input['customerId'] ?? null) ? $this->accounts->customer($input['customerId'], $onAccount->isPositive()) : null;
+        if ($onAccount->isPositive()) {
+            if (! $customer) {
+                throw AppError::validation([['path' => 'customerId', 'message' => 'Para vender a cuenta corriente elegí el cliente']]);
+            }
+            if (! $actor->can('accounts.grant_credit')) {
+                throw AppError::forbidden('accounts.grant_credit');
+            }
+            $this->accounts->assertCredit($customer, $onAccount);
+        }
         $internal = $credit !== null ? [['method' => $credit['method'], 'amount' => BigDecimal::of($credit['amount']), 'credit' => true]] : [];
+        if ($onAccount->isPositive()) {
+            $internal[] = ['method' => $this->accounts->method(), 'amount' => $onAccount];
+        }
         if ($cards !== []) {
             $method = $this->giftCards->method();
             foreach ($cards as $c) {
@@ -145,6 +160,8 @@ class SalesService
             'number' => $this->setup->nextNumber($register->branch_id, 'sale'),
             'client_uuid' => $input['clientUuid'],
             'status' => 'confirmed',
+            'kind' => 'sale',
+            'customer_id' => $customer?->id,
             'cashier_id' => $actor->userId,
             'subtotal' => Money::round($subtotal),
             'discount_total' => Money::round($discountTotal),
@@ -181,10 +198,13 @@ class SalesService
 
         $this->recordPayments($actor, $shift, $sale, $payments);
         $this->giftCards->redeem($actor, $cards, $sale);
+        if ($onAccount->isPositive()) {
+            $this->accounts->charge($actor, $customer, $sale, $onAccount);
+        }
 
         $this->record($actor, 'sale.created', $sale->id, [
             'number' => $sale->number, 'total' => $sale->total, 'discountTotal' => $sale->discount_total,
-            'discountAuthorizedBy' => $discountAuthorizedBy, 'lines' => count($lines),
+            'discountAuthorizedBy' => $discountAuthorizedBy, 'lines' => count($lines), 'customerId' => $customer?->id, 'onAccount' => Money::round($onAccount),
         ]);
 
         return $sale;
@@ -235,7 +255,8 @@ class SalesService
                     .Money::pesos($p['amount']).'). Agregá artículos o registrá una devolución por la diferencia.']]);
             }
             if ($paid->plus($p['amount'])->isGreaterThan($total)) {
-                throw AppError::validation([['path' => 'giftCards', 'message' => 'Con la gift card se paga hasta el total: usá como máximo '.Money::pesos($total->minus($paid)).' de saldo']]);
+                $what = $p['method']->kind === 'account' ? ['accountAmount', 'A cuenta corriente'] : ['giftCards', 'Con la gift card'];
+                throw AppError::validation([['path' => $what[0], 'message' => "{$what[1]} se paga hasta el total: como máximo ".Money::pesos($total->minus($paid))]]);
             }
             $paid = $paid->plus($p['amount']);
             $nonCash = $nonCash->plus($p['amount']);
@@ -307,7 +328,7 @@ class SalesService
                     'clientUuid' => $input['clientUuid'], 'reason' => "Cambio: {$input['reason']}", 'paymentMethodId' => $method->id, 'lines' => $input['returnLines'], 'exchange' => true,
                 ], $returnAuthorizedBy);
                 $sale = $this->confirm($actor, $register, $input, $discountAuthorizedBy, ['method' => $method, 'amount' => Money::round($saleReturn->total)]);
-                $sale->forceFill(['exchange_return_id' => $saleReturn->id])->save();
+                $sale->forceFill(['exchange_return_id' => $saleReturn->id, 'customer_id' => $sale->customer_id ?? Sale::whereKey($saleId)->value('customer_id')])->save();
                 $this->record($actor, 'sale.exchanged', $sale->id, [
                     'number' => $sale->number, 'originalSaleId' => $saleId, 'returnNumber' => $saleReturn->number,
                     'credit' => Money::round($saleReturn->total), 'total' => $sale->total, 'reason' => $input['reason'],
@@ -349,7 +370,7 @@ class SalesService
                 $sale = Sale::create([
                     'branch_id' => $register->branch_id, 'register_id' => $register->id, 'shift_id' => $shift->id, 'warehouse_id' => $warehouse->id,
                     'number' => $this->setup->nextNumber($register->branch_id, 'sale'), 'client_uuid' => $input['clientUuid'], 'status' => 'confirmed',
-                    'cashier_id' => $actor->userId, 'subtotal' => Money::round($amount), 'discount_total' => '0.00', 'total' => Money::round($amount),
+                    'kind' => 'gift_card', 'cashier_id' => $actor->userId, 'subtotal' => Money::round($amount), 'discount_total' => '0.00', 'total' => Money::round($amount),
                     'change_given' => Money::round($change), 'discount_authorized_by' => null, 'confirmed_at' => Carbon::now(),
                 ]);
                 $this->recordPayments($actor, $shift, $sale, $payments);
@@ -357,6 +378,56 @@ class SalesService
                 $this->record($actor, 'sale.gift_card_issued', $sale->id, [
                     'number' => $sale->number, 'code' => $card->code, 'amount' => $card->amount, 'expiresOn' => $card->expires_on->toDateString(),
                 ]);
+
+                return $sale;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            $sale = Sale::where('client_uuid', $input['clientUuid'])->first();
+            if ($sale) {
+                return ['sale' => $sale, 'created' => false];
+            }
+            throw $e;
+        }
+
+        return ['sale' => $sale, 'created' => true];
+    }
+
+    /**
+     * Cobro de cuenta corriente (ADR 0016): una venta sin artículos de tipo account_payment, que
+     * se cobra con cualquier medio y entra a la caja y a cobros; baja la deuda del cliente.
+     *
+     * @param  array{clientUuid: string, registerId: string, amount: string, payments: list<array>}  $input
+     * @return array{sale: Sale, created: bool}
+     */
+    public function collectAccount(Actor $actor, string $customerId, array $input): array
+    {
+        if ($existing = Sale::where('client_uuid', $input['clientUuid'])->first()) {
+            return ['sale' => $existing, 'created' => false];
+        }
+        $register = $this->cash->register($actor, $input['registerId']);
+
+        try {
+            $sale = DB::transaction(function () use ($actor, $customerId, $register, $input) {
+                $shift = $this->cash->lockOpenShift($register->id);
+                $customer = $this->accounts->customer($customerId, true);
+                $amount = BigDecimal::of(Money::round($input['amount']));
+                if ($amount->isGreaterThan($customer->balance)) {
+                    throw AppError::validation([['path' => 'amount', 'message' => Money::of($customer->balance)->isPositive()
+                        ? "{$customer->name} debe ".Money::pesos($customer->balance).': no se puede cobrar más que eso'
+                        : "{$customer->name} no tiene deuda"]]);
+                }
+                $warehouse = Warehouse::where('branch_id', $register->branch_id)->where('is_default', true)->first() ?? throw AppError::notFound('Depósito');
+                [$payments, $change] = $this->payments($input['payments'], $amount);
+                $sale = Sale::create([
+                    'branch_id' => $register->branch_id, 'register_id' => $register->id, 'shift_id' => $shift->id, 'warehouse_id' => $warehouse->id,
+                    'number' => $this->setup->nextNumber($register->branch_id, 'sale'), 'client_uuid' => $input['clientUuid'], 'status' => 'confirmed',
+                    'kind' => 'account_payment', 'customer_id' => $customer->id, 'cashier_id' => $actor->userId, 'subtotal' => Money::round($amount),
+                    'discount_total' => '0.00', 'total' => Money::round($amount), 'change_given' => Money::round($change), 'discount_authorized_by' => null,
+                    'confirmed_at' => Carbon::now(),
+                ]);
+                $this->recordPayments($actor, $shift, $sale, $payments);
+                $this->accounts->collect($actor, $customer, $sale, $amount);
+                $this->record($actor, 'sale.account_collected', $sale->id, ['number' => $sale->number, 'customerId' => $customer->id, 'amount' => Money::round($amount)]);
 
                 return $sale;
             });
@@ -404,6 +475,7 @@ class SalesService
             }
             $this->giftCards->voidIssued($actor, $sale);
             $this->giftCards->reverse($actor, $sale);
+            $this->accounts->voidSale($actor, $sale);
 
             $products = Product::whereIn('id', ProductVariant::whereIn('id', SaleLine::where('sale_id', $sale->id)->select('variant_id'))->select('product_id'))
                 ->where('track_stock', true)->pluck('id');
@@ -476,7 +548,8 @@ class SalesService
         $shift = $this->cash->lockOpenShift($register->id);
         $method = PaymentMethod::find($input['paymentMethodId']);
         // El crédito por cambio solo lo usa exchange(), que lo aplica en la misma operación.
-        if (! $method || ! $method->active || $method->kind === 'gift_card' || ($method->kind === 'exchange' && ! ($input['exchange'] ?? false))) {
+        $internal = in_array($method?->kind, PaymentMethod::INTERNAL_KINDS, true) && ! ($method->kind === 'exchange' && ($input['exchange'] ?? false));
+        if (! $method || ! $method->active || $internal) {
             throw AppError::validation([['path' => 'paymentMethodId', 'message' => 'Medio de pago inexistente o desactivado']]);
         }
 
@@ -504,7 +577,9 @@ class SalesService
 
         // Lo pagado con gift card vuelve a la tarjeta (ADR 0015); en un cambio, el crédito paga la venta nueva.
         $toCards = ($input['exchange'] ?? false) ? BigDecimal::zero() : BigDecimal::min($total, GiftCardService::refundable($sale));
-        $rest = $total->minus($toCards);
+        // Lo vendido a cuenta corriente baja la deuda del cliente (ADR 0016).
+        $toAccount = ($input['exchange'] ?? false) ? BigDecimal::zero() : BigDecimal::min($total->minus($toCards), CustomerAccountService::refundable($sale));
+        $rest = $total->minus($toCards)->minus($toAccount);
         if ($method->kind === 'cash' && $rest->isGreaterThan($this->cash->expectedCash($shift))) {
             throw AppError::conflict('CASH_INSUFFICIENT', 'No hay suficiente efectivo en la caja para devolver '.Money::pesos($rest).'. Elegí otro medio de reintegro o registrá un ingreso de efectivo.');
         }
@@ -519,6 +594,7 @@ class SalesService
             'payment_method_id' => $method->id,
             'total' => Money::round($total),
             'gift_card_amount' => Money::round($toCards),
+            'account_amount' => Money::round($toAccount),
             'user_id' => $actor->userId,
             'authorized_by' => $authorizedBy,
             'created_at' => Carbon::now(),
@@ -546,13 +622,16 @@ class SalesService
         if ($toCards->isPositive()) {
             $this->giftCards->refund($actor, $sale, $saleReturn, $toCards);
         }
+        if ($toAccount->isPositive()) {
+            $this->accounts->refund($actor, $sale, $saleReturn, $toAccount);
+        }
         if ($method->kind === 'cash' && $rest->isPositive()) {
             $this->cash->addMovement($actor, $shift, 'refund', $rest->negated(), [
                 'reason' => $input['reason'], 'source_type' => 'sale_return', 'source_id' => $saleReturn->id, 'authorized_by' => $authorizedBy,
             ]);
         }
         $this->record($actor, 'sale.returned', $sale->id, [
-            'number' => $sale->number, 'returnNumber' => $saleReturn->number, 'total' => $saleReturn->total, 'method' => $method->name, 'giftCardAmount' => Money::round($toCards),
+            'number' => $sale->number, 'returnNumber' => $saleReturn->number, 'total' => $saleReturn->total, 'method' => $method->name, 'giftCardAmount' => Money::round($toCards), 'accountAmount' => Money::round($toAccount),
             'reason' => $input['reason'], 'authorizedBy' => $authorizedBy,
         ]);
 

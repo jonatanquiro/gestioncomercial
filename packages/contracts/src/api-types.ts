@@ -466,6 +466,9 @@ export interface SaleDto {
   total: string;
   changeGiven: string;
   discountAuthorizedBy: string | null;
+  /** sale: venta de mercadería · gift_card: venta de una tarjeta · account_payment: cobro de cuenta corriente. */
+  kind: SaleKind;
+  customer: CustomerDto | null;
   /** Si la venta es la de una gift card: la tarjeta emitida. No tiene artículos. */
   giftCard: GiftCardDto | null;
   /** Si la venta es un cambio: la venta de la que salió el crédito. */
@@ -480,6 +483,8 @@ export interface SaleDto {
     total: string;
     /** Parte de la devolución que volvió a la gift card con que se pagó (ADR 0015). */
     giftCardAmount: string;
+    /** Parte que bajó la deuda de la cuenta corriente (ADR 0016). */
+    accountAmount: string;
     reason: string;
     paymentMethodName: string;
     userName: string;
@@ -501,6 +506,44 @@ export interface SaleSummaryDto {
   returnedTotal: string;
   /** Código de la gift card si la venta es la de una tarjeta. */
   giftCardCode: string | null;
+  kind: SaleKind;
+  customerName: string | null;
+}
+
+export type SaleKind = 'sale' | 'gift_card' | 'account_payment';
+
+export interface CustomerDto {
+  id: string;
+  name: string;
+  documentType: 80 | 86 | 96 | null;
+  documentNumber: string | null;
+  vatCondition: 1 | 4 | 5 | 6;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  creditLimit: string | null;
+  /** Positivo: lo que debe. Negativo: saldo a favor. */
+  balance: string;
+  status: 'active' | 'inactive';
+}
+
+export interface CustomerListDto extends Paginated<CustomerDto> {
+  /** Lo que el comercio tiene para cobrar en cuentas corrientes. */
+  receivable: string;
+}
+
+export interface CustomerDetailDto extends CustomerDto {
+  movements: Array<{
+    id: string;
+    kind: 'sale' | 'payment' | 'return' | 'void' | 'adjustment';
+    amount: string;
+    balanceAfter: string;
+    createdAt: string;
+    notes: string | null;
+    userName: string;
+    sale: { id: string; number: number } | null;
+  }>;
 }
 
 export type GiftCardState = 'active' | 'used' | 'expired' | 'voided';

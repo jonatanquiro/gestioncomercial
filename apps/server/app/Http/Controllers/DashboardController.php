@@ -42,9 +42,10 @@ class DashboardController extends Controller
             }
             $out['sales'] = [
                 'scope' => $all ? 'all' : 'own',
-                'count' => (clone $sales)->count(),
+                // Los cobros de cuenta corriente traen plata de ventas anteriores: no son ventas del día.
+                'count' => (clone $sales)->where('kind', '<>', 'account_payment')->count(),
                 // Lo pagado con crédito por cambio o con gift card ya se había cobrado antes.
-                'total' => Money::round(Money::of((string) ((clone $sales)->selectRaw('SUM(total) AS total')->value('total') ?? '0'))
+                'total' => Money::round(Money::of((string) ((clone $sales)->where('kind', '<>', 'account_payment')->selectRaw('SUM(total) AS total')->value('total') ?? '0'))
                     ->minus((string) ($byKind['exchange'] ?? '0'))->minus((string) ($byKind['gift_card'] ?? '0'))),
                 'cash' => Money::round((string) ($byKind['cash'] ?? '0')),
                 'electronic' => Money::round($electronic),

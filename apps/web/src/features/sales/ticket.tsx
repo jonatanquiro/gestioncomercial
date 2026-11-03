@@ -30,6 +30,13 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
       <div>
         {sale.registerName} · Atendió: {sale.cashierName}
       </div>
+      {sale.customer && <div>Cliente: {sale.customer.name}</div>}
+      {sale.kind === 'account_payment' && (
+        <div className="flex justify-between">
+          <span>Pago a cuenta corriente</span>
+          <span>{formatArs(sale.total)}</span>
+        </div>
+      )}
       <hr className="my-1 border-dashed border-black" />
       {sale.giftCard && (
         <div className="flex justify-between">

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Auth\Actor;
 use App\Models\Branch;
+use App\Models\Customer;
 use App\Models\GiftCard;
 use App\Models\PaymentMethod;
 use App\Models\Register;
@@ -67,18 +68,40 @@ class SalesController extends Controller
         return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
     }
 
+    /** Cobro de la deuda de un cliente (ADR 0016): una venta sin artículos que entra a la caja. */
+    public function storeAccountPayment(Request $request, string $customerId): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $input = Input::validate($this->body($request), [
+            'clientUuid' => ['required', 'string', 'uuid'],
+            'registerId' => ['required', 'string', 'uuid'],
+            'amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            ...array_intersect_key(self::saleRules(), array_flip(['payments', 'payments.*', 'payments.*.paymentMethodId', 'payments.*.amount', 'payments.*.reference', 'payments.*.payerName', 'payments.*.payerPhone'])),
+        ], self::saleMessages());
+        if (Money::of($input['amount'])->isZero()) {
+            throw AppError::validation([['path' => 'amount', 'message' => 'El importe no puede ser cero']]);
+        }
+        self::assertSaleAmounts(['lines' => [], 'payments' => $input['payments']]);
+        Customer::whereKey($customerId)->exists() || throw AppError::notFound('Cliente');
+        ['sale' => $sale, 'created' => $created] = $this->sales->collectAccount($actor, $customerId, $input);
+
+        return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $actor = $this->actor($request);
         ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
         $q = Input::validate($request->query(), [
             'shiftId' => ['nullable', 'string', 'uuid'],
+            'customerId' => ['nullable', 'string', 'uuid'],
             'number' => ['nullable', 'integer', 'min:1'],
             'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d'],
         ]);
         $query = $this->visible($actor)
             ->when($q['shiftId'] ?? null, fn ($w, $id) => $w->where('shift_id', $id))
+            ->when($q['customerId'] ?? null, fn ($w, $id) => $w->where('customer_id', $id))
             ->when($q['number'] ?? null, fn ($w, $n) => $w->where('number', (int) $n))
             ->when($q['from'] ?? null, fn ($w, $d) => $w->where('confirmed_at', '>=', "{$d} 00:00:00"))
             ->when($q['to'] ?? null, fn ($w, $d) => $w->where('confirmed_at', '<=', "{$d} 23:59:59.999999"));
@@ -88,6 +111,7 @@ class SalesController extends Controller
         $registers = Register::whereIn('id', $rows->pluck('register_id')->unique())->pluck('name', 'id');
         $returned = SaleReturn::whereIn('sale_id', $rows->pluck('id'))->groupBy('sale_id')->selectRaw('sale_id, SUM(total) AS total')->pluck('total', 'sale_id');
         $giftCards = GiftCard::whereIn('sale_id', $rows->pluck('id'))->pluck('code', 'sale_id');
+        $customers = Customer::whereIn('id', $rows->pluck('customer_id')->filter()->unique())->pluck('name', 'id');
 
         return $this->json([
             'items' => $rows->map(fn (Sale $s) => [
@@ -100,6 +124,8 @@ class SalesController extends Controller
                 'total' => Money::round($s->total),
                 'returnedTotal' => Money::round((string) ($returned[$s->id] ?? '0')),
                 'giftCardCode' => $giftCards[$s->id] ?? null,
+                'kind' => $s->kind,
+                'customerName' => $customers[$s->customer_id] ?? null,
             ])->all(),
             'total' => $total,
             'page' => $page,
@@ -195,6 +221,8 @@ class SalesController extends Controller
             'lines.*.variantId' => ['required', 'string', 'uuid', 'distinct'],
             'lines.*.quantity' => ['required', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
             'lines.*.discountPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Descuento inválido')],
+            'customerId' => ['nullable', 'string', 'uuid'],
+            'accountAmount' => ['nullable', ...Input::decimal(Input::MONEY, 'Importe inválido')],
             'payments' => ['present', 'array', 'list', 'max:10'],
             'payments.*' => ['array'],
             'payments.*.paymentMethodId' => ['required', 'string', 'uuid'],
@@ -281,6 +309,8 @@ class SalesController extends Controller
             'total' => Money::round($sale->total),
             'changeGiven' => Money::round($sale->change_given),
             'discountAuthorizedBy' => $users[$sale->discount_authorized_by] ?? null,
+            'kind' => $sale->kind,
+            'customer' => $sale->customer_id ? (fn (?Customer $c) => $c ? CustomersController::dto($c) : null)(Customer::find($sale->customer_id)) : null,
             'giftCard' => $giftCard ? GiftCardsController::dto($giftCard) : null,
             'exchangeOf' => $origin ? ['saleId' => $origin->sale_id, 'saleNumber' => (int) Sale::whereKey($origin->sale_id)->value('number'), 'credit' => Money::round($origin->total)] : null,
             'lines' => $lines->map(fn (SaleLine $l) => [
@@ -318,6 +348,7 @@ class SalesController extends Controller
                 'createdAt' => Dates::iso($r->created_at),
                 'total' => Money::round($r->total),
                 'giftCardAmount' => Money::round($r->gift_card_amount),
+                'accountAmount' => Money::round($r->account_amount),
                 'reason' => $r->reason,
                 'paymentMethodName' => $methods[$r->payment_method_id] ?? '',
                 'userName' => $users[$r->user_id] ?? '',

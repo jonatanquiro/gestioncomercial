@@ -421,7 +421,7 @@ export const applyBulkPriceSchema = bulkPriceSchema.extend({ fingerprint: z.stri
 export const PAYMENT_KINDS = ['cash', 'debit', 'credit', 'transfer', 'qr', 'other'] as const;
 export type PaymentKind = (typeof PAYMENT_KINDS)[number];
 /** En los pagos de una venta también aparecen el crédito por cambio y la gift card, que son internos y no se configuran. */
-export type SalePaymentKind = PaymentKind | 'exchange' | 'gift_card';
+export type SalePaymentKind = PaymentKind | 'exchange' | 'gift_card' | 'account';
 export const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
   cash: 'Efectivo',
   debit: 'Tarjeta de débito',
@@ -456,6 +456,9 @@ export const createSaleSchema = z.object({
       }),
     )
     .max(10),
+  /** Cliente de la venta (opcional) y lo que se le carga a su cuenta corriente (ADR 0016). */
+  customerId: uuidSchema.nullable().optional(),
+  accountAmount: positiveMoney.nullable().optional(),
   /** Gift cards con que se paga primero (ADR 0015). */
   giftCards: z
     .array(z.object({ code: z.string().trim().min(1, 'Obligatorio').max(30), amount: positiveMoney }))
@@ -489,6 +492,42 @@ export const createGiftCardSchema = z.object({
   payments: createSaleSchema.shape.payments,
 });
 export type CreateGiftCardInput = z.infer<typeof createGiftCardSchema>;
+
+// ---------------------------------------------------------------- Clientes y cuenta corriente (ADR 0016)
+
+/** Tipos de documento de ARCA que se cargan en un cliente. */
+export const CUSTOMER_DOCUMENT_TYPES = { 96: 'DNI', 80: 'CUIT', 86: 'CUIL' } as const;
+/** Condición frente al IVA con el código de ARCA. */
+export const CUSTOMER_VAT_CONDITIONS = { 5: 'Consumidor final', 6: 'Monotributo', 1: 'Responsable inscripto', 4: 'Exento' } as const;
+
+export const customerSchema = z
+  .object({
+    name: trimmed(120),
+    documentType: z.union([z.literal(96), z.literal(80), z.literal(86)]).nullable(),
+    documentNumber: z.string().trim().transform((v) => v.replace(/\D/g, '')).nullable(),
+    vatCondition: z.union([z.literal(5), z.literal(6), z.literal(1), z.literal(4)]),
+    phone: optionalText(30),
+    email: optionalEmail,
+    address: optionalText(200),
+    notes: optionalText(300),
+    /** Tope de deuda; null: no se le vende a cuenta corriente. */
+    creditLimit: moneySchema.nullable(),
+  })
+  .superRefine((c, ctx) => {
+    const number = c.documentNumber || null;
+    if ((c.documentType === null) !== (number === null)) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'Completá el tipo y el número de documento, o ninguno' });
+    else if (c.documentType === 96 && !/^\d{6,9}$/.test(number!)) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'Ingresá un DNI válido, sin puntos' });
+    else if ((c.documentType === 80 || c.documentType === 86) && !isValidCuit(number!)) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'El CUIT o CUIL no es válido' });
+  });
+export type CustomerInput = z.infer<typeof customerSchema>;
+export const updateCustomerSchema = customerSchema.and(z.object({ status: z.enum(['active', 'inactive']) }));
+
+/** Cobro de deuda: se cobra como una venta, con cualquier medio. */
+export const collectAccountSchema = z.object({ clientUuid: uuidSchema, registerId: uuidSchema, amount: positiveMoney, payments: createSaleSchema.shape.payments });
+export const adjustAccountSchema = z.object({
+  amount: z.string().regex(/^-?\d{1,12}(\.\d{1,2})?$/, 'Importe inválido').refine((v) => !/^-?0+(\.0+)?$/.test(v), 'El importe no puede ser cero'),
+  notes: trimmed(200),
+});
 
 export const voidSaleSchema = z.object({ reason: trimmed(200), authorization: pinAuthorizationSchema.nullable().optional() });
 

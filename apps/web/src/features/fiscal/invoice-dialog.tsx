@@ -23,7 +23,7 @@ export const invoiceNumber = (i: Invoice) => `${TYPES[i.voucherType]} ${String(i
  * Factura de una venta sin salir de ella. Por defecto, consumidor final con el comprobante que
  * corresponde a la condición del comercio; los datos del cliente se piden solo si hacen falta.
  */
-export function InvoiceDialog({ sale, taxCondition, canConfigure, onClose }: { sale: Pick<SaleDto, 'id' | 'number' | 'total'>; taxCondition?: string; canConfigure: boolean; onClose: () => void }) {
+export function InvoiceDialog({ sale, taxCondition, canConfigure, onClose }: { sale: Pick<SaleDto, 'id' | 'number' | 'total'> & { customer?: SaleDto['customer'] }; taxCondition?: string; canConfigure: boolean; onClose: () => void }) {
   const client = useQueryClient();
   const status = useQuery(fiscalStatusQuery);
   const existing = useQuery(saleInvoicesQuery(sale.id));
@@ -31,12 +31,14 @@ export function InvoiceDialog({ sale, taxCondition, canConfigure, onClose }: { s
   const [environment, setEnvironment] = useState<Environment | null>(null);
   const env = environment ?? (ready.find((s) => s.environment === 'produccion') ?? ready[0])?.environment ?? null;
   const inscripto = taxCondition === 'responsable_inscripto';
-  const [type, setType] = useState(inscripto ? '6' : '11');
-  const [buyer, setBuyer] = useState<Buyer>('final');
-  const [docNumber, setDocNumber] = useState('');
-  const [name, setName] = useState('');
-  const [address, setAddress] = useState('');
-  const [condition, setCondition] = useState('5');
+  // Con cliente en la venta, sus datos ya vienen cargados (ADR 0016).
+  const customer = sale.customer?.documentNumber ? sale.customer : null;
+  const [type, setType] = useState(inscripto ? (customer?.vatCondition === 1 ? '1' : '6') : '11');
+  const [buyer, setBuyer] = useState<Buyer>(customer ? (customer.documentType === 96 ? 'dni' : 'cuit') : 'final');
+  const [docNumber, setDocNumber] = useState(customer?.documentNumber ?? '');
+  const [name, setName] = useState(customer?.name ?? '');
+  const [address, setAddress] = useState(customer?.address ?? '');
+  const [condition, setCondition] = useState(String(customer?.vatCondition ?? 5));
   const [confirm, setConfirm] = useState(false);
   const [printing, setPrinting] = useState<Invoice | null>(null);
   const issue = useMutation({

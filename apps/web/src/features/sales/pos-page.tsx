@@ -1,4 +1,4 @@
-import { createSaleSchema, type GiftCardDto, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
+import { createSaleSchema, type CustomerDto, type GiftCardDto, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
@@ -24,6 +24,7 @@ import { ProductForm } from '@/features/catalog/product-form';
 import { itemOf } from '@/features/catalog/item';
 import { IssueGiftCardDialog } from '@/features/gift-cards/issue-dialog';
 import { formatExpiry, formatGiftCardCode } from '@/features/gift-cards/gift-card-ticket';
+import { CustomerPicker } from '@/features/customers/customer-picker';
 
 interface CartLine {
   product: ItemDto;
@@ -34,6 +35,8 @@ interface CartLine {
 interface Cart {
   clientUuid: string;
   lines: CartLine[];
+  /** Cliente de la venta: opcional; hace falta para fiar (ADR 0016). */
+  customer?: CustomerDto | null;
 }
 
 interface PaymentRow {
@@ -309,6 +312,9 @@ function Counter({ register }: { register: RegisterDto }) {
           <span className="font-semibold text-slate-900">Venta en curso</span>
           <span>{cart.lines.length === 1 ? '1 artículo' : `${cart.lines.length} artículos`}</span>
         </div>
+        <div className="border-b border-slate-200 px-3 py-2">
+          <CustomerPicker customer={cart.customer ?? null} onChange={(customer) => setCart((c) => ({ ...c, customer }))} />
+        </div>
         {cart.lines.length === 0 ? (
           <EmptyState>{lastSale ? `Venta N° ${lastSale.number} cobrada. Escaneá o tocá el primer artículo de la próxima.` : 'Escaneá o tocá el primer artículo para empezar la venta.'}</EmptyState>
         ) : (
@@ -442,6 +448,7 @@ function Counter({ register }: { register: RegisterDto }) {
         <CheckoutDialog
           registerId={register.id}
           cart={cart}
+          customer={cart.customer ?? null}
           total={total}
           methods={methods.data.filter((m) => m.active)}
           onClose={() => (setCheckout(false), focusScanner())}
@@ -676,6 +683,7 @@ function cashSuggestions(remaining: string): string[] {
 function CheckoutDialog({
   registerId,
   cart,
+  customer,
   total,
   methods,
   onClose,
@@ -684,6 +692,7 @@ function CheckoutDialog({
 }: {
   registerId: string;
   cart: Cart;
+  customer: CustomerDto | null;
   total: string;
   methods: PaymentMethodDto[];
   onClose: () => void;
@@ -700,9 +709,14 @@ function CheckoutDialog({
   const byId = new Map(methods.map((m) => [m.id, m]));
   // Gift cards: pagan primero; lo que falta se cobra con los otros medios.
   const [cards, setCards] = useState<Array<{ card: GiftCardDto; amount: string }>>([]);
-  const cardsTotal = sumMoney(cards.map((c) => c.amount));
+  // Lo que se carga a la cuenta corriente del cliente: hasta lo que tiene disponible.
+  const can = useCan();
+  const [account, setAccount] = useState<string | null>(null);
+  const available = customer ? dec(customer.creditLimit ?? '0').minus(customer.balance) : dec(0);
+  const canAccount = !!customer && can('accounts.grant_credit') && available.gt(0);
+  const cardsTotal = sumMoney([...cards.map((c) => c.amount), account ?? '0']);
   const due = dec(total).minus(cardsTotal).gt(0) ? roundMoney(dec(total).minus(cardsTotal)) : '0.00';
-  const coveredByCards = cards.length > 0 && !dec(due).gt(0) && rows.length === 1 && rows[0]!.amount.trim() === '';
+  const coveredByCards = (cards.length > 0 || account !== null) && !dec(due).gt(0) && rows.length === 1 && rows[0]!.amount.trim() === '';
 
   const amounts = rows.map((r, i) => (r.amount.trim() === '' && i === 0 && rows.length === 1 ? due : parseDecimalInput(r.amount)));
   const amountsValid = amounts.every((a) => /^\d+(\.\d{1,2})?$/.test(a));
@@ -730,6 +744,8 @@ function CheckoutDialog({
           })
           .filter((p) => dec(p.amount).gt(0)),
         giftCards: cards.length > 0 ? cards.map((c) => ({ code: c.card.code, amount: c.amount })) : undefined,
+        customerId: customer?.id ?? null,
+        accountAmount: account,
         expectedTotal: total,
         authorization,
       });
@@ -792,6 +808,24 @@ function CheckoutDialog({
               ))}
             </div>
           )}
+          {account !== null ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+              <span>
+                A cuenta corriente de <span className="font-semibold">{customer!.name}</span>: {formatArs(account)}
+                <span className="block text-xs text-slate-600">Va a deber {formatArs(roundMoney(dec(customer!.balance).plus(account)))}</span>
+              </span>
+              <button type="button" className="rounded-full p-2 text-slate-500 hover:text-red-700" aria-label="Quitar lo cargado a cuenta" onClick={() => setAccount(null)}>
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : (
+            canAccount &&
+            dec(total).minus(cardsTotal).gt(0) && (
+              <Button variant="ghost" size="sm" onClick={() => setAccount(roundMoney(available.lt(dec(total).minus(cardsTotal)) ? available : dec(total).minus(cardsTotal)))}>
+                Cargar a cuenta corriente (disponible {formatArs(roundMoney(available))})
+              </Button>
+            )
+          )}
           <GiftCardPayment
             cards={cards}
             room={roundMoney(dec(total).minus(cardsTotal))}
@@ -799,7 +833,7 @@ function CheckoutDialog({
             onRemove={(code) => setCards((cs) => cs.filter((c) => c.card.code !== code))}
           />
           {coveredByCards ? (
-            <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">La gift card paga todo: no hay nada más que cobrar.</p>
+            <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">{account !== null && cards.length === 0 ? 'Va todo a cuenta corriente' : cards.length > 0 && account === null ? 'La gift card paga todo' : 'Entre la gift card y la cuenta corriente se cubre todo'}: no hay nada más que cobrar.</p>
           ) : (
           <div className={keypad ? 'grid gap-5 md:grid-cols-[1fr_15rem]' : ''}>
             <div className="space-y-4">

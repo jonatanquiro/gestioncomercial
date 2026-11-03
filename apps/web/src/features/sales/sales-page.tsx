@@ -96,7 +96,10 @@ export function SalesPage() {
                 </Td>
                 <Td>{formatDateTime(s.confirmedAt)}</Td>
                 <Td>{s.registerName}</Td>
-                <Td>{s.cashierName}</Td>
+                <Td>
+                  {s.cashierName}
+                  {s.customerName && <span className="block text-xs text-slate-500">Cliente: {s.customerName}</span>}
+                </Td>
                 <Td className="text-right font-semibold">{formatArs(s.total)}</Td>
                 <Td>
                   {s.status === 'voided' ? (
@@ -105,6 +108,8 @@ export function SalesPage() {
                     <Badge tone="amber">Devolución {formatArs(s.returnedTotal)}</Badge>
                   ) : s.giftCardCode ? (
                     <Badge tone="brand">Gift card</Badge>
+                  ) : s.kind === 'account_payment' ? (
+                    <Badge tone="brand">Cobro de cuenta</Badge>
                   ) : (
                     <Badge tone="green">Cobrada</Badge>
                   )}
@@ -144,7 +149,7 @@ export function SaleDetailPage() {
     <>
       <PageHeader
         title={`Venta N° ${s.number}`}
-        description={`${formatDateTime(s.confirmedAt)} · ${s.branchName} · ${s.registerName} · Atendió ${s.cashierName}`}
+        description={`${formatDateTime(s.confirmedAt)} · ${s.branchName} · ${s.registerName} · Atendió ${s.cashierName}${s.customer ? ` · Cliente: ${s.customer.name}` : ''}`}
         actions={
           <>
             <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('sale')}>
@@ -155,7 +160,7 @@ export function SaleDetailPage() {
                 <Printer className="size-4" /> {s.giftCard ? 'Imprimir gift card' : 'Ticket de cambio'}
               </Button>
             )}
-            {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && !s.giftCard && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
+            {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && s.kind === 'sale' && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
             {s.status === 'confirmed' && can('sales.create', 'sales.return') && returnable && (
               <Button variant="secondary" onClick={() => setReturning(true)}>
                 Devolución
@@ -190,7 +195,22 @@ export function SaleDetailPage() {
         </div>
       )}
       <div className="grid gap-6 xl:grid-cols-[1fr_20rem]">
-        {s.giftCard ? (
+        {s.kind === 'account_payment' ? (
+          <Card className="space-y-2 p-5">
+            <h2 className="font-semibold">Cobro de cuenta corriente</h2>
+            <p className="text-sm text-slate-600">
+              Pago de{' '}
+              {s.customer ? (
+                <Link to="/app/clientes/$id" params={{ id: s.customer.id }} className="font-semibold text-brand-700 hover:underline">
+                  {s.customer.name}
+                </Link>
+              ) : (
+                'un cliente'
+              )}{' '}
+              por {formatArs(s.total)}: bajó su deuda. No se factura: la factura corresponde a la venta en la que se llevó la mercadería.
+            </p>
+          </Card>
+        ) : s.giftCard ? (
           <Card className="space-y-3 p-5">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
               <h2 className="font-semibold">
@@ -300,13 +320,7 @@ export function SaleDetailPage() {
                     </span>
                   )}
                 </Td>
-                <Td>
-                  {dec(r.giftCardAmount).gt(0)
-                    ? dec(r.giftCardAmount).eq(r.total)
-                      ? 'Gift card'
-                      : `Gift card ${formatArs(r.giftCardAmount)} · ${r.paymentMethodName}`
-                    : r.paymentMethodName}
-                </Td>
+                <Td>{refundLabel(r)}</Td>
                 <Td>
                   {r.userName}
                   {r.authorizedByName && <span className="block text-xs text-slate-500">Autorizó {r.authorizedByName}</span>}
@@ -409,7 +423,12 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
   const giftPaid = sumMoney(sale.payments.filter((p) => p.kind === 'gift_card').map((p) => p.amount));
   const giftPending = dec(giftPaid).minus(sumMoney(sale.returns.map((r) => r.giftCardAmount)));
   const toCard = giftPending.gt(0) ? roundMoney(dec(total).lt(giftPending) ? dec(total) : giftPending) : '0.00';
-  const rest = roundMoney(dec(total).minus(toCard));
+  // Lo fiado baja la deuda del cliente (ADR 0016).
+  const accountPaid = sumMoney(sale.payments.filter((p) => p.kind === 'account').map((p) => p.amount));
+  const accountPending = dec(accountPaid).minus(sumMoney(sale.returns.map((r) => r.accountAmount)));
+  const afterCard = dec(total).minus(toCard);
+  const toAccount = accountPending.gt(0) ? roundMoney(afterCard.lt(accountPending) ? afterCard : accountPending) : '0.00';
+  const rest = roundMoney(afterCard.minus(toAccount));
 
   const { mutation, error, setError, dialog, waitingPin } = useAuthorized(
     (authorization) =>
@@ -479,7 +498,7 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Motivo">{(p) => <Input {...p} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />}</Field>
-            <Field label={dec(toCard).gt(0) ? 'El resto se reintegra en' : 'Se reintegra en'}>
+            <Field label={dec(toCard).gt(0) || dec(toAccount).gt(0) ? 'El resto se reintegra en' : 'Se reintegra en'}>
               {(p) => (
                 <Select {...p} value={method} onChange={(e) => setMethodId(e.target.value)}>
                   {activeMethods.map((m) => (
@@ -508,9 +527,12 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
               <span className="text-lg">
                 A devolver: <span className="font-bold">{formatArs(total)}</span>
               </span>
-              {dec(toCard).gt(0) && (
+              {(dec(toCard).gt(0) || dec(toAccount).gt(0)) && (
                 <span className="block text-sm text-slate-600">
-                  {formatArs(toCard)} vuelven a la gift card{dec(rest).gt(0) ? ` y ${formatArs(rest)} con el medio elegido` : ''}.
+                  {[dec(toCard).gt(0) && `${formatArs(toCard)} vuelven a la gift card`, dec(toAccount).gt(0) && `${formatArs(toAccount)} bajan la deuda de ${sale.customer?.name ?? 'la cuenta'}`, dec(rest).gt(0) && `${formatArs(rest)} con el medio elegido`]
+                    .filter(Boolean)
+                    .join(', ')}
+                  .
                 </span>
               )}
             </span>
@@ -531,3 +553,11 @@ function ReturnDialog({ sale, onClose }: { sale: SaleDto; onClose: () => void })
 }
 
 const roundQty = (v: ReturnType<typeof dec>) => v.toFixed(3);
+
+/** Por dónde salió el reintegro: gift card, cuenta corriente y el medio elegido. */
+function refundLabel(r: SaleDto['returns'][number]) {
+  const parts = [dec(r.giftCardAmount).gt(0) && `Gift card ${formatArs(r.giftCardAmount)}`, dec(r.accountAmount).gt(0) && `Cuenta corriente ${formatArs(r.accountAmount)}`].filter(Boolean) as string[];
+  const rest = dec(r.total).minus(r.giftCardAmount).minus(r.accountAmount);
+  if (rest.gt(0) || parts.length === 0) parts.push(parts.length ? `${r.paymentMethodName} ${formatArs(rest.toFixed(2))}` : r.paymentMethodName);
+  return parts.join(' · ');
+}
