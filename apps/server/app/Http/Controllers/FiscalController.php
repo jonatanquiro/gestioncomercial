@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Auth\Actor;
 use App\Models\FiscalInvoice;
 use App\Models\FiscalSetting;
+use App\Models\GiftCard;
 use App\Models\Sale;
 use App\Services\ArcaClient;
 use App\Services\AuditService;
@@ -139,6 +140,10 @@ class FiscalController extends Controller
     public function issue(Request $request, string $id): JsonResponse
     {
         Sale::find($id) ?? throw AppError::notFound('Venta');
+        // La gift card se factura cuando se usa, con lo que se lleva el cliente.
+        if (GiftCard::where('sale_id', $id)->exists()) {
+            throw AppError::conflict('GIFT_CARD_NOT_INVOICED', 'La venta de una gift card no se factura: se factura la venta en la que se usa.');
+        }
         $v = Input::validate($this->body($request), [
             'environment' => ['required', 'in:homologacion,produccion'], 'voucherType' => ['required', 'integer', Rule::in([1, 6, 11])],
             'documentType' => ['required', 'integer', Rule::in([80, 96, 99])], 'documentNumber' => ['required', 'string', 'regex:/^\d{1,11}$/'],

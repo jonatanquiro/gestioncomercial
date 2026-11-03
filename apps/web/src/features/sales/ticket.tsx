@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { BarcodeSvg } from '@/components/barcode-svg';
 import { formatCuit, formatDate, formatDateTime, formatQty } from '@/lib/format';
 import { exchangeDeadline, saleTicketCode } from './exchange-ticket';
+import { formatGiftCardCode, GiftCardTicket } from '@/features/gift-cards/gift-card-ticket';
 
 /**
  * Ticket interno de 80 mm. No es un comprobante fiscal: la factura electrónica llega en la
@@ -30,6 +31,12 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
         {sale.registerName} · Atendió: {sale.cashierName}
       </div>
       <hr className="my-1 border-dashed border-black" />
+      {sale.giftCard && (
+        <div className="flex justify-between">
+          <span>Gift card {formatGiftCardCode(sale.giftCard.code)}</span>
+          <span>{formatArs(sale.giftCard.amount)}</span>
+        </div>
+      )}
       {sale.lines.map((l) => (
         <div key={l.id} className="mb-0.5">
           <div>{l.description}</div>
@@ -114,7 +121,7 @@ export function ExchangeTicket({ sale, tenant }: { sale: SaleDto; tenant: Tenant
   );
 }
 
-/** Imprime el ticket (o el ticket de cambio) en cuanto se monta y avisa al terminar. */
+/** Imprime el ticket (o el de cambio; en la venta de una gift card, la tarjeta) en cuanto se monta y avisa al terminar. */
 export function PrintTicket({ sale, tenant, onDone, exchange = false }: { sale: SaleDto; tenant: TenantDto; onDone: () => void; exchange?: boolean }) {
   useEffect(() => {
     const after = () => onDone();
@@ -124,7 +131,7 @@ export function PrintTicket({ sale, tenant, onDone, exchange = false }: { sale: 
   }, [onDone]);
   return createPortal(
     <div id="print-root">
-      {exchange ? <ExchangeTicket sale={sale} tenant={tenant} /> : <Ticket sale={sale} tenant={tenant} />}
+      {!exchange ? <Ticket sale={sale} tenant={tenant} /> : sale.giftCard ? <GiftCardTicket card={sale.giftCard} tenant={tenant} /> : <ExchangeTicket sale={sale} tenant={tenant} />}
     </div>,
     document.body,
   );

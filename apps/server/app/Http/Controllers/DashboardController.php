@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CashShift;
+use App\Models\PaymentMethod;
 use App\Models\Product;
 use App\Models\ProductVariant;
 use App\Models\Sale;
@@ -35,15 +36,16 @@ class DashboardController extends Controller
             $byKind = SalePayment::whereIn('sale_id', (clone $sales)->select('id'))->groupBy('kind')->selectRaw('kind, SUM(amount) AS total')->pluck('total', 'kind');
             $electronic = Money::of('0');
             foreach ($byKind as $kind => $amount) {
-                if (! in_array($kind, ['cash', 'exchange'], true)) {
+                if (! in_array($kind, PaymentMethod::NOT_SETTLED_KINDS, true)) {
                     $electronic = $electronic->plus((string) $amount);
                 }
             }
             $out['sales'] = [
                 'scope' => $all ? 'all' : 'own',
                 'count' => (clone $sales)->count(),
-                // Lo pagado con crédito por cambio ya se había cobrado en la venta original.
-                'total' => Money::round(Money::of((string) ((clone $sales)->selectRaw('SUM(total) AS total')->value('total') ?? '0'))->minus((string) ($byKind['exchange'] ?? '0'))),
+                // Lo pagado con crédito por cambio o con gift card ya se había cobrado antes.
+                'total' => Money::round(Money::of((string) ((clone $sales)->selectRaw('SUM(total) AS total')->value('total') ?? '0'))
+                    ->minus((string) ($byKind['exchange'] ?? '0'))->minus((string) ($byKind['gift_card'] ?? '0'))),
                 'cash' => Money::round((string) ($byKind['cash'] ?? '0')),
                 'electronic' => Money::round($electronic),
             ];
@@ -55,7 +57,7 @@ class DashboardController extends Controller
             foreach ($shifts as $shift) {
                 $expected = $expected->plus($this->cash->expectedCash($shift));
             }
-            $unsettled = SalePayment::whereNotIn('kind', ['cash', 'exchange'])
+            $unsettled = SalePayment::whereNotIn('kind', PaymentMethod::NOT_SETTLED_KINDS)
                 ->whereNotIn('id', SettlementItem::whereNotNull('sale_payment_id')->select('sale_payment_id'))
                 ->whereIn('sale_id', Sale::where('status', 'confirmed')->select('id'));
             $out['cash'] = ['openShifts' => $shifts->count(), 'expected' => Money::round($expected)];

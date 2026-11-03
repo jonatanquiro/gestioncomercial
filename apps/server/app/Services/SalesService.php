@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Auth\Actor;
+use App\Models\CashShift;
 use App\Models\FiscalInvoice;
 use App\Models\PaymentMethod;
 use App\Models\Product;
@@ -41,6 +42,7 @@ class SalesService
         private readonly SalesSetup $setup,
         private readonly PinAuthorization $pins,
         private readonly AuditService $audit,
+        private readonly GiftCardService $giftCards,
     ) {}
 
     /**
@@ -124,7 +126,16 @@ class SalesService
             ]);
         }
 
-        [$payments, $change] = $this->payments($input['payments'], $total, $credit);
+        // Las gift cards se bloquean antes de tocar nada: dos cajas no pueden gastar el mismo saldo.
+        $cards = $this->giftCards->lockForPayment($input['giftCards'] ?? []);
+        $internal = $credit !== null ? [['method' => $credit['method'], 'amount' => BigDecimal::of($credit['amount']), 'credit' => true]] : [];
+        if ($cards !== []) {
+            $method = $this->giftCards->method();
+            foreach ($cards as $c) {
+                $internal[] = ['method' => $method, 'amount' => $c['amount'], 'reference' => $c['card']->code];
+            }
+        }
+        [$payments, $change] = $this->payments($input['payments'], $total, $internal);
 
         $sale = Sale::create([
             'branch_id' => $register->branch_id,
@@ -168,6 +179,20 @@ class SalesService
         }
         $this->stock->apply($stockLines, ['sourceType' => 'sale', 'sourceId' => $sale->id, 'reason' => "Venta {$sale->number}", 'userId' => $actor->userId]);
 
+        $this->recordPayments($actor, $shift, $sale, $payments);
+        $this->giftCards->redeem($actor, $cards, $sale);
+
+        $this->record($actor, 'sale.created', $sale->id, [
+            'number' => $sale->number, 'total' => $sale->total, 'discountTotal' => $sale->discount_total,
+            'discountAuthorizedBy' => $discountAuthorizedBy, 'lines' => count($lines),
+        ]);
+
+        return $sale;
+    }
+
+    /** Pagos de la venta y el efectivo que entra a la caja. */
+    private function recordPayments(Actor $actor, CashShift $shift, Sale $sale, array $payments): void
+    {
         $cash = BigDecimal::zero();
         foreach ($payments as $p) {
             SalePayment::create([
@@ -188,13 +213,6 @@ class SalesService
         if (! $cash->isZero()) {
             $this->cash->addMovement($actor, $shift, 'sale', $cash, ['reason' => "Venta N° {$sale->number}", 'source_type' => 'sale', 'source_id' => $sale->id]);
         }
-
-        $this->record($actor, 'sale.created', $sale->id, [
-            'number' => $sale->number, 'total' => $sale->total, 'discountTotal' => $sale->discount_total,
-            'discountAuthorizedBy' => $discountAuthorizedBy, 'lines' => count($lines),
-        ]);
-
-        return $sale;
     }
 
     /**
@@ -202,27 +220,31 @@ class SalesService
      * de cada pago en efectivo ya tiene el vuelto descontado, así la suma de los pagos
      * registrados es siempre igual al total de la venta.
      *
-     * @param  ?array{method: PaymentMethod, amount: string}  $credit  crédito de un cambio
+     * @param  list<array{method: PaymentMethod, amount: BigDecimal, reference?: string, credit?: bool}>  $internal  crédito de un cambio y gift cards, que pagan primero
      * @return array{0: list<array{method: PaymentMethod, amount: BigDecimal, reference: ?string, payerName: ?string, payerPhone: ?string}>, 1: BigDecimal}
      */
-    private function payments(array $input, BigDecimal $total, ?array $credit = null): array
+    private function payments(array $input, BigDecimal $total, array $internal = []): array
     {
         $methods = PaymentMethod::whereIn('id', array_column($input, 'paymentMethodId'))->get()->keyBy('id');
         $payments = [];
         $paid = BigDecimal::zero();
         $nonCash = BigDecimal::zero();
-        if ($credit !== null) {
-            if (BigDecimal::of($credit['amount'])->isGreaterThan($total)) {
+        foreach ($internal as $p) {
+            if (($p['credit'] ?? false) && $p['amount']->isGreaterThan($total)) {
                 throw AppError::validation([['path' => 'lines', 'message' => 'Lo que se lleva ('.Money::pesos($total).') suma menos que lo que devuelve ('
-                    .Money::pesos($credit['amount']).'). Agregá artículos o registrá una devolución por la diferencia.']]);
+                    .Money::pesos($p['amount']).'). Agregá artículos o registrá una devolución por la diferencia.']]);
             }
-            $payments[] = ['method' => $credit['method'], 'amount' => BigDecimal::of($credit['amount']), 'reference' => null, 'payerName' => null, 'payerPhone' => null];
-            $paid = $nonCash = BigDecimal::of($credit['amount']);
+            if ($paid->plus($p['amount'])->isGreaterThan($total)) {
+                throw AppError::validation([['path' => 'giftCards', 'message' => 'Con la gift card se paga hasta el total: usá como máximo '.Money::pesos($total->minus($paid)).' de saldo']]);
+            }
+            $paid = $paid->plus($p['amount']);
+            $nonCash = $nonCash->plus($p['amount']);
+            $payments[] = ['method' => $p['method'], 'amount' => $p['amount'], 'reference' => $p['reference'] ?? null, 'payerName' => null, 'payerPhone' => null];
         }
         foreach ($input as $i => $p) {
             $method = $methods[$p['paymentMethodId']] ?? null;
-            // El crédito por cambio lo pone el sistema: no se elige como medio de pago.
-            if (! $method || ! $method->active || $method->kind === 'exchange') {
+            // El crédito por cambio y la gift card los pone el sistema: no se eligen como un medio más.
+            if (! $method || ! $method->active || in_array($method->kind, PaymentMethod::INTERNAL_KINDS, true)) {
                 throw AppError::validation([['path' => "payments.{$i}.paymentMethodId", 'message' => 'Medio de pago inexistente o desactivado']]);
             }
             $reference = trim((string) ($p['reference'] ?? '')) ?: null;
@@ -304,6 +326,51 @@ class SalesService
         return ['sale' => $sale, 'created' => true];
     }
 
+    /**
+     * Venta de una gift card: una venta sin artículos por el monto de la tarjeta, que se cobra
+     * con cualquier medio y entra a la caja como cualquier otra (ADR 0015).
+     *
+     * @param  array{clientUuid: string, registerId: string, amount: string, validMonths: int, recipientName?: ?string, fromName?: ?string, payments: list<array>}  $input
+     * @return array{sale: Sale, created: bool}
+     */
+    public function issueGiftCard(Actor $actor, array $input): array
+    {
+        if ($existing = Sale::where('client_uuid', $input['clientUuid'])->first()) {
+            return ['sale' => $existing, 'created' => false];
+        }
+        $register = $this->cash->register($actor, $input['registerId']);
+
+        try {
+            $sale = DB::transaction(function () use ($actor, $register, $input) {
+                $shift = $this->cash->lockOpenShift($register->id);
+                $warehouse = Warehouse::where('branch_id', $register->branch_id)->where('is_default', true)->first() ?? throw AppError::notFound('Depósito');
+                $amount = BigDecimal::of(Money::round($input['amount']));
+                [$payments, $change] = $this->payments($input['payments'], $amount);
+                $sale = Sale::create([
+                    'branch_id' => $register->branch_id, 'register_id' => $register->id, 'shift_id' => $shift->id, 'warehouse_id' => $warehouse->id,
+                    'number' => $this->setup->nextNumber($register->branch_id, 'sale'), 'client_uuid' => $input['clientUuid'], 'status' => 'confirmed',
+                    'cashier_id' => $actor->userId, 'subtotal' => Money::round($amount), 'discount_total' => '0.00', 'total' => Money::round($amount),
+                    'change_given' => Money::round($change), 'discount_authorized_by' => null, 'confirmed_at' => Carbon::now(),
+                ]);
+                $this->recordPayments($actor, $shift, $sale, $payments);
+                $card = $this->giftCards->issue($actor, $sale, $input);
+                $this->record($actor, 'sale.gift_card_issued', $sale->id, [
+                    'number' => $sale->number, 'code' => $card->code, 'amount' => $card->amount, 'expiresOn' => $card->expires_on->toDateString(),
+                ]);
+
+                return $sale;
+            });
+        } catch (UniqueConstraintViolationException $e) {
+            $sale = Sale::where('client_uuid', $input['clientUuid'])->first();
+            if ($sale) {
+                return ['sale' => $sale, 'created' => false];
+            }
+            throw $e;
+        }
+
+        return ['sale' => $sale, 'created' => true];
+    }
+
     /** Medio interno del crédito por cambio: se crea la primera vez que el comercio hace un cambio. */
     private function exchangeMethod(): PaymentMethod
     {
@@ -335,6 +402,8 @@ class SalesService
             if ($sale->exchange_return_id !== null) {
                 throw AppError::conflict('SALE_IS_EXCHANGE', 'La venta es un cambio: no se anula, registrá una devolución');
             }
+            $this->giftCards->voidIssued($actor, $sale);
+            $this->giftCards->reverse($actor, $sale);
 
             $products = Product::whereIn('id', ProductVariant::whereIn('id', SaleLine::where('sale_id', $sale->id)->select('variant_id'))->select('product_id'))
                 ->where('track_stock', true)->pluck('id');
@@ -407,7 +476,7 @@ class SalesService
         $shift = $this->cash->lockOpenShift($register->id);
         $method = PaymentMethod::find($input['paymentMethodId']);
         // El crédito por cambio solo lo usa exchange(), que lo aplica en la misma operación.
-        if (! $method || ! $method->active || ($method->kind === 'exchange' && ! ($input['exchange'] ?? false))) {
+        if (! $method || ! $method->active || $method->kind === 'gift_card' || ($method->kind === 'exchange' && ! ($input['exchange'] ?? false))) {
             throw AppError::validation([['path' => 'paymentMethodId', 'message' => 'Medio de pago inexistente o desactivado']]);
         }
 

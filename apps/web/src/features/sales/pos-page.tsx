@@ -1,8 +1,8 @@
-import { createSaleSchema, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
+import { createSaleSchema, type GiftCardDto, type ItemDto, type PaymentMethodDto, type PermissionCode, type RegisterDto, type SaleDto, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Minus, Plus, Printer, Trash2, X } from 'lucide-react';
+import { Gift, Minus, Plus, Printer, Trash2, X } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
@@ -22,6 +22,8 @@ import { PrintTicket } from './ticket';
 import { InvoiceDialog } from '@/features/fiscal/invoice-dialog';
 import { ProductForm } from '@/features/catalog/product-form';
 import { itemOf } from '@/features/catalog/item';
+import { IssueGiftCardDialog } from '@/features/gift-cards/issue-dialog';
+import { formatExpiry, formatGiftCardCode } from '@/features/gift-cards/gift-card-ticket';
 
 interface CartLine {
   product: ItemDto;
@@ -180,6 +182,7 @@ function Counter({ register }: { register: RegisterDto }) {
   const [printing, setPrinting] = useState<{ sale: SaleDto; exchange: boolean } | null>(null);
   const navigate = useNavigate();
   const [invoicing, setInvoicing] = useState<SaleDto | null>(null);
+  const [sellingGiftCard, setSellingGiftCard] = useState(false);
   /** Código escaneado que no estaba cargado y se está dando de alta sin salir de la venta. */
   const [creating, setCreating] = useState<string | null>(null);
   const scanner = useRef<HTMLInputElement>(null);
@@ -386,15 +389,20 @@ function Counter({ register }: { register: RegisterDto }) {
                   <Printer className="size-4" /> Imprimir ticket
                 </Button>
                 <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting({ sale: lastSale, exchange: true })}>
-                  <Printer className="size-4" /> Ticket de cambio
+                  <Printer className="size-4" /> {lastSale.giftCard ? 'Imprimir gift card' : 'Ticket de cambio'}
                 </Button>
-                {can('fiscal.issue', 'fiscal.manage') && (
+                {can('fiscal.issue', 'fiscal.manage') && !lastSale.giftCard && (
                   <Button variant="secondary" className="col-span-2 h-12" onClick={() => setInvoicing(lastSale)}>
                     Facturar
                   </Button>
                 )}
               </div>
             </div>
+          )}
+          {cart.lines.length === 0 && methods.data && (
+            <Button variant="ghost" className="h-11 w-full" onClick={() => setSellingGiftCard(true)}>
+              <Gift className="size-4" /> Vender gift card
+            </Button>
           )}
           {can('sales.read_own', 'sales.read_all') && (
             <Link to="/app/ventas" className="block text-center text-sm text-brand-700 hover:underline">
@@ -439,6 +447,21 @@ function Counter({ register }: { register: RegisterDto }) {
           onClose={() => (setCheckout(false), focusScanner())}
           onDone={done}
           onPriceChanged={pricesChanged}
+        />
+      )}
+      {sellingGiftCard && methods.data && (
+        <IssueGiftCardDialog
+          registerId={register.id}
+          methods={methods.data.filter((m) => m.active)}
+          onClose={() => (setSellingGiftCard(false), focusScanner())}
+          onDone={(sale) => {
+            setSellingGiftCard(false);
+            setLastSale(sale);
+            void queryClient.invalidateQueries({ queryKey: ['shifts'] });
+            void queryClient.invalidateQueries({ queryKey: ['gift-cards'] });
+            toast(`Gift card ${sale.giftCard?.code ?? ''} vendida: imprimila para entregarla`);
+            focusScanner();
+          }}
         />
       )}
       {printing && tenant.data && <PrintTicket sale={printing.sale} exchange={printing.exchange} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
@@ -567,6 +590,82 @@ function LineDialog({
 }
 
 /** Importes sugeridos para cobrar en efectivo: billetes que alcanzan a cubrir lo que falta. */
+/** Cobro con gift card: se escanea el código, se ve el saldo y se usa hasta lo que falta pagar. */
+function GiftCardPayment({ cards, room, onAdd, onRemove }: { cards: Array<{ card: GiftCardDto; amount: string }>; room: string; onAdd: (card: GiftCardDto, amount: string) => void; onRemove: (code: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function apply() {
+    const typed = code.trim();
+    if (!typed) return;
+    setLoading(true);
+    setMessage(null);
+    try {
+      const card = await http.get<GiftCardDto>(`/gift-cards/lookup?code=${encodeURIComponent(typed)}`);
+      if (cards.some((c) => c.card.code === card.code)) return setMessage('Esa gift card ya está aplicada');
+      if (card.state === 'expired') return setMessage(`La gift card venció el ${formatExpiry(card.expiresOn)}`);
+      if (card.state === 'used') return setMessage('La gift card ya no tiene saldo');
+      if (card.state === 'voided') return setMessage('La gift card está anulada');
+      if (!dec(room).gt(0)) return setMessage('La venta ya está paga');
+      onAdd(card, dec(card.balance).lt(room) ? card.balance : room);
+      setCode('');
+      setOpen(false);
+    } catch (err) {
+      setMessage(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {cards.map((c) => (
+        <div key={c.card.code} className="flex items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm">
+          <span>
+            <Gift className="mr-1 inline size-4" aria-hidden /> Gift card <span className="font-mono font-semibold">{formatGiftCardCode(c.card.code)}</span>
+            <span className="block text-xs text-slate-600">
+              Usa {formatArs(c.amount)} · le quedan {formatArs(roundMoney(dec(c.card.balance).minus(c.amount)))}
+            </span>
+          </span>
+          <button type="button" className="rounded-full p-2 text-slate-500 hover:text-red-700" aria-label={`Quitar la gift card ${c.card.code}`} onClick={() => onRemove(c.card.code)}>
+            <X className="size-4" />
+          </button>
+        </div>
+      ))}
+      {open ? (
+        <div>
+          <div className="flex gap-2">
+            <Input
+              aria-label="Código de la gift card"
+              autoFocus
+              autoComplete="off"
+              className="h-12"
+              placeholder="Escaneá o escribí el código"
+              value={code}
+              onChange={(e) => (setCode(e.target.value), setMessage(null))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.preventDefault(), void apply());
+              }}
+            />
+            <Button variant="secondary" className="h-12" loading={loading} onClick={() => void apply()}>
+              Aplicar
+            </Button>
+          </div>
+          {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
+        </div>
+      ) : (
+        dec(room).gt(0) && (
+          <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+            <Gift className="size-4" /> Pagar con gift card
+          </Button>
+        )
+      )}
+    </div>
+  );
+}
+
 function cashSuggestions(remaining: string): string[] {
   const r = dec(remaining);
   if (!r.gt(0)) return [];
@@ -599,17 +698,22 @@ function CheckoutDialog({
   const [error, setError] = useState<string | null>(null);
   const [pin, setPin] = useState<{ permission: PermissionCode; error: string | null } | null>(null);
   const byId = new Map(methods.map((m) => [m.id, m]));
+  // Gift cards: pagan primero; lo que falta se cobra con los otros medios.
+  const [cards, setCards] = useState<Array<{ card: GiftCardDto; amount: string }>>([]);
+  const cardsTotal = sumMoney(cards.map((c) => c.amount));
+  const due = dec(total).minus(cardsTotal).gt(0) ? roundMoney(dec(total).minus(cardsTotal)) : '0.00';
+  const coveredByCards = cards.length > 0 && !dec(due).gt(0) && rows.length === 1 && rows[0]!.amount.trim() === '';
 
-  const amounts = rows.map((r, i) => (r.amount.trim() === '' && i === 0 && rows.length === 1 ? total : parseDecimalInput(r.amount)));
+  const amounts = rows.map((r, i) => (r.amount.trim() === '' && i === 0 && rows.length === 1 ? due : parseDecimalInput(r.amount)));
   const amountsValid = amounts.every((a) => /^\d+(\.\d{1,2})?$/.test(a));
-  const paid = amountsValid ? sumMoney(amounts) : '0.00';
+  const paid = amountsValid ? sumMoney([cardsTotal, ...amounts]) : '0.00';
   const missing = dec(total).minus(paid);
-  const nonCash = amountsValid ? sumMoney(amounts.filter((_, i) => byId.get(rows[i]!.paymentMethodId)?.kind !== 'cash')) : '0.00';
+  const nonCash = amountsValid ? sumMoney([cardsTotal, ...amounts.filter((_, i) => byId.get(rows[i]!.paymentMethodId)?.kind !== 'cash')]) : '0.00';
   const change = missing.lt(0) ? roundMoney(missing.negated()) : '0.00';
   const ready = amountsValid && missing.lte(0) && dec(nonCash).lte(total);
   const row = rows[active]!;
   const method = byId.get(row.paymentMethodId);
-  const others = sumMoney(amounts.filter((a, i) => i !== active && /^\d+(\.\d{1,2})?$/.test(a)));
+  const others = sumMoney([cardsTotal, ...amounts.filter((a, i) => i !== active && /^\d+(\.\d{1,2})?$/.test(a))]);
   const rest = dec(total).minus(others);
   const remaining = rest.gt(0) ? roundMoney(rest) : '0.00';
 
@@ -625,6 +729,7 @@ function CheckoutDialog({
             return { paymentMethodId: r.paymentMethodId, amount: amounts[i]!, reference: r.reference || null, payerName: (payer && r.payerName?.trim()) || null, payerPhone: (payer && r.payerPhone?.trim()) || null };
           })
           .filter((p) => dec(p.amount).gt(0)),
+        giftCards: cards.length > 0 ? cards.map((c) => ({ code: c.card.code, amount: c.amount })) : undefined,
         expectedTotal: total,
         authorization,
       });
@@ -687,6 +792,15 @@ function CheckoutDialog({
               ))}
             </div>
           )}
+          <GiftCardPayment
+            cards={cards}
+            room={roundMoney(dec(total).minus(cardsTotal))}
+            onAdd={(card, amount) => (setCards((cs) => [...cs, { card, amount }]), setError(null))}
+            onRemove={(code) => setCards((cs) => cs.filter((c) => c.card.code !== code))}
+          />
+          {coveredByCards ? (
+            <p className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">La gift card paga todo: no hay nada más que cobrar.</p>
+          ) : (
           <div className={keypad ? 'grid gap-5 md:grid-cols-[1fr_15rem]' : ''}>
             <div className="space-y-4">
               <div role="group" aria-label={`Medio de pago ${active + 1}`} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -710,7 +824,7 @@ function CheckoutDialog({
                     className="h-14 text-right text-2xl font-semibold"
                     inputMode={keypad ? 'none' : 'decimal'}
                     autoFocus={!keypad}
-                    placeholder={active === 0 && rows.length === 1 ? toInputDecimal(total) : ''}
+                    placeholder={active === 0 && rows.length === 1 ? toInputDecimal(due) : ''}
                     value={row.amount}
                     onFocus={() => setTarget('amount')}
                     onChange={(e) => setRow(active, { amount: e.target.value })}
@@ -756,9 +870,12 @@ function CheckoutDialog({
               </div>
             )}
           </div>
-          <Button variant="secondary" className="h-11" disabled={rows.length >= 10 || !missing.gt(0)} onClick={splitRest}>
-            <Plus className="size-4" /> Pagar el resto con otro medio
-          </Button>
+          )}
+          {!coveredByCards && (
+            <Button variant="secondary" className="h-11" disabled={rows.length >= 10 || !missing.gt(0)} onClick={splitRest}>
+              <Plus className="size-4" /> Pagar el resto con otro medio
+            </Button>
+          )}
           <div className="space-y-1 rounded-xl bg-slate-100 p-4">
             <div className="flex justify-between text-sm">
               <span>Pagado</span>

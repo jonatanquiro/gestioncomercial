@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Auth\Actor;
 use App\Models\Branch;
+use App\Models\GiftCard;
 use App\Models\PaymentMethod;
 use App\Models\Register;
 use App\Models\Sale;
@@ -12,6 +13,7 @@ use App\Models\SalePayment;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnLine;
 use App\Models\User;
+use App\Services\GiftCardService;
 use App\Services\SalesService;
 use App\Support\AppError;
 use App\Support\Dates;
@@ -39,6 +41,32 @@ class SalesController extends Controller
         return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
     }
 
+    /** Venta de una gift card (ADR 0015): una venta sin artículos por el monto de la tarjeta. */
+    public function storeGiftCard(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $input = Input::validate($this->body($request), [
+            'clientUuid' => ['required', 'string', 'uuid'],
+            'registerId' => ['required', 'string', 'uuid'],
+            'amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'validMonths' => ['required', 'integer', 'min:1', 'max:'.GiftCardService::MAX_MONTHS],
+            'recipientName' => ['nullable', 'string', 'max:80'],
+            'fromName' => ['nullable', 'string', 'max:80'],
+            ...array_intersect_key(self::saleRules(), array_flip(['payments', 'payments.*', 'payments.*.paymentMethodId', 'payments.*.amount', 'payments.*.reference', 'payments.*.payerName', 'payments.*.payerPhone'])),
+        ], [
+            'validMonths.min' => 'La validez va de 1 a '.GiftCardService::MAX_MONTHS.' meses',
+            'validMonths.max' => 'La validez va de 1 a '.GiftCardService::MAX_MONTHS.' meses',
+            ...self::saleMessages(),
+        ]);
+        if (Money::of($input['amount'])->isZero()) {
+            throw AppError::validation([['path' => 'amount', 'message' => 'El importe no puede ser cero']]);
+        }
+        self::assertSaleAmounts(['lines' => [], 'payments' => $input['payments']]);
+        ['sale' => $sale, 'created' => $created] = $this->sales->issueGiftCard($actor, $input);
+
+        return $this->json($this->dto($sale, $actor), $created ? 201 : 200);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $actor = $this->actor($request);
@@ -59,6 +87,7 @@ class SalesController extends Controller
         $users = User::whereIn('id', $rows->pluck('cashier_id')->unique())->pluck('name', 'id');
         $registers = Register::whereIn('id', $rows->pluck('register_id')->unique())->pluck('name', 'id');
         $returned = SaleReturn::whereIn('sale_id', $rows->pluck('id'))->groupBy('sale_id')->selectRaw('sale_id, SUM(total) AS total')->pluck('total', 'sale_id');
+        $giftCards = GiftCard::whereIn('sale_id', $rows->pluck('id'))->pluck('code', 'sale_id');
 
         return $this->json([
             'items' => $rows->map(fn (Sale $s) => [
@@ -70,6 +99,7 @@ class SalesController extends Controller
                 'registerName' => $registers[$s->register_id] ?? '',
                 'total' => Money::round($s->total),
                 'returnedTotal' => Money::round((string) ($returned[$s->id] ?? '0')),
+                'giftCardCode' => $giftCards[$s->id] ?? null,
             ])->all(),
             'total' => $total,
             'page' => $page,
@@ -172,6 +202,10 @@ class SalesController extends Controller
             'payments.*.reference' => ['nullable', 'string', 'max:80'],
             'payments.*.payerName' => ['nullable', 'string', 'max:120'],
             'payments.*.payerPhone' => ['nullable', 'string', 'regex:/^[\d\s()+-]{6,30}$/'],
+            'giftCards' => ['nullable', 'array', 'list', 'max:5'],
+            'giftCards.*' => ['array'],
+            'giftCards.*.code' => ['required', 'string', 'max:30', 'distinct'],
+            'giftCards.*.amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
             'expectedTotal' => ['required', ...Input::decimal(Input::MONEY, 'Total inválido')],
             'authorization' => ['nullable', 'array'],
         ];
@@ -179,7 +213,7 @@ class SalesController extends Controller
 
     private static function saleMessages(): array
     {
-        return ['payments.*.payerPhone.regex' => 'Teléfono inválido', 'lines.required' => 'Agregá al menos un artículo', 'lines.min' => 'Agregá al menos un artículo', 'lines.*.variantId.distinct' => 'El artículo está repetido'];
+        return ['giftCards.*.code.distinct' => 'La gift card está repetida', 'payments.*.payerPhone.regex' => 'Teléfono inválido', 'lines.required' => 'Agregá al menos un artículo', 'lines.min' => 'Agregá al menos un artículo', 'lines.*.variantId.distinct' => 'El artículo está repetido'];
     }
 
     private static function assertSaleAmounts(array $input): void
@@ -196,6 +230,11 @@ class SalesController extends Controller
         foreach ($input['payments'] as $i => $p) {
             if (Money::of($p['amount'])->isZero()) {
                 $details[] = ['path' => "payments.{$i}.amount", 'message' => 'El importe no puede ser cero'];
+            }
+        }
+        foreach ($input['giftCards'] ?? [] as $i => $g) {
+            if (Money::of($g['amount'])->isZero()) {
+                $details[] = ['path' => "giftCards.{$i}.amount", 'message' => 'El importe no puede ser cero'];
             }
         }
         if ($details !== []) {
@@ -225,6 +264,7 @@ class SalesController extends Controller
         // Cambios: de qué venta salió el crédito de esta, y por qué venta se cambió cada devolución.
         $origin = $sale->exchange_return_id ? SaleReturn::find($sale->exchange_return_id) : null;
         $exchangedFor = Sale::whereIn('exchange_return_id', $returns->pluck('id'))->get(['id', 'number', 'exchange_return_id'])->keyBy('exchange_return_id');
+        $giftCard = GiftCard::where('sale_id', $sale->id)->first();
 
         return [
             'id' => $sale->id,
@@ -241,6 +281,7 @@ class SalesController extends Controller
             'total' => Money::round($sale->total),
             'changeGiven' => Money::round($sale->change_given),
             'discountAuthorizedBy' => $users[$sale->discount_authorized_by] ?? null,
+            'giftCard' => $giftCard ? GiftCardsController::dto($giftCard) : null,
             'exchangeOf' => $origin ? ['saleId' => $origin->sale_id, 'saleNumber' => (int) Sale::whereKey($origin->sale_id)->value('number'), 'credit' => Money::round($origin->total)] : null,
             'lines' => $lines->map(fn (SaleLine $l) => [
                 'id' => $l->id,

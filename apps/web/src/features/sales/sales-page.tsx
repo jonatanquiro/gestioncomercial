@@ -2,7 +2,7 @@ import { type Paginated, type PermissionCode, type SaleDto, type SaleSummaryDto 
 import { dec, formatArs, proportionalAmount, roundMoney, sumMoney } from '@gc/domain';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { Printer } from 'lucide-react';
+import { Gift, Printer } from 'lucide-react';
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
@@ -22,6 +22,8 @@ import { PrintTicket } from './ticket';
 import { parseSaleTicketCode } from './exchange-ticket';
 import { InvoiceDialog, invoiceNumber, saleInvoicesQuery } from '@/features/fiscal/invoice-dialog';
 import { InvoicePrint } from '@/features/fiscal/invoice';
+import { formatExpiry, formatGiftCardCode } from '@/features/gift-cards/gift-card-ticket';
+import { GIFT_CARD_STATES, GiftCardDetailDialog } from '@/features/gift-cards/gift-cards-page';
 
 const PAGE_SIZE = 25;
 
@@ -101,6 +103,8 @@ export function SalesPage() {
                     <Badge tone="red">Anulada</Badge>
                   ) : dec(s.returnedTotal).gt(0) ? (
                     <Badge tone="amber">Devolución {formatArs(s.returnedTotal)}</Badge>
+                  ) : s.giftCardCode ? (
+                    <Badge tone="brand">Gift card</Badge>
                   ) : (
                     <Badge tone="green">Cobrada</Badge>
                   )}
@@ -124,6 +128,7 @@ export function SaleDetailPage() {
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
   const [exchanging, setExchanging] = useState(false);
+  const [showingCard, setShowingCard] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
   const canInvoice = can('fiscal.issue', 'fiscal.manage');
   const invoices = useQuery({ ...saleInvoicesQuery(id), enabled: canInvoice });
@@ -145,12 +150,12 @@ export function SaleDetailPage() {
             <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('sale')}>
               <Printer className="size-4" /> Reimprimir ticket
             </Button>
-            {s.status === 'confirmed' && returnable && (
+            {s.status === 'confirmed' && (s.giftCard ? s.giftCard.state === 'active' : returnable) && (
               <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('exchange')}>
-                <Printer className="size-4" /> Ticket de cambio
+                <Printer className="size-4" /> {s.giftCard ? 'Imprimir gift card' : 'Ticket de cambio'}
               </Button>
             )}
-            {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
+            {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && !s.giftCard && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
             {s.status === 'confirmed' && can('sales.create', 'sales.return') && returnable && (
               <Button variant="secondary" onClick={() => setReturning(true)}>
                 Devolución
@@ -185,6 +190,27 @@ export function SaleDetailPage() {
         </div>
       )}
       <div className="grid gap-6 xl:grid-cols-[1fr_20rem]">
+        {s.giftCard ? (
+          <Card className="space-y-3 p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <h2 className="font-semibold">
+                <Gift className="mr-1 inline size-4" aria-hidden /> Gift card <span className="font-mono">{formatGiftCardCode(s.giftCard.code)}</span>
+              </h2>
+              <Badge tone={GIFT_CARD_STATES[s.giftCard.state].tone}>{GIFT_CARD_STATES[s.giftCard.state].label}</Badge>
+            </div>
+            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+              <div><dt className="text-slate-500">Monto</dt><dd className="font-semibold">{formatArs(s.giftCard.amount)}</dd></div>
+              <div><dt className="text-slate-500">Saldo</dt><dd className="font-semibold">{formatArs(s.giftCard.balance)}</dd></div>
+              <div><dt className="text-slate-500">Vence</dt><dd>{formatExpiry(s.giftCard.expiresOn)}</dd></div>
+              <div><dt className="text-slate-500">Para / De</dt><dd>{[s.giftCard.recipientName, s.giftCard.fromName].filter(Boolean).join(' / ') || '—'}</dd></div>
+            </dl>
+            {can('sales.read_all') && (
+              <Button variant="secondary" size="sm" onClick={() => setShowingCard(true)}>
+                Ver usos
+              </Button>
+            )}
+          </Card>
+        ) : (
         <Card>
           <Table
             head={
@@ -210,6 +236,7 @@ export function SaleDetailPage() {
             ))}
           </Table>
         </Card>
+        )}
         <Card className="h-fit space-y-2 p-5 text-sm">
           {s.discountTotal !== '0.00' && (
             <>
@@ -287,6 +314,7 @@ export function SaleDetailPage() {
       {voiding && <VoidDialog sale={s} onClose={() => setVoiding(false)} />}
       {returning && <ReturnDialog sale={s} onClose={() => setReturning(false)} />}
       {exchanging && <ExchangeDialog sale={s} onClose={() => setExchanging(false)} />}
+      {showingCard && s.giftCard && <GiftCardDetailDialog code={s.giftCard.code} onClose={() => setShowingCard(false)} />}
       {printing && tenant.data && <PrintTicket sale={s} exchange={printing === 'exchange'} tenant={tenant.data} onDone={() => setPrinting(null)} />}
       {invoicing && <InvoiceDialog sale={s} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => setInvoicing(false)} />}
       {printingInvoice && <InvoicePrint invoice={printingInvoice} onClose={() => setPrintingInvoice(null)} />}

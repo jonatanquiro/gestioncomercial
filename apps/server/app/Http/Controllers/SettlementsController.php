@@ -47,7 +47,7 @@ class SettlementsController extends Controller
         ]);
         $id = DB::transaction(function () use ($actor, $v) {
             Tenant::whereKey($actor->tenantId)->lockForUpdate()->firstOrFail();
-            $method = PaymentMethod::where('kind', '<>', 'exchange')->find($v['paymentMethodId']) ?? throw AppError::notFound('Medio de pago');
+            $method = PaymentMethod::whereNotIn('kind', PaymentMethod::INTERNAL_KINDS)->find($v['paymentMethodId']) ?? throw AppError::notFound('Medio de pago');
             if ($method->kind === 'cash') {
                 throw AppError::badRequest('CASH_SETTLEMENT', 'El efectivo se controla con el arqueo de caja');
             }

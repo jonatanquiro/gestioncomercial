@@ -8,6 +8,7 @@ use App\Http\Controllers\CategoriesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeesController;
 use App\Http\Controllers\FiscalController;
+use App\Http\Controllers\GiftCardsController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\PaymentMethodsController;
 use App\Http\Controllers\PaymentsController;
@@ -179,6 +180,9 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::post('sales/{id}/void', [SalesController::class, 'void'])->middleware('perm:sales.create,sales.void');
     Route::post('sales/{id}/returns', [SalesController::class, 'storeReturn'])->middleware('perm:sales.create,sales.return');
     Route::post('sales/{id}/exchanges', [SalesController::class, 'storeExchange'])->middleware('perm:sales.create');
+    Route::post('gift-cards', [SalesController::class, 'storeGiftCard'])->middleware('perm:sales.create');
+    Route::get('gift-cards', [GiftCardsController::class, 'index'])->middleware('perm:sales.read_all');
+    Route::get('gift-cards/lookup', [GiftCardsController::class, 'lookup'])->middleware('perm:sales.create,sales.read_all');
     Route::get('pos/authorizers', [PosController::class, 'authorizers'])->middleware('perm:sales.create');
     Route::post('auth/pos-pin', [PosController::class, 'setPin']);
 });

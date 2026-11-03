@@ -466,6 +466,8 @@ export interface SaleDto {
   total: string;
   changeGiven: string;
   discountAuthorizedBy: string | null;
+  /** Si la venta es la de una gift card: la tarjeta emitida. No tiene artículos. */
+  giftCard: GiftCardDto | null;
   /** Si la venta es un cambio: la venta de la que salió el crédito. */
   exchangeOf: { saleId: string; saleNumber: number; credit: string } | null;
   lines: SaleLineDto[];
@@ -495,6 +497,31 @@ export interface SaleSummaryDto {
   registerName: string;
   total: string;
   returnedTotal: string;
+  /** Código de la gift card si la venta es la de una tarjeta. */
+  giftCardCode: string | null;
+}
+
+export type GiftCardState = 'active' | 'used' | 'expired' | 'voided';
+export interface GiftCardDto {
+  id: string;
+  code: string;
+  amount: string;
+  balance: string;
+  state: GiftCardState;
+  /** Último día en que se puede usar (AAAA-MM-DD). */
+  expiresOn: string;
+  recipientName: string | null;
+  fromName: string | null;
+  createdAt: string;
+  branchName: string;
+  sale: { id: string; number: number };
+  /** Solo en la consulta por código. */
+  movements?: Array<{ kind: 'issue' | 'redeem' | 'reversal' | 'void'; amount: string; balanceAfter: string; createdAt: string; sale: { id: string; number: number } | null }>;
+}
+
+export interface GiftCardListDto extends Paginated<GiftCardDto> {
+  /** Saldo vigente: lo que el comercio todavía debe entregar en mercadería. */
+  outstanding: { count: number; amount: string };
 }
 
 export interface ShiftTotalsByMethod {

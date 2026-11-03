@@ -420,8 +420,8 @@ export const applyBulkPriceSchema = bulkPriceSchema.extend({ fingerprint: z.stri
 
 export const PAYMENT_KINDS = ['cash', 'debit', 'credit', 'transfer', 'qr', 'other'] as const;
 export type PaymentKind = (typeof PAYMENT_KINDS)[number];
-/** En los pagos de una venta también aparece el crédito por cambio, que es interno y no se configura. */
-export type SalePaymentKind = PaymentKind | 'exchange';
+/** En los pagos de una venta también aparecen el crédito por cambio y la gift card, que son internos y no se configuran. */
+export type SalePaymentKind = PaymentKind | 'exchange' | 'gift_card';
 export const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
   cash: 'Efectivo',
   debit: 'Tarjeta de débito',
@@ -456,6 +456,12 @@ export const createSaleSchema = z.object({
       }),
     )
     .max(10),
+  /** Gift cards con que se paga primero (ADR 0015). */
+  giftCards: z
+    .array(z.object({ code: z.string().trim().min(1, 'Obligatorio').max(30), amount: positiveMoney }))
+    .max(5)
+    .refine((cards) => new Set(cards.map((c) => c.code.toUpperCase())).size === cards.length, 'La gift card está repetida')
+    .optional(),
   expectedTotal: moneySchema,
   authorization: pinAuthorizationSchema.nullable().optional(),
 });
@@ -470,6 +476,19 @@ export const createExchangeSchema = createSaleSchema.extend({
     .max(300),
 });
 export type CreateExchangeInput = z.infer<typeof createExchangeSchema>;
+
+/** Gift card (ADR 0015): se vende por un monto y vale hasta 6 meses. */
+export const GIFT_CARD_MAX_MONTHS = 6;
+export const createGiftCardSchema = z.object({
+  clientUuid: uuidSchema,
+  registerId: uuidSchema,
+  amount: positiveMoney,
+  validMonths: z.number().int().min(1, `La validez va de 1 a ${GIFT_CARD_MAX_MONTHS} meses`).max(GIFT_CARD_MAX_MONTHS, `La validez va de 1 a ${GIFT_CARD_MAX_MONTHS} meses`),
+  recipientName: optionalText(80),
+  fromName: optionalText(80),
+  payments: createSaleSchema.shape.payments,
+});
+export type CreateGiftCardInput = z.infer<typeof createGiftCardSchema>;
 
 export const voidSaleSchema = z.object({ reason: trimmed(200), authorization: pinAuthorizationSchema.nullable().optional() });
 
