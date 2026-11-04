@@ -589,10 +589,13 @@ export const supplierPaymentSchema = z
 export const promotionSchema = z
   .object({
     name: trimmed(80),
-    kind: z.enum(['percent', 'nxm']),
+    kind: z.enum(['percent', 'nxm', 'combo']),
     percent: discountPercentSchema.nullable(),
     buyQuantity: z.number().int().min(2, 'Tiene que llevar al menos 2').max(100).nullable(),
     payQuantity: z.number().int().min(1).max(99).nullable(),
+    /** Combo (ADR 0024): precio del conjunto y sus productos. */
+    comboPrice: moneySchema.nullable().optional(),
+    items: z.array(z.object({ productId: uuidSchema, quantity: z.number().int().min(1, 'Mínimo 1').max(99, 'Máximo 99') })).max(10, 'Hasta 10 productos por combo').optional(),
     scope: z.enum(['all', 'category', 'product']),
     categoryId: uuidSchema.nullable(),
     productId: uuidSchema.nullable(),
@@ -604,6 +607,8 @@ export const promotionSchema = z
     if (p.kind === 'nxm' && !p.buyQuantity) ctx.addIssue({ code: 'custom', path: ['buyQuantity'], message: 'Ingresá cuántas lleva' });
     if (p.kind === 'nxm' && !p.payQuantity) ctx.addIssue({ code: 'custom', path: ['payQuantity'], message: 'Ingresá cuántas paga' });
     if (p.kind === 'nxm' && p.buyQuantity && p.payQuantity && p.payQuantity >= p.buyQuantity) ctx.addIssue({ code: 'custom', path: ['payQuantity'], message: 'Tiene que pagar menos de las que lleva' });
+    if (p.kind === 'combo' && !p.comboPrice) ctx.addIssue({ code: 'custom', path: ['comboPrice'], message: 'Ingresá el precio del combo' });
+    if (p.kind === 'combo' && (p.items ?? []).reduce((n, i) => n + i.quantity, 0) < 2) ctx.addIssue({ code: 'custom', path: ['items'], message: 'El combo tiene que llevar al menos dos unidades' });
     if (p.scope === 'category' && !p.categoryId) ctx.addIssue({ code: 'custom', path: ['categoryId'], message: 'Elegí la categoría' });
     if (p.scope === 'product' && !p.productId) ctx.addIssue({ code: 'custom', path: ['productId'], message: 'Elegí el producto' });
     if (p.startsOn && p.endsOn && p.endsOn < p.startsOn) ctx.addIssue({ code: 'custom', path: ['endsOn'], message: 'La fecha de fin no puede ser anterior a la de inicio' });

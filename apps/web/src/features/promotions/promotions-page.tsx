@@ -1,6 +1,7 @@
 import { type ItemDto, type PromotionDto, promotionSchema } from '@gc/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { formatArs } from '@gc/domain';
+import { Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { categoriesQuery, tenantQuery, zodFieldErrors } from '@/features/catalog/queries';
@@ -17,10 +18,14 @@ import { useCan } from '@/lib/session';
 const promotionsQuery = { queryKey: ['promotions'], queryFn: () => http.get<PromotionDto[]>('/promotions') };
 
 /** «20 % de descuento» o «3×2». */
-export const promotionRule = (p: Pick<PromotionDto, 'kind' | 'percent' | 'buyQuantity' | 'payQuantity'>) =>
-  p.kind === 'percent' ? `${toInputDecimal(p.percent ?? '0').replace(/,00$/, '')} % de descuento` : `Lleva ${p.buyQuantity}, paga ${p.payQuantity}`;
+export const promotionRule = (p: Pick<PromotionDto, 'kind' | 'percent' | 'buyQuantity' | 'payQuantity' | 'comboPrice' | 'items' | 'regularPrice'>) =>
+  p.kind === 'percent'
+    ? `${toInputDecimal(p.percent ?? '0').replace(/,00$/, '')} % de descuento`
+    : p.kind === 'combo'
+      ? `${p.items.map((i) => `${i.quantity > 1 ? `${i.quantity} × ` : ''}${i.name}`).join(' + ')} por ${formatArs(p.comboPrice ?? '0')}${p.regularPrice ? ` (separado ${formatArs(p.regularPrice)})` : ''}`
+      : `Lleva ${p.buyQuantity}, paga ${p.payQuantity}`;
 
-const scopeLabel = (p: PromotionDto) => (p.scope === 'all' ? 'Todo el comercio' : p.scope === 'category' ? `Categoría ${p.targetName ?? ''}` : (p.targetName ?? 'Producto'));
+const scopeLabel = (p: PromotionDto) => (p.kind === 'combo' ? 'Los productos del combo' : p.scope === 'all' ? 'Todo el comercio' : p.scope === 'category' ? `Categoría ${p.targetName ?? ''}` : (p.targetName ?? 'Producto'));
 
 const dateRange = (p: PromotionDto) =>
   p.startsOn && p.endsOn
@@ -43,7 +48,7 @@ export function PromotionsPage() {
     <>
       <PageHeader
         title="Promociones"
-        description="Se aplican solas al cobrar. Una línea recibe la promoción que más le descuenta; si tiene un descuento manual, no recibe promociones."
+        description="Se aplican solas al cobrar. Los combos van primero; después, cada línea recibe la promoción que más le descuenta. Una línea con descuento manual no recibe promociones."
         actions={
           allowed && (
             <Button onClick={() => setEditing('new')}>
@@ -109,7 +114,9 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
   const categories = useQuery(categoriesQuery);
   const [form, setForm] = useState({
     name: promotion?.name ?? '',
-    kind: promotion?.kind ?? ('percent' as 'percent' | 'nxm'),
+    kind: promotion?.kind ?? ('percent' as 'percent' | 'nxm' | 'combo'),
+    comboPrice: promotion?.comboPrice ? toInputDecimal(promotion.comboPrice) : '',
+    items: (promotion?.items ?? []).map((i) => ({ productId: i.productId, name: i.name, quantity: String(i.quantity), price: null as string | null })),
     percent: promotion?.percent ? toInputDecimal(promotion.percent) : '',
     buyQuantity: String(promotion?.buyQuantity ?? 3),
     payQuantity: String(promotion?.payQuantity ?? 2),
@@ -137,11 +144,13 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
       name: form.name,
       kind: form.kind,
       percent: form.kind === 'percent' ? parseDecimalInput(form.percent) || null : null,
+      comboPrice: form.kind === 'combo' ? parseDecimalInput(form.comboPrice) || null : null,
+      items: form.kind === 'combo' ? form.items.map((i) => ({ productId: i.productId, quantity: Number(i.quantity) || 0 })) : [],
       buyQuantity: form.kind === 'nxm' ? Number(form.buyQuantity) || null : null,
       payQuantity: form.kind === 'nxm' ? Number(form.payQuantity) || null : null,
-      scope: form.scope,
-      categoryId: form.scope === 'category' ? form.categoryId || null : null,
-      productId: form.scope === 'product' ? (form.product?.id ?? null) : null,
+      scope: form.kind === 'combo' ? 'all' : form.scope,
+      categoryId: form.kind !== 'combo' && form.scope === 'category' ? form.categoryId || null : null,
+      productId: form.kind !== 'combo' && form.scope === 'product' ? (form.product?.id ?? null) : null,
       startsOn: form.startsOn || null,
       endsOn: form.endsOn || null,
     };
@@ -150,7 +159,10 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
     setErrors({});
     save.mutate(promotion ? { ...parsed.data, status: form.status } : parsed.data);
   }
-  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => {
+    const value = e.target.value;
+    setForm((f) => ({ ...f, [key]: value }));
+  };
   return (
     <form onSubmit={submit} className="space-y-4" noValidate>
       {save.error && !Object.keys(errors).length && <Alert>{errorMessage(save.error)}</Alert>}
@@ -163,10 +175,13 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
             <Select {...p} value={form.kind} onChange={set('kind')}>
               <option value="percent">Porcentaje de descuento</option>
               <option value="nxm">Lleva N, paga M (2×1, 3×2…)</option>
+              <option value="combo">Combo de productos</option>
             </Select>
           )}
         </Field>
-        {form.kind === 'percent' ? (
+        {form.kind === 'combo' ? (
+          <Field label="Precio del combo" error={errors.comboPrice}>{(p) => <Input {...p} inputMode="decimal" value={form.comboPrice} onChange={set('comboPrice')} />}</Field>
+        ) : form.kind === 'percent' ? (
           <Field label="Descuento (%)" error={errors.percent}>{(p) => <Input {...p} inputMode="decimal" value={form.percent} onChange={set('percent')} />}</Field>
         ) : (
           <>
@@ -175,6 +190,15 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
           </>
         )}
       </div>
+      {form.kind === 'combo' && (
+        <ComboItems
+          items={form.items}
+          comboPrice={parseDecimalInput(form.comboPrice)}
+          error={errors.items ?? Object.entries(errors).find(([k]) => k.startsWith('items.'))?.[1]}
+          onChange={(update) => setForm((f) => ({ ...f, items: update(f.items) }))}
+        />
+      )}
+      {form.kind !== 'combo' && (
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Aplica a">
           {(p) => (
@@ -216,6 +240,7 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
           </div>
         )}
       </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-3">
         <Field label="Desde" hint="Opcional.">{(p) => <Input {...p} type="date" value={form.startsOn} onChange={set('startsOn')} />}</Field>
         <Field label="Hasta" error={errors.endsOn} hint="Opcional; incluye ese día.">{(p) => <Input {...p} type="date" value={form.endsOn} onChange={set('endsOn')} />}</Field>
@@ -236,5 +261,63 @@ function PromotionForm({ promotion, onDone }: { promotion?: PromotionDto; onDone
         </Button>
       </div>
     </form>
+  );
+}
+
+type ComboItem = { productId: string; name: string; quantity: string; price: string | null };
+
+/** Productos del combo: se buscan o escanean; cuenta cualquier talle o color del producto. */
+function ComboItems({ items, comboPrice, error, onChange }: { items: ComboItem[]; comboPrice: string; error?: string; onChange: (update: (items: ComboItem[]) => ComboItem[]) => void }) {
+  const known = items.every((i) => i.price !== null);
+  const regular = items.reduce((sum, i) => sum + Number(i.price ?? 0) * (Number(i.quantity) || 0), 0);
+  const saving = known && comboPrice && /^\d+(\.\d{1,2})?$/.test(comboPrice) ? regular - Number(comboPrice) : null;
+  return (
+    <div className="rounded-lg border border-slate-200 p-4">
+      <p className="mb-2 text-sm font-semibold">Productos del combo</p>
+      {items.length > 0 && (
+        <ul className="mb-3 divide-y divide-slate-100">
+          {items.map((i, n) => (
+            <li key={i.productId} className="flex items-center gap-3 py-2">
+              <span className="flex-1 font-medium">{i.name}</span>
+              {i.price && <span className="text-sm text-slate-500">{formatArs(i.price)} c/u</span>}
+              <Input
+                aria-label={`Cantidad de ${i.name}`}
+                className="w-20 text-right"
+                inputMode="numeric"
+                value={i.quantity}
+                onChange={(e) => {
+                  const quantity = e.target.value;
+                  onChange((all) => all.map((x, m) => (m === n ? { ...x, quantity } : x)));
+                }}
+              />
+              <Button size="sm" variant="ghost" aria-label={`Quitar ${i.name}`} onClick={() => onChange((all) => all.filter((_, m) => m !== n))}>
+                <Trash2 className="size-4" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {items.length < 10 && (
+        <ProductPicker
+          onlyStock={false}
+          label="Agregá un producto al combo"
+          onPick={(item: ItemDto) =>
+            onChange((all) =>
+              all.some((i) => i.productId === item.productId)
+                ? all.map((i) => (i.productId === item.productId ? { ...i, quantity: String((Number(i.quantity) || 0) + 1) } : i))
+                : [...all, { productId: item.productId, name: item.name, quantity: '1', price: item.price }],
+            )
+          }
+        />
+      )}
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {known && items.length > 0 && (
+        <p className="mt-3 text-sm text-slate-600">
+          Por separado: <span className="font-semibold">{formatArs(regular.toFixed(2))}</span>
+          {saving !== null && (saving > 0 ? <> · el cliente ahorra <span className="font-semibold text-emerald-700">{formatArs(saving.toFixed(2))}</span></> : <span className="text-red-600"> · el combo no es más barato que comprar por separado</span>)}
+        </p>
+      )}
+      <p className="mt-2 text-xs text-slate-500">El cajero escanea cada producto como siempre: si están todos, la caja aplica el precio del combo sola. Si lleva el doble, se arman dos combos.</p>
+    </div>
   );
 }

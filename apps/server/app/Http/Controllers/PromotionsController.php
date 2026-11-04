@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Auth\Actor;
 use App\Models\Category;
 use App\Models\Product;
+use App\Models\ProductVariant;
 use App\Models\Promotion;
+use App\Models\PromotionItem;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
 use App\Support\AppError;
@@ -26,39 +28,44 @@ class PromotionsController extends Controller
         $promotions = Promotion::orderByRaw("status = 'active' DESC")->orderByDesc('created_at')->get();
         $categories = Category::whereIn('id', $promotions->pluck('category_id')->filter())->pluck('name', 'id');
         $products = Product::whereIn('id', $promotions->pluck('product_id')->filter())->pluck('name', 'id');
+        $items = PromotionItem::whereIn('promotion_id', $promotions->where('kind', 'combo')->pluck('id'))->get()->groupBy('promotion_id');
 
-        return $this->json($promotions->map(fn (Promotion $p) => $this->dto($p, $categories[$p->category_id] ?? $products[$p->product_id] ?? null))->all());
+        return $this->json($promotions->map(fn (Promotion $p) => $this->dto($p, $categories[$p->category_id] ?? $products[$p->product_id] ?? null, $items->get($p->id, collect())))->all());
     }
 
     public function store(Request $request): JsonResponse
     {
         $actor = $this->actor($request);
-        $input = $this->input($request);
-        $promotion = DB::transaction(function () use ($actor, $input) {
+        ['promotion' => $input, 'items' => $items] = $this->input($request);
+        $promotion = DB::transaction(function () use ($actor, $input, $items) {
             $promotion = Promotion::create($input + ['status' => 'active']);
-            $this->record($actor, 'promotion.created', $promotion->id, null, $input);
+            $this->saveItems($promotion->id, $items);
+            $this->record($actor, 'promotion.created', $promotion->id, null, $input + ($items ? ['items' => $items] : []));
 
             return $promotion;
         });
 
-        return $this->json($this->dto($promotion->fresh(), $this->targetName($promotion)), 201);
+        return $this->json($this->dto($promotion->fresh(), $this->targetName($promotion), PromotionItem::where('promotion_id', $promotion->id)->get()), 201);
     }
 
     public function update(Request $request, string $id): JsonResponse
     {
         $actor = $this->actor($request);
         Promotion::whereKey($id)->exists() || throw AppError::notFound('Promoción');
-        $input = $this->input($request, true);
-        $promotion = DB::transaction(function () use ($actor, $id, $input) {
+        ['promotion' => $input, 'items' => $items] = $this->input($request, true);
+        $promotion = DB::transaction(function () use ($actor, $id, $input, $items) {
             $promotion = Promotion::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Promoción');
             $before = $promotion->only(array_keys($input));
+            $beforeItems = PromotionItem::where('promotion_id', $id)->get(['product_id', 'quantity'])->map(fn ($i) => ['productId' => $i->product_id, 'quantity' => $i->quantity])->all();
             $promotion->forceFill($input)->save();
-            $this->record($actor, 'promotion.updated', $id, $before, $input);
+            PromotionItem::where('promotion_id', $id)->delete();
+            $this->saveItems($id, $items);
+            $this->record($actor, 'promotion.updated', $id, $before + ($beforeItems ? ['items' => $beforeItems] : []), $input + ($items ? ['items' => $items] : []));
 
             return $promotion;
         });
 
-        return $this->json($this->dto($promotion->fresh(), $this->targetName($promotion)));
+        return $this->json($this->dto($promotion->fresh(), $this->targetName($promotion), PromotionItem::where('promotion_id', $id)->get()));
     }
 
     /** Mismos límites que promotionSchema de packages/contracts. */
@@ -69,10 +76,15 @@ class PromotionsController extends Controller
         }
         $v = Input::validate($this->body($request), [
             'name' => ['required', 'string', 'max:80'],
-            'kind' => ['required', 'in:percent,nxm'],
+            'kind' => ['required', 'in:percent,nxm,combo'],
             'percent' => ['required_if:kind,percent', 'nullable', ...Input::decimal(Input::PERCENT, 'Porcentaje inválido')],
             'buyQuantity' => ['required_if:kind,nxm', 'nullable', 'integer', 'min:2', 'max:100'],
             'payQuantity' => ['required_if:kind,nxm', 'nullable', 'integer', 'min:1', 'max:99'],
+            'comboPrice' => ['required_if:kind,combo', 'nullable', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'items' => ['nullable', 'array', 'list', 'max:10'],
+            'items.*' => ['array'],
+            'items.*.productId' => ['required', 'uuid'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:99'],
             'scope' => ['required', 'in:all,category,product'],
             'categoryId' => ['required_if:scope,category', 'nullable', 'uuid'],
             'productId' => ['required_if:scope,product', 'nullable', 'uuid'],
@@ -80,7 +92,7 @@ class PromotionsController extends Controller
             'endsOn' => ['nullable', 'date_format:Y-m-d'],
             ...($withStatus ? ['status' => ['required', 'in:active,inactive']] : []),
         ], [
-            'percent.required_if' => 'Ingresá el porcentaje', 'buyQuantity.required_if' => 'Ingresá cuántas lleva', 'payQuantity.required_if' => 'Ingresá cuántas paga',
+            'percent.required_if' => 'Ingresá el porcentaje', 'buyQuantity.required_if' => 'Ingresá cuántas lleva', 'payQuantity.required_if' => 'Ingresá cuántas paga', 'comboPrice.required_if' => 'Ingresá el precio del combo', 'items.max' => 'Hasta 10 productos por combo',
             'categoryId.required_if' => 'Elegí la categoría', 'productId.required_if' => 'Elegí el producto', 'buyQuantity.min' => 'Tiene que llevar al menos 2',
         ]);
         $percent = $v['kind'] === 'percent' ? Money::round($v['percent']) : null;
@@ -93,6 +105,22 @@ class PromotionsController extends Controller
         if (($v['startsOn'] ?? null) && ($v['endsOn'] ?? null) && $v['endsOn'] < $v['startsOn']) {
             throw AppError::validation([['path' => 'endsOn', 'message' => 'La fecha de fin no puede ser anterior a la de inicio']]);
         }
+        $items = [];
+        if ($v['kind'] === 'combo') {
+            $v['scope'] = 'all';
+            foreach ($v['items'] ?? [] as $i => $item) {
+                if (isset($items[$item['productId']])) {
+                    throw AppError::validation([['path' => "items.{$i}.productId", 'message' => 'El producto está repetido: sumale cantidad']]);
+                }
+                $items[$item['productId']] = (int) $item['quantity'];
+            }
+            if (array_sum($items) < 2) {
+                throw AppError::validation([['path' => 'items', 'message' => 'El combo tiene que llevar al menos dos unidades']]);
+            }
+            if (Product::whereIn('id', array_keys($items))->where('sale_mode', 'unit')->count() !== count($items)) {
+                throw AppError::validation([['path' => 'items', 'message' => 'Los productos del combo tienen que existir y venderse por unidad']]);
+            }
+        }
         if ($v['scope'] === 'category' && ! Category::whereKey($v['categoryId'])->exists()) {
             throw AppError::validation([['path' => 'categoryId', 'message' => 'La categoría no existe']]);
         }
@@ -101,12 +129,23 @@ class PromotionsController extends Controller
         }
 
         return [
-            'name' => trim($v['name']), 'kind' => $v['kind'], 'percent' => $percent,
-            'buy_quantity' => $v['kind'] === 'nxm' ? (int) $v['buyQuantity'] : null, 'pay_quantity' => $v['kind'] === 'nxm' ? (int) $v['payQuantity'] : null,
-            'scope' => $v['scope'], 'category_id' => $v['scope'] === 'category' ? $v['categoryId'] : null, 'product_id' => $v['scope'] === 'product' ? $v['productId'] : null,
-            'starts_on' => $v['startsOn'] ?? null, 'ends_on' => $v['endsOn'] ?? null,
-            ...($withStatus ? ['status' => $v['status']] : []),
+            'promotion' => [
+                'name' => trim($v['name']), 'kind' => $v['kind'], 'percent' => $percent,
+                'buy_quantity' => $v['kind'] === 'nxm' ? (int) $v['buyQuantity'] : null, 'pay_quantity' => $v['kind'] === 'nxm' ? (int) $v['payQuantity'] : null,
+                'combo_price' => $v['kind'] === 'combo' ? Money::round($v['comboPrice']) : null,
+                'scope' => $v['scope'], 'category_id' => $v['scope'] === 'category' ? $v['categoryId'] : null, 'product_id' => $v['scope'] === 'product' ? $v['productId'] : null,
+                'starts_on' => $v['startsOn'] ?? null, 'ends_on' => $v['endsOn'] ?? null,
+                ...($withStatus ? ['status' => $v['status']] : []),
+            ],
+            'items' => array_map(fn ($id, $qty) => ['productId' => $id, 'quantity' => $qty], array_keys($items), $items),
         ];
+    }
+
+    private function saveItems(string $promotionId, array $items): void
+    {
+        foreach ($items as $item) {
+            PromotionItem::create(['promotion_id' => $promotionId, 'product_id' => $item['productId'], 'quantity' => $item['quantity']]);
+        }
     }
 
     private function targetName(Promotion $p): ?string
@@ -115,8 +154,13 @@ class PromotionsController extends Controller
     }
 
     /** Forma de PromotionDto. */
-    private function dto(Promotion $p, ?string $target): array
+    private function dto(Promotion $p, ?string $target, $items = null): array
     {
+        $items ??= collect();
+        // Precio por separado del combo: el de lista de la primera variante activa de cada producto.
+        $names = Product::whereIn('id', $items->pluck('product_id'))->pluck('name', 'id');
+        $prices = ProductVariant::whereIn('product_id', $items->pluck('product_id'))->where('status', 'active')->orderBy('created_at')->get()->unique('product_id')->pluck('price', 'product_id');
+        $regular = $items->reduce(fn ($sum, $i) => $sum->plus(Money::of((string) ($prices[$i->product_id] ?? '0'))->multipliedBy($i->quantity)), Money::of('0'));
         $today = Carbon::now('America/Buenos_Aires')->toDateString();
         $current = $p->status === 'active' && (! $p->starts_on || $p->starts_on->toDateString() <= $today) && (! $p->ends_on || $p->ends_on->toDateString() >= $today);
 
@@ -124,6 +168,9 @@ class PromotionsController extends Controller
             'id' => $p->id, 'name' => $p->name, 'kind' => $p->kind, 'percent' => $p->percent === null ? null : Money::round($p->percent),
             'buyQuantity' => $p->buy_quantity, 'payQuantity' => $p->pay_quantity, 'scope' => $p->scope, 'categoryId' => $p->category_id, 'productId' => $p->product_id,
             'targetName' => $target, 'startsOn' => $p->starts_on?->toDateString(), 'endsOn' => $p->ends_on?->toDateString(), 'status' => $p->status, 'current' => $current,
+            'comboPrice' => $p->combo_price === null ? null : Money::round($p->combo_price),
+            'items' => $items->map(fn ($i) => ['productId' => $i->product_id, 'name' => $names[$i->product_id] ?? '', 'quantity' => $i->quantity])->values()->all(),
+            'regularPrice' => $p->kind === 'combo' ? Money::round($regular) : null,
         ];
     }
 

@@ -716,10 +716,14 @@ export interface StaleReportDto {
 export interface PromotionDto {
   id: string;
   name: string;
-  kind: 'percent' | 'nxm';
+  kind: 'percent' | 'nxm' | 'combo';
   percent: string | null;
   buyQuantity: number | null;
   payQuantity: number | null;
+  /** Combo (ADR 0024): precio del conjunto, sus productos y lo que cuestan por separado (a precio de lista). */
+  comboPrice: string | null;
+  items: Array<{ productId: string; name: string; quantity: number }>;
+  regularPrice: string | null;
   scope: 'all' | 'category' | 'product';
   categoryId: string | null;
   productId: string | null;
