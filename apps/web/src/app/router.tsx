@@ -14,6 +14,7 @@ import { PaymentsPage } from '@/features/cash/payments-page';
 import { CategoriesPage } from '@/features/catalog/categories-page';
 import { PricesPage } from '@/features/catalog/prices-page';
 import { ProductsPage } from '@/features/catalog/products-page';
+import { ImportProductsPage } from '@/features/catalog/import-page';
 import { ReferenceCatalogPage } from '@/features/catalog/reference-catalog-page';
 import { EmployeesPage } from '@/features/employees/employees-page';
 import { HomePage } from '@/features/home/home-page';
@@ -132,6 +133,7 @@ const subscriptionRoute = createRoute({
   component: SubscriptionPage,
 });
 const productsRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos', component: ProductsPage });
+const importProductsRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos/importar', component: ImportProductsPage });
 const referenceCatalogRoute = createRoute({ getParentRoute: () => appRoute, path: 'productos/catalogo', component: ReferenceCatalogPage });
 const categoriesRoute = createRoute({ getParentRoute: () => appRoute, path: 'categorias', component: CategoriesPage });
 const pricesRoute = createRoute({ getParentRoute: () => appRoute, path: 'precios', component: PricesPage });
@@ -205,6 +207,7 @@ const routeTree = rootRoute.addChildren([
     settlementsRoute,
     paymentsRoute,
     productsRoute,
+    importProductsRoute,
     referenceCatalogRoute,
     categoriesRoute,
     pricesRoute,

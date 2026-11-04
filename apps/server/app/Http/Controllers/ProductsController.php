@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Auth\Actor;
+use App\Http\Controllers\Concerns\ImportsProducts;
 use App\Models\AuditEntry;
 use App\Models\Barcode;
 use App\Models\Brand;
@@ -41,6 +42,8 @@ use Illuminate\Validation\Rule;
  */
 class ProductsController extends Controller
 {
+    use ImportsProducts;
+
     public const VAT_RATES = ['21', '10.5', '27', '5', '2.5', '0', 'exento', 'no_gravado'];
 
     public const SALE_MODES = ['unit', 'weight', 'length', 'volume'];

@@ -153,6 +153,11 @@ export function ProductsPage() {
                 Cambiar precios
               </Link>
             )}
+            {can('products.create') && (
+              <Link to="/app/productos/importar" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+                Importar planilla
+              </Link>
+            )}
             {can('products.create') && tenant.data?.settings.referenceCatalog && (
               <Link to="/app/productos/catalogo" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
                 Agregar desde catálogo

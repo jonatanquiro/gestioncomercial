@@ -661,3 +661,27 @@ export const createPurchaseSchema = z.object({
 });
 export type CreatePurchaseInput = z.infer<typeof createPurchaseSchema>;
 
+
+// ---------------------------------------------------------------- Importación de productos (ADR 0022)
+
+export const MAX_IMPORT_ROWS = 2000;
+const importCell = (max: number) => z.string().max(max).optional();
+/** Filas tal cual la planilla: el servidor interpreta números («1.250,50»), IVA y forma de venta. */
+export const productImportSchema = z.object({
+  rows: z
+    .array(
+      z.object({
+        row: z.number().int().min(1),
+        options: z.array(z.string().max(40)).max(3),
+        name: importCell(160), barcode: importCell(64), sku: importCell(60), price: importCell(30), cost: importCell(30),
+        initialStock: importCell(30), minStock: importCell(30), category: importCell(80), brand: importCell(80),
+        vatRate: importCell(20), saleMode: importCell(20), description: importCell(500),
+      }),
+    )
+    .min(1, 'La planilla no tiene filas con datos')
+    .max(MAX_IMPORT_ROWS, `Hasta ${MAX_IMPORT_ROWS} filas por importación: dividí la planilla en partes`),
+  optionNames: z.array(z.string().trim().min(1).max(30)).max(3, 'Hasta 3 propiedades de variantes (talle, color…)'),
+  updateExisting: z.boolean(),
+  dryRun: z.boolean(),
+});
+export type ProductImportInput = z.infer<typeof productImportSchema>;

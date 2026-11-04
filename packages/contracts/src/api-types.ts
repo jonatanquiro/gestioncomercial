@@ -728,3 +728,14 @@ export interface SaleQuoteDto {
   discountTotal: string;
   total: string;
 }
+
+/** Resultado de la importación de productos o de su vista previa (ADR 0022). */
+export interface ProductImportReportDto {
+  summary: { products: number; variants: number; updated: number; unchanged: number; skipped: number; errors: number };
+  newCategories: string[];
+  newBrands: string[];
+  warnings: string[];
+  /** Errores con el número de fila de la planilla; null si son de toda la planilla (por ejemplo, el plan). */
+  errors: Array<{ row: number | null; message: string }>;
+  rows: Array<{ row: number; action: 'create' | 'update' | 'unchanged' | 'skip' | 'error'; name: string; variant: string | null; price: string | null; oldPrice: string | null; detail: string | null }>;
+}
