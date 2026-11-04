@@ -22,6 +22,7 @@ export function IssueGiftCardDialog({ registerId, methods, onClose, onDone }: { 
   const [months, setMonths] = useState(GIFT_CARD_MAX_MONTHS);
   const [recipient, setRecipient] = useState('');
   const [from, setFrom] = useState('');
+  const [message, setMessage] = useState('');
   const [methodId, setMethodId] = useState('');
   const [received, setReceived] = useState('');
   const [reference, setReference] = useState('');
@@ -46,7 +47,7 @@ export function IssueGiftCardDialog({ registerId, methods, onClose, onDone }: { 
     if (isCash && (!MONEY.test(paid) || dec(paid).lt(value))) return setError(`Falta cobrar ${formatArs(roundMoney(dec(value).minus(MONEY.test(paid) ? paid : '0')))}`);
     if (method.requiresReference && !reference.trim()) return setError(`Cargá el número de operación de ${method.name}`);
     const parsed = createGiftCardSchema.safeParse({
-      clientUuid, registerId, amount: value, validMonths: months, recipientName: recipient, fromName: from,
+      clientUuid, registerId, amount: value, validMonths: months, recipientName: recipient, fromName: from, message,
       payments: [{ paymentMethodId: method.id, amount: paid, reference: reference.trim() || null }],
     });
     if (!parsed.success) return setError(parsed.error.issues[0]?.message ?? 'Revisá los datos');
@@ -73,6 +74,11 @@ export function IssueGiftCardDialog({ registerId, methods, onClose, onDone }: { 
           </Field>
           <Field label="Para (opcional)">{(p) => <Input {...p} maxLength={80} value={recipient} onChange={(e) => setRecipient(e.target.value)} placeholder="Quien la recibe" />}</Field>
           <Field label="De (opcional)">{(p) => <Input {...p} maxLength={80} value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Quien la regala" />}</Field>
+          <div className="sm:col-span-2">
+            <Field label="Dedicatoria (opcional)" hint="Sale impresa en la tarjeta de regalo.">
+              {(p) => <textarea {...p} rows={2} maxLength={200} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="¡Feliz cumpleaños! Que lo disfrutes." />}
+            </Field>
+          </div>
           <Field label="Cobra con">
             {(p) => (
               <Select {...p} value={method?.id ?? ''} onChange={(e) => (setMethodId(e.target.value), setReceived(''), setReference(''))}>

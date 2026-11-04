@@ -489,9 +489,18 @@ export const createGiftCardSchema = z.object({
   validMonths: z.number().int().min(1, `La validez va de 1 a ${GIFT_CARD_MAX_MONTHS} meses`).max(GIFT_CARD_MAX_MONTHS, `La validez va de 1 a ${GIFT_CARD_MAX_MONTHS} meses`),
   recipientName: optionalText(80),
   fromName: optionalText(80),
+  message: optionalText(200),
   payments: createSaleSchema.shape.payments,
 });
 export type CreateGiftCardInput = z.infer<typeof createGiftCardSchema>;
+
+/** Envío del comprobante por email: el ticket o la factura autorizada. El email no queda en la venta. */
+export const sendSaleEmailSchema = z.object({
+  email: emailSchema,
+  invoiceId: uuidSchema.nullable().optional(),
+  saveToCustomer: z.boolean().optional(),
+});
+export type SendSaleEmailInput = z.infer<typeof sendSaleEmailSchema>;
 
 // ---------------------------------------------------------------- Clientes y cuenta corriente (ADR 0016)
 

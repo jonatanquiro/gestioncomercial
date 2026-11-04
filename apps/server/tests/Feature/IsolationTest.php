@@ -149,6 +149,7 @@ class IsolationTest extends TestCase
             '/shifts/{id}/counts' => ['counted' => '0'],
             '/shifts/{id}/close' => ['counted' => '0'],
             '/sales/{id}/void' => ['reason' => 'Hackeo'],
+            '/sales/{id}/email' => ['email' => 'hackeo@example.com'],
             '/sales/{id}/invoice' => [],
             '/sales/{id}/credit-notes' => ['environment' => 'homologacion'],
             '/sales/{id}/returns' => [
@@ -212,7 +213,7 @@ class IsolationTest extends TestCase
             'GET /products/{id}', 'GET /products/{id}/history', 'PUT /products/{id}', 'POST /products/{id}/status',
             'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
             'PUT /registers/{id}', 'PUT /payment-methods/{id}', 'GET /shifts/{id}', 'POST /shifts/{id}/movements', 'POST /shifts/{id}/counts',
-            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'POST /sales/{id}/credit-notes', 'PUT /suppliers/{id}', 'GET /suppliers/{id}', 'POST /suppliers/{id}/payments', 'POST /suppliers/{id}/adjustments', 'GET /purchases/{id}',
+            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/email', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'POST /sales/{id}/credit-notes', 'PUT /suppliers/{id}', 'GET /suppliers/{id}', 'POST /suppliers/{id}/payments', 'POST /suppliers/{id}/adjustments', 'GET /purchases/{id}',
             'GET /customers/{id}', 'PUT /customers/{id}', 'PUT /promotions/{id}', 'POST /customers/{id}/adjustments', 'POST /customers/{id}/payments',
         ] as $expected) {
             $this->assertContains($expected, $checked);

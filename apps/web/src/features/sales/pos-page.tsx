@@ -2,7 +2,7 @@ import { createSaleSchema, type CustomerDto, type SaleQuoteDto, type GiftCardDto
 import { dec, formatArs, roundMoney, saleLine, sumMoney } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Gift, Minus, Plus, Printer, Trash2, X } from 'lucide-react';
+import { CheckCircle2, Gift, Minus, Plus, Printer, Send, Trash2, X } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
@@ -12,13 +12,14 @@ import { Dialog } from '@/components/ui/dialog';
 import { NumPad, useKeypadPreference } from '@/components/ui/numpad';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Card, EmptyState, PageHeader, Spinner } from '@/components/ui/misc';
-import { useToast } from '@/components/ui/toast';
+import type { TenantDto } from '@gc/contracts';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatQty, parseDecimalInput, toInputDecimal } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { PinDialog } from './pin-dialog';
 import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQuery, rememberedRegister, rememberRegister } from './queries';
-import { PrintTicket } from './ticket';
+import { type PrintKind, PrintTicket } from './ticket';
+import { SendReceipt } from './send-receipt';
 import { InvoiceDialog } from '@/features/fiscal/invoice-dialog';
 import { ProductForm } from '@/features/catalog/product-form';
 import { itemOf } from '@/features/catalog/item';
@@ -173,7 +174,6 @@ const DISCOUNT_RE = /^\d{1,3}(\.\d{1,2})?$/;
 function Counter({ register }: { register: RegisterDto }) {
   const can = useCan();
   const queryClient = useQueryClient();
-  const toast = useToast();
   const tenant = useQuery(tenantQuery);
   const methods = useQuery(paymentMethodsQuery);
   const favorites = useQuery({ queryKey: ['products', 'favorites'], queryFn: () => http.get<ItemDto[]>('/products/favorites'), staleTime: 5 * 60_000 });
@@ -182,7 +182,9 @@ function Counter({ register }: { register: RegisterDto }) {
   const [editing, setEditing] = useState<{ product: ItemDto; index: number | null } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastSale, setLastSale] = useState<SaleDto | null>(null);
-  const [printing, setPrinting] = useState<{ sale: SaleDto; exchange: boolean } | null>(null);
+  const [printing, setPrinting] = useState<{ sale: SaleDto; kind: PrintKind } | null>(null);
+  /** Ventana de «venta cobrada»: vuelto, impresión, factura y envío al cliente. */
+  const [doneOpen, setDoneOpen] = useState(false);
   const navigate = useNavigate();
   const [invoicing, setInvoicing] = useState<SaleDto | null>(null);
   const [sellingGiftCard, setSellingGiftCard] = useState(false);
@@ -254,10 +256,10 @@ function Counter({ register }: { register: RegisterDto }) {
   function done(sale: SaleDto) {
     setCheckout(false);
     setLastSale(sale);
+    setDoneOpen(true);
     setCart(emptyCart());
     void queryClient.invalidateQueries({ queryKey: ['products'] });
     void queryClient.invalidateQueries({ queryKey: ['shifts'] });
-    toast(`Venta N° ${sale.number} registrada`);
     focusScanner();
   }
 
@@ -330,7 +332,16 @@ function Counter({ register }: { register: RegisterDto }) {
         <div className="border-b border-slate-200 px-3 py-2">
           <CustomerPicker customer={cart.customer ?? null} onChange={(customer) => setCart((c) => ({ ...c, customer }))} />
         </div>
-        {cart.lines.length === 0 ? (
+        {cart.lines.length === 0 && lastSale && doneOpen && tenant.data ? (
+          <SaleDonePanel
+            sale={lastSale}
+            tenant={tenant.data}
+            canInvoice={can('fiscal.issue', 'fiscal.manage')}
+            onPrint={(kind) => setPrinting({ sale: lastSale, kind })}
+            onInvoice={() => setInvoicing(lastSale)}
+            onClose={() => (setDoneOpen(false), focusScanner())}
+          />
+        ) : cart.lines.length === 0 ? (
           <EmptyState>{lastSale ? `Venta N° ${lastSale.number} cobrada. Escaneá o tocá el primer artículo de la próxima.` : 'Escaneá o tocá el primer artículo para empezar la venta.'}</EmptyState>
         ) : (
           <ul aria-label="Artículos de la venta" className="max-h-[50vh] divide-y divide-slate-100 overflow-y-auto">
@@ -400,32 +411,13 @@ function Counter({ register }: { register: RegisterDto }) {
               Cancelar la venta
             </Button>
           )}
-          {lastSale && cart.lines.length === 0 && (
-            <div className="space-y-2 border-t border-slate-200 pt-3 text-sm">
-              <div className="flex justify-between">
-                <span>Venta N° {lastSale.number}</span>
-                <span className="font-semibold">{formatArs(lastSale.total)}</span>
-              </div>
-              {lastSale.changeGiven !== '0.00' && (
-                <div className="flex justify-between text-base">
-                  <span>Vuelto</span>
-                  <span className="font-bold">{formatArs(lastSale.changeGiven)}</span>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting({ sale: lastSale, exchange: false })}>
-                  <Printer className="size-4" /> Imprimir ticket
-                </Button>
-                <Button variant="secondary" className="h-12" disabled={!tenant.data} onClick={() => setPrinting({ sale: lastSale, exchange: true })}>
-                  <Printer className="size-4" /> {lastSale.giftCard ? 'Imprimir gift card' : 'Ticket de cambio'}
-                </Button>
-                {can('fiscal.issue', 'fiscal.manage') && !lastSale.giftCard && (
-                  <Button variant="secondary" className="col-span-2 h-12" onClick={() => setInvoicing(lastSale)}>
-                    Facturar
-                  </Button>
-                )}
-              </div>
-            </div>
+          {lastSale && !doneOpen && cart.lines.length === 0 && (
+            <button type="button" className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5 text-sm hover:border-brand-300" onClick={() => setDoneOpen(true)}>
+              <span>
+                Última: venta N° {lastSale.number} · <span className="font-semibold">{formatArs(lastSale.total)}</span>
+              </span>
+              <span className="font-semibold text-brand-700">Imprimir o enviar</span>
+            </button>
           )}
           {cart.lines.length === 0 && methods.data && (
             <Button variant="ghost" className="h-11 w-full" onClick={() => setSellingGiftCard(true)}>
@@ -486,14 +478,14 @@ function Counter({ register }: { register: RegisterDto }) {
           onDone={(sale) => {
             setSellingGiftCard(false);
             setLastSale(sale);
+            setDoneOpen(true);
             void queryClient.invalidateQueries({ queryKey: ['shifts'] });
             void queryClient.invalidateQueries({ queryKey: ['gift-cards'] });
-            toast(`Gift card ${sale.giftCard?.code ?? ''} vendida: imprimila para entregarla`);
             focusScanner();
           }}
         />
       )}
-      {printing && tenant.data && <PrintTicket sale={printing.sale} exchange={printing.exchange} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
+      {printing && tenant.data && <PrintTicket sale={printing.sale} kind={printing.kind} tenant={tenant.data} onDone={() => (setPrinting(null), focusScanner())} />}
       {creating !== null && (
         <Dialog open onOpenChange={(o) => !o && (setCreating(null), focusScanner())} wide title="Nuevo producto" description="Al guardarlo se suma a la venta.">
           <ProductForm
@@ -508,6 +500,81 @@ function Counter({ register }: { register: RegisterDto }) {
       )}
       {invoicing && <InvoiceDialog sale={invoicing} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => (setInvoicing(null), focusScanner())} />}
     </div>
+  );
+}
+
+/**
+ * Venta cobrada: queda claro que se registró, cuánto vuelto dar y qué hacer con el comprobante
+ * (imprimir, facturar o mandarlo al cliente). Ocupa el lugar del carrito sin bloquear el lector:
+ * escanear el próximo artículo arranca la venta siguiente.
+ */
+function SaleDonePanel({ sale, tenant, canInvoice, onPrint, onInvoice, onClose }: { sale: SaleDto; tenant: TenantDto; canInvoice: boolean; onPrint: (kind: PrintKind) => void; onInvoice: () => void; onClose: () => void }) {
+  const [sending, setSending] = useState(!!sale.customer?.email);
+  const change = dec(sale.changeGiven).gt(0);
+  const paidWith = sale.payments.map((p) => p.name).filter((n, i, all) => all.indexOf(n) === i).join(' + ');
+  const invoiceable = canInvoice && sale.kind === 'sale';
+  return (
+    <section aria-label="Venta cobrada" className="space-y-3 p-4">
+      <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+        <CheckCircle2 className="size-10 shrink-0 text-emerald-600" aria-hidden />
+        <div className="min-w-0">
+          <p className="font-semibold">
+            {sale.giftCard ? 'Gift card vendida' : `Venta N° ${sale.number} cobrada`}
+          </p>
+          <p className="font-display text-3xl font-bold tabular-nums">{formatArs(sale.total)}</p>
+          <p className="truncate text-sm">{[paidWith, sale.customer?.name].filter(Boolean).join(' · ')}</p>
+        </div>
+      </div>
+      {change && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-center" role="status">
+          <p className="text-sm font-semibold uppercase tracking-wide text-amber-800">Vuelto a entregar</p>
+          <p className="font-display text-5xl font-bold tabular-nums text-amber-950">{formatArs(sale.changeGiven)}</p>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        {sale.giftCard ? (
+          <>
+            <Button variant="secondary" className="h-12" onClick={() => onPrint('gift-sheet')}>
+              <Gift className="size-4" /> Gift card en hoja
+            </Button>
+            <Button variant="secondary" className="h-12" onClick={() => onPrint('gift-roll')}>
+              <Printer className="size-4" /> Gift card en ticket
+            </Button>
+            <Button variant="ghost" className="col-span-2 h-11" onClick={() => onPrint('sale')}>
+              <Printer className="size-4" /> Ticket de la venta
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="secondary" className="h-12" onClick={() => onPrint('sale')}>
+              <Printer className="size-4" /> Imprimir ticket
+            </Button>
+            <Button variant="secondary" className="h-12" onClick={() => onPrint('exchange')}>
+              <Printer className="size-4" /> Ticket de cambio
+            </Button>
+            {invoiceable && (
+              <Button variant="secondary" className="h-12" onClick={onInvoice}>
+                Facturar
+              </Button>
+            )}
+            <Button variant={sending ? 'primary' : 'secondary'} className={`h-12 ${invoiceable ? '' : 'col-span-2'}`} aria-expanded={sending} onClick={() => setSending((v) => !v)}>
+              <Send className="size-4" /> Enviar al cliente
+            </Button>
+          </>
+        )}
+      </div>
+      {sending && !sale.giftCard && (
+        <div className="rounded-xl border border-slate-200 p-3">
+          <SendReceipt sale={sale} tenant={tenant} />
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 text-sm text-slate-600">
+        <span>Escaneá el próximo artículo para seguir.</span>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Cerrar
+        </Button>
+      </div>
+    </section>
   );
 }
 

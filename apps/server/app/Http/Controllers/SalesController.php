@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Auth\Actor;
+use App\Mail\SaleReceiptMail;
 use App\Models\Branch;
 use App\Models\Customer;
+use App\Models\FiscalInvoice;
 use App\Models\GiftCard;
 use App\Models\PaymentMethod;
 use App\Models\Promotion;
@@ -14,7 +16,9 @@ use App\Models\SaleLine;
 use App\Models\SalePayment;
 use App\Models\SaleReturn;
 use App\Models\SaleReturnLine;
+use App\Models\Tenant;
 use App\Models\User;
+use App\Services\AuditService;
 use App\Services\GiftCardService;
 use App\Services\PromotionService;
 use App\Services\SalesService;
@@ -22,13 +26,16 @@ use App\Support\AppError;
 use App\Support\Dates;
 use App\Support\Input;
 use App\Support\Money;
+use App\Support\Throttle;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 
 /** Ventas del punto de venta: cobro, historial, anulación y devolución (sección 7 del diseño). */
 class SalesController extends Controller
 {
-    public function __construct(private readonly SalesService $sales) {}
+    public function __construct(private readonly SalesService $sales, private readonly AuditService $audit) {}
 
     public function store(Request $request): JsonResponse
     {
@@ -55,6 +62,7 @@ class SalesController extends Controller
             'validMonths' => ['required', 'integer', 'min:1', 'max:'.GiftCardService::MAX_MONTHS],
             'recipientName' => ['nullable', 'string', 'max:80'],
             'fromName' => ['nullable', 'string', 'max:80'],
+            'message' => ['nullable', 'string', 'max:200'],
             ...array_intersect_key(self::saleRules(), array_flip(['payments', 'payments.*', 'payments.*.paymentMethodId', 'payments.*.amount', 'payments.*.reference', 'payments.*.payerName', 'payments.*.payerPhone'])),
         ], [
             'validMonths.min' => 'La validez va de 1 a '.GiftCardService::MAX_MONTHS.' meses',
@@ -295,6 +303,98 @@ class SalesController extends Controller
         if ($details !== []) {
             throw AppError::validation($details);
         }
+    }
+
+    /**
+     * Manda el comprobante por email: el ticket o, con permiso fiscal, la factura autorizada. El
+     * email no queda en la venta; solo se guarda en la ficha del cliente si se pide.
+     */
+    public function email(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'email' => ['required', 'string', 'email', 'max:254'],
+            'invoiceId' => ['nullable', 'string', 'uuid'],
+            'saveToCustomer' => ['nullable', 'boolean'],
+        ]);
+        $sale = $this->visible($actor)->whereKey($id)->first() ?? throw AppError::notFound('Venta');
+        $email = mb_strtolower(trim($v['email']));
+        $invoice = null;
+        if ($v['invoiceId'] ?? null) {
+            if (! $actor->can('fiscal.issue') && ! $actor->can('fiscal.manage')) {
+                throw AppError::forbidden('fiscal.issue');
+            }
+            $invoice = FiscalInvoice::whereKey($v['invoiceId'])->where('sale_id', $sale->id)->where('kind', 'invoice')->where('status', 'authorized')->first()
+                ?? throw AppError::notFound('Factura');
+        }
+        $saveToCustomer = ($v['saveToCustomer'] ?? false) && $sale->customer_id && $actor->can('customers.manage');
+        // Que nadie use el sistema para mandar correos en cantidad desde nuestro dominio.
+        Throttle::consume("sale-email:{$actor->tenantId}", 150, 3600);
+
+        $tenant = Tenant::find($actor->tenantId);
+        $shop = ['tradeName' => $tenant->trade_name, 'address' => $tenant->address, 'phone' => $tenant->phone, 'email' => $tenant->email];
+        try {
+            Mail::to($email)->send(new SaleReceiptMail($shop, $this->dto($sale, $actor), $invoice ? self::invoiceForMail($invoice) : null));
+        } catch (\Throwable $e) {
+            report($e);
+            throw new AppError(502, 'MAIL_FAILED', 'No se pudo enviar el email. Revisá la dirección o probá de nuevo en un rato.');
+        }
+
+        DB::transaction(function () use ($actor, $sale, $email, $invoice, $saveToCustomer) {
+            if ($saveToCustomer) {
+                $customer = Customer::whereKey($sale->customer_id)->lockForUpdate()->first();
+                if ($customer && $customer->email !== $email) {
+                    $before = ['email' => $customer->email];
+                    $customer->forceFill(['email' => $email])->save();
+                    $this->record($actor, 'customer.updated', 'customer', $customer->id, $before, ['email' => $email]);
+                }
+            }
+            $this->record($actor, 'sale.emailed', 'sale', $sale->id, null, ['email' => $email, 'invoiceId' => $invoice?->id]);
+        });
+
+        return $this->json(['sent' => true, 'email' => $email]);
+    }
+
+    /** Lo que muestra el email de una factura, con el enlace del QR de ARCA. */
+    private static function invoiceForMail(FiscalInvoice $i): array
+    {
+        $r = $i->payload['request'] ?? [];
+        $date = (string) ($r['CbteFch'] ?? '');
+        $qr = [
+            'ver' => 1, 'fecha' => substr($date, 0, 4).'-'.substr($date, 4, 2).'-'.substr($date, 6, 2), 'cuit' => (int) $i->cuit,
+            'ptoVta' => $i->point_of_sale, 'tipoCmp' => $i->voucher_type, 'nroCmp' => $i->number, 'importe' => (float) ($r['ImpTotal'] ?? 0),
+            'moneda' => 'PES', 'ctz' => 1, 'tipoDocRec' => (int) ($r['DocTipo'] ?? 99), 'nroDocRec' => (int) ($r['DocNro'] ?? 0), 'tipoCodAut' => 'E', 'codAut' => (int) $i->cae,
+        ];
+        $condition = $i->payload['issuerTaxCondition'] ?? null;
+
+        return [
+            'title' => [1 => 'Factura A', 6 => 'Factura B', 11 => 'Factura C'][$i->voucher_type] ?? 'Factura',
+            'number' => str_pad((string) $i->point_of_sale, 5, '0', STR_PAD_LEFT).'-'.str_pad((string) $i->number, 8, '0', STR_PAD_LEFT),
+            'date' => substr($date, 6, 2).'/'.substr($date, 4, 2).'/'.substr($date, 0, 4),
+            'test' => $i->environment !== 'produccion',
+            'cuit' => $i->cuit,
+            'issuerName' => $i->payload['issuerName'] ?? '',
+            'issuerAddress' => $i->payload['issuerAddress'] ?? null,
+            'issuerTaxCondition' => $condition === 'responsable_inscripto' ? 'IVA Responsable Inscripto' : ($condition === 'exento' ? 'IVA Exento' : 'Responsable Monotributo'),
+            'buyerName' => $i->payload['buyerName'] ?? 'Consumidor final',
+            'showVat' => $i->voucher_type === 1,
+            'transparency' => $i->voucher_type !== 11,
+            'net' => (string) ($r['ImpNeto'] ?? '0'),
+            'vat' => (string) ($r['ImpIVA'] ?? '0'),
+            'total' => (string) ($r['ImpTotal'] ?? '0'),
+            'cae' => $i->cae,
+            'caeExpiresOn' => $i->cae_expires_on,
+            'arcaUrl' => 'https://www.arca.gob.ar/fe/qr/?p='.rawurlencode(base64_encode(json_encode($qr))),
+        ];
+    }
+
+    private function record(Actor $actor, string $action, string $entityType, string $id, ?array $before, ?array $after): void
+    {
+        $this->audit->record([
+            'tenantId' => $actor->tenantId, 'actorType' => 'user', 'actorId' => $actor->userId, 'actorName' => $actor->userName,
+            'action' => $action, 'entityType' => $entityType, 'entityId' => $id, 'before' => $before, 'after' => $after,
+            'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
     }
 
     /** Sin sales.read_all, cada uno ve solo sus ventas. */

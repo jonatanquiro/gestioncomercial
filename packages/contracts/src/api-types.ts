@@ -560,6 +560,8 @@ export interface GiftCardDto {
   expiresOn: string;
   recipientName: string | null;
   fromName: string | null;
+  /** Dedicatoria que se imprime en la tarjeta. */
+  message: string | null;
   createdAt: string;
   branchName: string;
   sale: { id: string; number: number };

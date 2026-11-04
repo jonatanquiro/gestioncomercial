@@ -2,7 +2,7 @@ import { type Paginated, type PermissionCode, type SaleDto, type SaleSummaryDto 
 import { dec, formatArs, proportionalAmount, roundMoney, sumMoney } from '@gc/domain';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { Gift, Printer } from 'lucide-react';
+import { Gift, Printer, Send } from 'lucide-react';
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { newClientUuid, tenantQuery } from '@/features/catalog/queries';
@@ -18,7 +18,8 @@ import { useCan } from '@/lib/session';
 import { paymentMethodsQuery, registersQuery } from './queries';
 import { useAuthorized } from './use-authorized';
 import { ExchangeDialog } from './exchange-dialog';
-import { PrintTicket } from './ticket';
+import { type PrintKind, PrintTicket } from './ticket';
+import { SendReceipt } from './send-receipt';
 import { parseSaleTicketCode } from './exchange-ticket';
 import { InvoiceDialog, invoiceNumber, saleInvoicesQuery } from '@/features/fiscal/invoice-dialog';
 import { type Invoice, InvoicePrint } from '@/features/fiscal/invoice';
@@ -130,11 +131,12 @@ export function SaleDetailPage() {
   const can = useCan();
   const sale = useQuery({ queryKey: ['sales', 'detail', id], queryFn: () => http.get<SaleDto>(`/sales/${id}`) });
   const tenant = useQuery(tenantQuery);
-  const [printing, setPrinting] = useState<'sale' | 'exchange' | null>(null);
+  const [printing, setPrinting] = useState<PrintKind | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [returning, setReturning] = useState(false);
   const [exchanging, setExchanging] = useState(false);
   const [showingCard, setShowingCard] = useState(false);
+  const [sending, setSending] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
   const canInvoice = can('fiscal.issue', 'fiscal.manage');
   const invoices = useQuery({ ...saleInvoicesQuery(id), enabled: canInvoice });
@@ -163,9 +165,24 @@ export function SaleDetailPage() {
             <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('sale')}>
               <Printer className="size-4" /> Reimprimir ticket
             </Button>
-            {s.status === 'confirmed' && (s.giftCard ? s.giftCard.state === 'active' : returnable) && (
+            {s.kind === 'sale' && (
+              <Button variant="secondary" disabled={!tenant.data} onClick={() => setSending(true)}>
+                <Send className="size-4" /> Enviar
+              </Button>
+            )}
+            {s.status === 'confirmed' && s.giftCard?.state === 'active' && (
+              <>
+                <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('gift-sheet')}>
+                  <Printer className="size-4" /> Gift card en hoja
+                </Button>
+                <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('gift-roll')}>
+                  <Printer className="size-4" /> Gift card en ticket
+                </Button>
+              </>
+            )}
+            {s.status === 'confirmed' && !s.giftCard && returnable && (
               <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('exchange')}>
-                <Printer className="size-4" /> {s.giftCard ? 'Imprimir gift card' : 'Ticket de cambio'}
+                <Printer className="size-4" /> Ticket de cambio
               </Button>
             )}
             {canInvoice && s.status === 'confirmed' && s.returns.length === 0 && s.kind === 'sale' && <Button onClick={() => setInvoicing(true)}>{invoices.data?.some((i) => i.status === 'authorized') ? 'Ver factura' : 'Facturar'}</Button>}
@@ -363,7 +380,12 @@ export function SaleDetailPage() {
       {returning && <ReturnDialog sale={s} onClose={() => setReturning(false)} />}
       {exchanging && <ExchangeDialog sale={s} onClose={() => setExchanging(false)} />}
       {showingCard && s.giftCard && <GiftCardDetailDialog code={s.giftCard.code} onClose={() => setShowingCard(false)} />}
-      {printing && tenant.data && <PrintTicket sale={s} exchange={printing === 'exchange'} tenant={tenant.data} onDone={() => setPrinting(null)} />}
+      {sending && tenant.data && (
+        <Dialog open onOpenChange={(o) => !o && setSending(false)} title={`Enviar la venta N° ${s.number}`} description="Por email lo manda el sistema; por WhatsApp se abre tu WhatsApp con el comprobante escrito.">
+          <SendReceipt sale={s} tenant={tenant.data} />
+        </Dialog>
+      )}
+      {printing && tenant.data && <PrintTicket sale={s} kind={printing} tenant={tenant.data} onDone={() => setPrinting(null)} />}
       {invoicing && <InvoiceDialog sale={s} taxCondition={tenant.data?.taxCondition} canConfigure={can('fiscal.manage')} onClose={() => setInvoicing(false)} />}
       {crediting && invoice && (
         <CreditNoteDialog invoice={invoice} saleReturnId={crediting.saleReturnId} amount={crediting.amount} existing={noteFor(crediting.saleReturnId)} onClose={() => setCrediting(null)} />

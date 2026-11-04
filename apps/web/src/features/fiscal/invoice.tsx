@@ -12,6 +12,14 @@ export type Environment = 'homologacion' | 'produccion';
 export type Invoice = { id: string; saleId: string; kind: 'invoice' | 'credit_note'; saleReturnId: string | null; associatedInvoiceId: string | null; environment: Environment; cuit: string; pointOfSale: number; voucherType: number; number: number; status: string; cae: string | null; caeExpiresOn: string | null; message: string | null; payload: { request: Record<string, string | number>; buyerName: string; buyerAddress: string | null; issuerName: string; issuerAddress: string | null; issuerTaxCondition?: string; issuerMetadata?: { grossIncomeNumber?: string; activityStartDate?: string } } };
 export const TYPES: Record<number, string> = { 1: 'Factura A', 6: 'Factura B', 11: 'Factura C', 3: 'Nota de crédito A', 8: 'Nota de crédito B', 13: 'Nota de crédito C' };
 
+/** Enlace de consulta del comprobante en ARCA: el que va en el QR. */
+export function arcaQrUrl(i: Invoice) {
+  const r = i.payload.request;
+  const date = String(r.CbteFch);
+  const data = { ver: 1, fecha: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`, cuit: Number(i.cuit), ptoVta: i.pointOfSale, tipoCmp: i.voucherType, nroCmp: i.number, importe: Number(r.ImpTotal), moneda: 'PES', ctz: 1, tipoDocRec: Number(r.DocTipo), nroDocRec: Number(r.DocNro), tipoCodAut: 'E', codAut: Number(i.cae) };
+  return `https://www.arca.gob.ar/fe/qr/?p=${encodeURIComponent(btoa(JSON.stringify(data)))}`;
+}
+
 /** Lo que detalla el comprobante: en la nota de crédito de una devolución, solo lo devuelto. */
 function printedLines(i: Invoice, sale: SaleDto): Array<{ description: string; detail: string }> {
   const back = i.saleReturnId ? sale.returns.find((x) => x.id === i.saleReturnId) : null;
@@ -31,10 +39,8 @@ export function InvoicePrint({ invoice: i, onClose }: { invoice: Invoice; onClos
   const r = i.payload.request;
   const associated = (r.CbtesAsoc as unknown as Array<Record<string, string | number>> | undefined)?.[0];
   useEffect(() => {
-    const date = String(r.CbteFch);
-    const data = { ver: 1, fecha: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`, cuit: Number(i.cuit), ptoVta: i.pointOfSale, tipoCmp: i.voucherType, nroCmp: i.number, importe: Number(r.ImpTotal), moneda: 'PES', ctz: 1, tipoDocRec: Number(r.DocTipo), nroDocRec: Number(r.DocNro), tipoCodAut: 'E', codAut: Number(i.cae) };
     let active = true;
-    void QRCode.toDataURL(`https://www.arca.gob.ar/fe/qr/?p=${encodeURIComponent(btoa(JSON.stringify(data)))}`, { width: 160, margin: 1 }).then(value => { if (active) setQr(value); });
+    void QRCode.toDataURL(arcaQrUrl(i), { width: 160, margin: 1 }).then(value => { if (active) setQr(value); });
     return () => { active = false; };
   }, [i, r]);
   useEffect(() => {

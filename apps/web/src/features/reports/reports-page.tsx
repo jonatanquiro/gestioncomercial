@@ -97,7 +97,9 @@ function SalesReport() {
   const params = new URLSearchParams({ from, to, groupBy });
   if (branchId) params.set('branchId', branchId);
   const report = useQuery({ queryKey: ['reports', 'sales', params.toString()], queryFn: () => http.get<SalesReportDto>(`/reports/sales?${params}`), placeholderData: keepPreviousData, enabled: !!from && !!to });
+  // Mientras carga otra agrupación se muestran solo los totales: las filas viejas no tienen la forma nueva (p. ej., «Días» con nombres de productos).
   const data = report.data;
+  const rows = report.isPlaceholderData ? null : (data?.rows ?? null);
   const s = data?.summary;
   const quantityColumn = ['product', 'variant', 'category'].includes(groupBy);
   const countColumn = ['day', 'cashier', 'payment'].includes(groupBy);
@@ -167,15 +169,15 @@ function SalesReport() {
               </Button>
             ))}
           </div>
-          {can('reports.export') && data && data.rows.length > 0 && (
+          {can('reports.export') && rows && rows.length > 0 && (
             <Button size="sm" variant="secondary" onClick={exportCsv}>
               <Download className="size-4" /> Descargar CSV
             </Button>
           )}
         </div>
-        {report.isLoading && <Spinner />}
-        {data && data.rows.length === 0 && <EmptyState>No hay ventas en ese período.</EmptyState>}
-        {data && data.rows.length > 0 && (
+        {(report.isLoading || (report.isPlaceholderData && report.isFetching)) && <Spinner />}
+        {rows && rows.length === 0 && <EmptyState>No hay ventas en ese período.</EmptyState>}
+        {rows && rows.length > 0 && (
           <Table
             head={
               <>
@@ -188,7 +190,7 @@ function SalesReport() {
               </>
             }
           >
-            {data.rows.map((r) => (
+            {rows.map((r) => (
               <tr key={r.key}>
                 <Td>
                   <span className="font-medium">{groupBy === 'day' ? formatDate(`${r.label}T12:00:00`) : r.label}</span>
@@ -208,7 +210,7 @@ function SalesReport() {
             ))}
           </Table>
         )}
-        {profit && data?.rows.some((r) => r.missingCost) && <p className="px-4 py-3 text-xs text-slate-500">* Hay artículos vendidos sin costo cargado: su margen aparece más alto de lo real.</p>}
+        {profit && rows?.some((r) => r.missingCost) && <p className="px-4 py-3 text-xs text-slate-500">* Hay artículos vendidos sin costo cargado: su margen aparece más alto de lo real.</p>}
       </Card>
     </>
   );

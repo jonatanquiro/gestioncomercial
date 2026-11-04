@@ -27,7 +27,7 @@ class GiftCardsTest extends TestCase
     {
         return $client->post('/gift-cards', $extra + [
             'clientUuid' => self::uuid(), 'registerId' => $shop['register']['id'], 'amount' => $amount, 'validMonths' => 6,
-            'recipientName' => 'Ana', 'fromName' => 'Tía Marta', 'payments' => $payments,
+            'recipientName' => 'Ana', 'fromName' => 'Tía Marta', 'message' => '¡Feliz cumple!', 'payments' => $payments,
         ]);
     }
 
@@ -54,7 +54,7 @@ class GiftCardsTest extends TestCase
         $this->assertSame(201, $res->status, json_encode($res->body));
         $card = $res->body['giftCard'];
         $this->assertMatchesRegularExpression('/^GC[A-Z2-9]{10}$/', $card['code']);
-        $this->assertSame(['30000.00', '30000.00', 'active', 'Ana'], [$card['amount'], $card['balance'], $card['state'], $card['recipientName']]);
+        $this->assertSame(['30000.00', '30000.00', 'active', 'Ana', '¡Feliz cumple!'], [$card['amount'], $card['balance'], $card['state'], $card['recipientName'], $card['message']]);
         $this->assertSame(Carbon::now('America/Buenos_Aires')->addMonthsNoOverflow(6)->toDateString(), $card['expiresOn']);
         $this->assertSame([], $res->body['lines']);
         $this->assertSame('20000.00', $res->body['changeGiven']);

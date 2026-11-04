@@ -1,11 +1,11 @@
-import { type SaleDto, TAX_CONDITION_LABELS, type TenantDto } from '@gc/contracts';
+import { type SaleDto, type TenantDto } from '@gc/contracts';
 import { dec, formatArs, roundMoney } from '@gc/domain';
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BarcodeSvg } from '@/components/barcode-svg';
 import { formatCuit, formatDate, formatDateTime, formatQty } from '@/lib/format';
 import { exchangeDeadline, saleTicketCode } from './exchange-ticket';
-import { formatGiftCardCode, GiftCardTicket } from '@/features/gift-cards/gift-card-ticket';
+import { formatGiftCardCode, GiftCardSheet, GiftCardTicket } from '@/features/gift-cards/gift-card-ticket';
 
 /**
  * Ticket interno de 80 mm. No es un comprobante fiscal: la factura electrónica llega en la
@@ -20,8 +20,8 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
         <div className="text-[14px] font-bold">{tenant.tradeName}</div>
         {tenant.legalName && <div>{tenant.legalName}</div>}
         {tenant.cuit && <div>CUIT {formatCuit(tenant.cuit)}</div>}
-        <div>{TAX_CONDITION_LABELS[tenant.taxCondition]}</div>
         {tenant.address && <div>{tenant.address}</div>}
+        {(tenant.phone || tenant.email) && <div>{[tenant.phone && `Tel. ${tenant.phone}`, tenant.email].filter(Boolean).join(' · ')}</div>}
         <div>{sale.branchName}</div>
       </div>
       <hr className="my-1 border-dashed border-black" />
@@ -129,8 +129,11 @@ export function ExchangeTicket({ sale, tenant }: { sale: SaleDto; tenant: Tenant
   );
 }
 
-/** Imprime el ticket (o el de cambio; en la venta de una gift card, la tarjeta) en cuanto se monta y avisa al terminar. */
-export function PrintTicket({ sale, tenant, onDone, exchange = false }: { sale: SaleDto; tenant: TenantDto; onDone: () => void; exchange?: boolean }) {
+/** Qué se imprime de una venta: el ticket, el de cambio o la gift card (en hoja común o en el rollo). */
+export type PrintKind = 'sale' | 'exchange' | 'gift-sheet' | 'gift-roll';
+
+/** Imprime en cuanto se monta y avisa al terminar. */
+export function PrintTicket({ sale, tenant, onDone, kind = 'sale' }: { sale: SaleDto; tenant: TenantDto; onDone: () => void; kind?: PrintKind }) {
   useEffect(() => {
     const after = () => onDone();
     window.addEventListener('afterprint', after, { once: true });
@@ -139,7 +142,15 @@ export function PrintTicket({ sale, tenant, onDone, exchange = false }: { sale: 
   }, [onDone]);
   return createPortal(
     <div id="print-root">
-      {!exchange ? <Ticket sale={sale} tenant={tenant} /> : sale.giftCard ? <GiftCardTicket card={sale.giftCard} tenant={tenant} /> : <ExchangeTicket sale={sale} tenant={tenant} />}
+      {kind === 'gift-sheet' && sale.giftCard ? (
+        <GiftCardSheet card={sale.giftCard} tenant={tenant} />
+      ) : kind === 'gift-roll' && sale.giftCard ? (
+        <GiftCardTicket card={sale.giftCard} tenant={tenant} />
+      ) : kind === 'exchange' ? (
+        <ExchangeTicket sale={sale} tenant={tenant} />
+      ) : (
+        <Ticket sale={sale} tenant={tenant} />
+      )}
     </div>,
     document.body,
   );

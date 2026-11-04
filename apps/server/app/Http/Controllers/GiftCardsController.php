@@ -75,6 +75,7 @@ class GiftCardsController extends Controller
             'expiresOn' => $c->expires_on->toDateString(),
             'recipientName' => $c->recipient_name,
             'fromName' => $c->from_name,
+            'message' => $c->message,
             'createdAt' => Dates::iso($c->created_at),
             'branchName' => Branch::find($c->branch_id)?->name ?? '',
             'sale' => ['id' => $sale->id, 'number' => (int) $sale->number],

@@ -155,7 +155,7 @@ class GiftCardService
         return $refunded;
     }
 
-    /** @param  array{amount: string, validMonths: int, recipientName?: ?string, fromName?: ?string}  $input */
+    /** @param  array{amount: string, validMonths: int, recipientName?: ?string, fromName?: ?string, message?: ?string}  $input */
     public function issue(Actor $actor, Sale $sale, array $input): GiftCard
     {
         $amount = Money::round($input['amount']);
@@ -168,6 +168,7 @@ class GiftCardService
             'expires_on' => Carbon::now('America/Buenos_Aires')->addMonthsNoOverflow((int) $input['validMonths'])->toDateString(),
             'recipient_name' => trim((string) ($input['recipientName'] ?? '')) ?: null,
             'from_name' => trim((string) ($input['fromName'] ?? '')) ?: null,
+            'message' => trim((string) ($input['message'] ?? '')) ?: null,
             'status' => 'active',
             'created_by' => $actor->userId,
         ]);

@@ -191,6 +191,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::put('promotions/{id}', [PromotionsController::class, 'update'])->middleware('perm:promotions.manage');
     Route::get('sales', [SalesController::class, 'index'])->middleware('perm:sales.read_own,sales.read_all');
     Route::get('sales/{id}', [SalesController::class, 'show'])->middleware('perm:sales.read_own,sales.read_all');
+    Route::post('sales/{id}/email', [SalesController::class, 'email'])->middleware('perm:sales.read_own,sales.read_all');
     Route::post('sales/{id}/void', [SalesController::class, 'void'])->middleware('perm:sales.create,sales.void');
     Route::post('sales/{id}/returns', [SalesController::class, 'storeReturn'])->middleware('perm:sales.create,sales.return');
     Route::post('sales/{id}/exchanges', [SalesController::class, 'storeExchange'])->middleware('perm:sales.create');

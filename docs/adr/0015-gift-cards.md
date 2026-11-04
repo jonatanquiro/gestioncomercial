@@ -18,6 +18,13 @@ Los comercios de ropa, calzado y regalería venden órdenes de compra: alguien p
 8. **Facturación.** La venta de la tarjeta no se factura. Se factura la venta en la que se usa, con lo que se lleva el cliente.
 9. **Devoluciones.** Lo que se pagó con gift card vuelve a la tarjeta como saldo, no sale de la caja: primero a las tarjetas, hasta lo que se pagó con ellas, y el resto con el medio que elija el cajero. Así una gift card no se convierte en efectivo. Si la tarjeta ya venció, recibe 30 días más para poder usar ese saldo. En un cambio no aplica: el crédito paga la venta nueva.
 
+## Impresión y dedicatoria (2026-11-04)
+
+- **Dedicatoria opcional** de hasta 200 caracteres, junto a «Para» y «De».
+- **Dos formatos de impresión**, porque es un regalo y no puede parecer un ticket común:
+  - **en hoja** (A4 o carta, impresora común): una tarjeta a color con el logo y el color del comercio, para recortar;
+  - **en ticket** (rollo de 80 mm): con guardas, el monto grande y la dedicatoria.
+
 ## Límites conocidos
 
 - **Saldo vencido.** Si la tarjeta vence con saldo, el saldo queda en el listado como vencido. No hay todavía un asiento contable que lo dé de baja.
