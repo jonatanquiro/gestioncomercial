@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Branch;
 use App\Models\Membership;
+use App\Models\Product;
+use App\Models\Sale;
 use App\Models\Tenant;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
 use App\Services\SalesService;
+use App\Support\Appearance;
 use App\Support\AppError;
 use App\Support\Catalog;
 use App\Support\Input;
@@ -20,6 +23,9 @@ use Illuminate\Validation\Rule;
 /** Datos del comercio activo. El id sale siempre de la sesión, nunca del pedido. */
 class TenantController extends Controller
 {
+    /** Plazo de cambio impreso en el ticket de cambio si el comercio no lo configuró. */
+    public const DEFAULT_EXCHANGE_DAYS = 30;
+
     public function __construct(
         private readonly EntitlementsService $entitlements,
         private readonly AuditService $audit,
@@ -49,6 +55,12 @@ class TenantController extends Controller
             'settings.allowNegativeStock' => ['present', Input::strictBoolean()],
             'settings.priceRoundingStep' => ['present', Input::oneOfIntegers([0, 1, 5, 10, 50, 100])],
             'settings.discountLimitPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Porcentaje inválido')],
+            'settings.referenceCatalog' => ['present', Input::strictBoolean()],
+            'settings.exchangeDays' => ['present', 'integer', 'min:0', 'max:365'],
+        ], [
+            'settings.exchangeDays.integer' => 'Ingresá un número entero de días',
+            'settings.exchangeDays.min' => 'No puede ser negativo',
+            'settings.exchangeDays.max' => 'Como máximo 365 días',
         ]);
         $discountLimit = Money::round($input['settings']['discountLimitPercent'] ?? SalesService::DEFAULT_DISCOUNT_LIMIT);
         if (Money::of($discountLimit)->isGreaterThan(100)) {
@@ -66,6 +78,8 @@ class TenantController extends Controller
                 'allowNegativeStock' => (bool) $input['settings']['allowNegativeStock'],
                 'priceRoundingStep' => (int) $input['settings']['priceRoundingStep'],
                 'discountLimitPercent' => $discountLimit,
+                'referenceCatalog' => (bool) $input['settings']['referenceCatalog'],
+                'exchangeDays' => (int) $input['settings']['exchangeDays'],
             ],
         ];
 
@@ -111,6 +125,20 @@ class TenantController extends Controller
     }
 
     /** Forma de TenantDto. */
+    public function appearance(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Appearance::validate($this->body($request));
+        DB::transaction(function () use ($actor, $v) {
+            $tenant = Tenant::whereKey($actor->tenantId)->lockForUpdate()->firstOrFail();
+            $before = $tenant->appearance ?? Appearance::DEFAULTS;
+            $tenant->forceFill(['appearance' => $v, 'version' => $tenant->version + 1])->save();
+            $this->audit->record(['tenantId' => $actor->tenantId, 'actorType' => 'user', 'actorId' => $actor->userId, 'actorName' => $actor->userName, 'action' => 'tenant.appearance_updated', 'entityType' => 'tenant', 'entityId' => $actor->tenantId, 'before' => [...$before, 'logoData' => ! empty($before['logoData'])], 'after' => [...$v, 'logoData' => ! empty($v['logoData'])], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        });
+
+        return $this->json($this->load($actor->tenantId));
+    }
+
     private function load(string $tenantId): array
     {
         $t = Tenant::find($tenantId) ?? throw AppError::notFound('Comercio');
@@ -126,11 +154,20 @@ class TenantController extends Controller
             'email' => $t->email,
             'businessTypeCode' => $t->business_type_code,
             'status' => $t->status,
-            'settings' => $t->settings + ['discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00'],
+            // Los comercios anteriores al ajuste toman el valor de su rubro.
+            'settings' => $t->settings + [
+                'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
+                'referenceCatalog' => (bool) (collect(Catalog::businessTypes())->firstWhere('code', $t->business_type_code)['defaultSettings']['referenceCatalog'] ?? true),
+                'exchangeDays' => self::DEFAULT_EXCHANGE_DAYS,
+            ],
+            'appearance' => ($t->appearance ?? []) + Appearance::DEFAULTS,
             'plan' => $this->entitlements->plan(),
             'usage' => [
                 'branches' => Branch::where('status', 'active')->count(),
                 'users' => Membership::where('status', 'active')->count(),
+                'products' => Product::where('status', 'active')->count(),
+                // Para la guía de primeros pasos del inicio.
+                'hasSales' => Sale::exists(),
             ],
         ];
     }

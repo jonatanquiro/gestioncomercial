@@ -9,6 +9,7 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, PageHeader, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { errorMessage, http } from '@/lib/api';
+import { SettingsTabs } from '@/features/settings/settings-tabs';
 import { useCan } from '@/lib/session';
 
 /** Cajas de cada sucursal y medios de pago que acepta el comercio. */
@@ -20,6 +21,7 @@ export function CashSetupPage() {
   return (
     <>
       <PageHeader title="Cajas y medios de pago" description="Puntos de cobro de cada sucursal y formas de pago que aceptás." />
+      <SettingsTabs />
       <div className="grid gap-6 xl:grid-cols-2">
         {manageRegisters && <RegistersCard />}
         {manageMethods && <MethodsCard />}
@@ -151,6 +153,7 @@ function MethodsCard() {
             <Td className="font-medium">
               {m.name}
               {m.requiresReference && <span className="block text-xs text-slate-500">Pide número de operación</span>}
+              {m.cashPrice && <span className="block text-xs font-semibold text-emerald-700">Cobra a precio de contado</span>}
             </Td>
             <Td>{PAYMENT_KIND_LABELS[m.kind]}</Td>
             <Td>{m.active ? <Badge tone="green">Activo</Badge> : <Badge>Inactivo</Badge>}</Td>
@@ -173,6 +176,7 @@ function MethodDialog({ method, nextOrder, onClose }: { method: PaymentMethodDto
   const [name, setName] = useState(method?.name ?? '');
   const [kind, setKind] = useState<PaymentKind>(method?.kind ?? 'other');
   const [requiresReference, setRequiresReference] = useState(method?.requiresReference ?? false);
+  const [cashPrice, setCashPrice] = useState(method?.cashPrice ?? false);
   const [active, setActive] = useState(method?.active ?? true);
   const [error, setError] = useState<string | null>(null);
   const save = useMutation({
@@ -186,7 +190,7 @@ function MethodDialog({ method, nextOrder, onClose }: { method: PaymentMethodDto
   });
   function submit(e: FormEvent) {
     e.preventDefault();
-    const parsed = paymentMethodSchema.safeParse({ name, kind, requiresReference, active, sortOrder: method?.sortOrder ?? nextOrder });
+    const parsed = paymentMethodSchema.safeParse({ name, kind, requiresReference, cashPrice, active, sortOrder: method?.sortOrder ?? nextOrder });
     if (!parsed.success) return setError(parsed.error.issues[0]?.message ?? 'Datos inválidos');
     setError(null);
     save.mutate(parsed.data);
@@ -209,6 +213,13 @@ function MethodDialog({ method, nextOrder, onClose }: { method: PaymentMethodDto
         </Field>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="size-4" checked={requiresReference} onChange={(e) => setRequiresReference(e.target.checked)} /> Pedir número de operación al cobrar
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4" checked={cashPrice} onChange={(e) => setCashPrice(e.target.checked)} />
+          <span>
+            Cobra a precio de contado
+            <span className="block text-xs text-slate-500">Si toda la venta se paga con medios de contado, se usa el precio de contado de cada artículo. Si se usa otro medio, toda la venta va a precio de lista.</span>
+          </span>
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" className="size-4" checked={active} onChange={(e) => setActive(e.target.checked)} /> Activo

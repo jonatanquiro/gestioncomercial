@@ -175,21 +175,32 @@ class RulesTest extends TestCase
             'cuit' => substr($cuit, 0, 2).'-'.substr($cuit, 2, 8).'-'.substr($cuit, 10),
             'taxCondition' => 'responsable_inscripto', 'address' => 'Av. Siempre Viva 742', 'phone' => '+54 11 5555-5555',
             'email' => 'Contacto@Test.local',
-            'settings' => ['allowNegativeStock' => ! $tenant['settings']['allowNegativeStock'], 'priceRoundingStep' => 50],
+            'settings' => ['allowNegativeStock' => ! $tenant['settings']['allowNegativeStock'], 'priceRoundingStep' => 50, 'referenceCatalog' => false, 'exchangeDays' => 15],
         ]);
         $this->assertSame(200, $res->status, json_encode($res->body));
         $this->assertSame($cuit, $res->body['cuit']);
         $this->assertSame('contacto@test.local', $res->body['email']);
         $this->assertSame(50, $res->body['settings']['priceRoundingStep']);
+        $this->assertFalse($res->body['settings']['referenceCatalog']);
+        $this->assertSame(15, $res->body['settings']['exchangeDays']);
 
-        $bad = $owner->put('/tenant', [...$res->body, 'settings' => ['allowNegativeStock' => 'si', 'priceRoundingStep' => 7]]);
+        $bad = $owner->put('/tenant', [...$res->body, 'settings' => ['allowNegativeStock' => 'si', 'priceRoundingStep' => 7, 'referenceCatalog' => true, 'exchangeDays' => 400]]);
         $this->assertSame(400, $bad->status);
-        $this->assertEqualsCanonicalizing(['settings.allowNegativeStock', 'settings.priceRoundingStep'], array_column($bad->body['details'], 'path'));
+        $this->assertEqualsCanonicalizing(['settings.allowNegativeStock', 'settings.priceRoundingStep', 'settings.exchangeDays'], array_column($bad->body['details'], 'path'));
 
         $entry = collect($owner->get('/audit?entityType=tenant')->body['items'])->firstWhere('action', 'tenant.updated');
         $this->assertSame($tenant['tradeName'], $entry['before']['tradeName']);
         $this->assertSame('Nombre Nuevo', $entry['after']['tradeName']);
         $this->assertSame($input['ownerName'], $entry['actorName']);
+    }
+
+    /** El catálogo de Precios Claros se ofrece según el rubro: sirve al almacén, no a la tienda de ropa. */
+    public function test_el_catalogo_de_referencia_depende_del_rubro(): void
+    {
+        $this->assertTrue($this->registerTenant(['businessTypeCode' => 'kiosco'])['client']->get('/tenant')->body['settings']['referenceCatalog']);
+        $ropa = $this->registerTenant(['businessTypeCode' => 'ropa'])['client']->get('/tenant')->body['settings'];
+        $this->assertFalse($ropa['referenceCatalog']);
+        $this->assertSame(30, $ropa['exchangeDays']);
     }
 
     public function test_la_auditoria_no_se_puede_modificar_ni_borrar_ni_desde_la_base(): void

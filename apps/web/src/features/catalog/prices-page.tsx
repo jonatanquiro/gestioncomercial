@@ -174,10 +174,16 @@ export function PricesPage() {
             >
               {preview.result.rows.map((r) => (
                 <tr key={r.variantId}>
-                  <Td className="font-medium">{r.name}</Td>
+                  <Td className="font-medium">
+                    {r.name}
+                    {r.variantLabel && <span className="block text-slate-600 sm:ml-1.5 sm:inline">{r.variantLabel}</span>}
+                  </Td>
                   {seeCost && <Td className="text-right text-slate-600">{r.cost ? formatArs(r.cost) : '—'}</Td>}
                   <Td className="text-right">{formatArs(r.oldPrice)}</Td>
-                  <Td className="text-right font-semibold">{formatArs(r.newPrice)}</Td>
+                  <Td className="text-right font-semibold">
+                    {formatArs(r.newPrice)}
+                    {r.newCashPrice && <span className="block text-xs font-normal text-emerald-700">Contado {formatArs(r.newCashPrice)}</span>}
+                  </Td>
                   <Td className={`text-right ${r.variation?.startsWith('-') ? 'text-red-700' : 'text-emerald-700'}`}>{formatPercent(r.variation)}</Td>
                   {seeCost && <Td className="text-right">{formatPercent(r.markup)}</Td>}
                   {seeCost && <Td className="text-right">{formatPercent(r.margin)}</Td>}

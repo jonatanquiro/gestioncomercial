@@ -8,5 +8,5 @@ namespace App\Models;
  */
 class Tenant extends BaseModel
 {
-    protected $casts = ['settings' => 'array', 'version' => 'integer'];
+    protected $casts = ['settings' => 'array', 'appearance' => 'array', 'version' => 'integer'];
 }

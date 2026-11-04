@@ -47,12 +47,12 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $data = $this->body($request);
-        $data['email'] = Input::email($data['email'] ?? null);
+        $data['login'] = Input::email($data['login'] ?? null);
         $input = Input::validate($data, [
-            'email' => ['required', 'string', 'email', 'max:254'],
+            'login' => ['required', 'string', 'max:254'],
             'password' => ['required', 'string', 'max:128'],
         ]);
-        $session = $this->auth->login($input['email'], $input['password'], Client::from($request));
+        $session = $this->auth->login($input['login'], $input['password'], Client::from($request));
 
         return $this->withNewSession($this->json(['ok' => true]), $session['token']);
     }
@@ -108,6 +108,16 @@ class AuthController extends Controller
             'newPassword' => Input::passwordRules(),
         ], Input::passwordMessages('newPassword'));
         $this->auth->changePassword($this->actor($request), $input['currentPassword'], $input['newPassword']);
+
+        return $this->json(['ok' => true]);
+    }
+
+    public function updateUsername(Request $request): JsonResponse
+    {
+        $data = $this->body($request);
+        $data['username'] = Input::email($data['username'] ?? null);
+        $input = Input::validate($data, ['username' => Input::usernameRules()], Input::usernameMessages('username'));
+        $this->auth->updateUsername($this->actor($request), $input['username'] ?? null);
 
         return $this->json(['ok' => true]);
     }

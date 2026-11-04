@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Branch;
+use App\Models\Promotion;
 use App\Models\Role;
+use App\Models\Subscription;
+use App\Models\SubscriptionPayment;
 use App\Tenancy\BelongsToTenant;
 use App\Tenancy\MissingTenantContext;
 use App\Tenancy\TenantContext;
@@ -26,7 +29,7 @@ class IsolationTest extends TestCase
 
     /** Únicos archivos que pueden consultar sin el filtro automático por comercio. */
     private const BYPASS_ALLOWED = [
-        'app/Services/AuthService.php',          // membresías del propio usuario, siempre por user_id
+        'app/Services/AuthService.php',          // membresías por user_id (las propias, o si alguien trabaja en otro comercio)
         'app/Http/Controllers/PlatformController.php', // panel de plataforma
         'app/Tenancy/TenantContext.php',
         'app/Tenancy/BelongsToTenant.php',
@@ -60,10 +63,31 @@ class IsolationTest extends TestCase
         $this->bIds = [
             'branch' => $this->b['me']['branchIds'][0], 'role' => $cashier['id'], 'membership' => $emp['membershipId'],
             'category' => $this->b['client']->get('/categories')->body[0]['id'], 'product' => $product['id'], 'variant' => $product['variantId'],
-            'warehouse' => $warehouse, 'count' => $count->body['id'], 'barcode' => $product['barcodes'][0]['code'],
+            'warehouse' => $warehouse, 'count' => $count->body['id'], 'barcode' => $product['variants'][0]['barcodes'][0]['code'],
             'register' => $register['id'], 'shift' => $shift->body['id'], 'paymentMethod' => $cash['id'], 'sale' => $sale->body['id'],
             'saleLine' => $sale->body['lines'][0]['id'],
         ];
+        $transfer = collect($this->b['client']->get('/payment-methods')->body)->firstWhere('kind', 'transfer');
+        $settlement = $this->b['client']->post('/settlements', ['paymentMethodId' => $transfer['id'], 'provider' => 'MP', 'fromDate' => '2026-01-01', 'toDate' => '2026-01-01']);
+        $this->assertSame(201, $settlement->status);
+        $this->bIds['settlement'] = $settlement->body['id'];
+        $supplier = $this->b['client']->post('/suppliers', ['name' => 'Proveedor B']);
+        $this->bIds['supplier'] = $supplier->body['id'];
+        $purchase = $this->b['client']->post('/purchases', [
+            'clientUuid' => self::uuid(), 'warehouseId' => $warehouse, 'supplierId' => $supplier->body['id'], 'updateCosts' => false,
+            'lines' => [['variantId' => $this->createProduct($this->b['client'])['variantId'], 'quantity' => '1', 'unitCost' => null]],
+        ]);
+        $this->assertSame(201, $purchase->status, json_encode($purchase->body));
+        $this->bIds['purchase'] = $purchase->body['id'];
+        $customer = $this->b['client']->post('/customers', ['name' => 'Cliente B', 'documentType' => null, 'documentNumber' => null, 'vatCondition' => 5, 'creditLimit' => '5000']);
+        $this->assertSame(201, $customer->status, json_encode($customer->body));
+        $this->bIds['customer'] = $customer->body['id'];
+        $this->bIds['promotion'] = app(TenantContext::class)->run($this->b['tenantId'], fn () => Promotion::create([
+            'name' => 'Promo B', 'kind' => 'percent', 'percent' => '10', 'scope' => 'all', 'status' => 'active',
+        ]))->id;
+        $this->bIds['subscriptionPayment'] = app(TenantContext::class)->run($this->b['tenantId'], fn () => SubscriptionPayment::create([
+            'plan_id' => Subscription::first()->plan_id, 'months' => 1, 'amount' => '1000.00', 'method' => 'mercadopago', 'status' => 'pending',
+        ]))->id;
     }
 
     public function test_a_no_ve_datos_de_b_en_los_listados(): void
@@ -79,6 +103,12 @@ class IsolationTest extends TestCase
         $this->assertNotContains($this->bIds['product'], array_column($a->get('/stock?pageSize=100')->body['items'], 'productId'));
         $this->assertNotContains($this->bIds['variant'], array_column($a->get('/stock/movements?pageSize=100')->body['items'], 'variantId'));
         $this->assertNotContains($this->bIds['count'], array_column($a->get('/stock-counts')->body, 'id'));
+        $this->assertNotContains($this->bIds['supplier'], array_column($a->get('/suppliers')->body, 'id'));
+        $this->assertNotContains($this->bIds['purchase'], array_column($a->get('/purchases?pageSize=100')->body['items'], 'id'));
+        $this->assertNotContains($this->bIds['customer'], array_column($a->get('/customers?pageSize=100&status=all')->body['items'], 'id'));
+        $today = now('America/Buenos_Aires')->toDateString();
+        $this->assertNotContains($this->bIds['variant'], array_column($a->get("/reports/sales?from={$today}&to={$today}&groupBy=variant")->body['rows'], 'key'));
+        $this->assertNotContains($this->bIds['variant'], array_column($a->get('/reports/stale?days=30')->body['rows'], 'variantId'));
         $this->assertNotContains($this->bIds['register'], array_column($a->get('/registers')->body, 'id'));
         $this->assertNotContains($this->bIds['paymentMethod'], array_column($a->get('/payment-methods')->body, 'id'));
         $this->assertNotContains($this->bIds['shift'], array_column($a->get('/shifts')->body['items'], 'id'));
@@ -97,9 +127,16 @@ class IsolationTest extends TestCase
     public function test_cada_ruta_con_identificador_responde_404_ante_un_id_de_otro_comercio(): void
     {
         $bodies = [
+            '/subscription/payments/{id}/check' => ['mpPaymentId' => null],
+            '/settlements/{id}/refresh' => [],
+            '/settlements/{id}/import' => [],
+            '/settlements/{id}/review' => [],
+            '/settlements/{id}/match' => [],
+            '/settlements/{id}/close' => [],
             '/branches/{id}' => ['name' => 'Hackeada', 'address' => null, 'status' => 'active'],
             '/roles/{id}' => ['name' => 'Hackeado', 'permissions' => []],
             '/employees/{membershipId}' => ['roleId' => $this->bIds['role'], 'branchIds' => [$this->bIds['branch']], 'status' => 'inactive'],
+            '/employees/{membershipId}/password' => ['password' => 'clave-de-otro-comercio-1'],
             '/categories/{id}' => ['name' => 'Hackeada', 'status' => 'inactive'],
             '/products/{id}' => self::productUpdate($this->b['client']->get('/products/'.$this->bIds['product'])->body, ['name' => 'Hackeado']),
             '/products/{id}/status' => ['status' => 'inactive'],
@@ -112,12 +149,32 @@ class IsolationTest extends TestCase
             '/shifts/{id}/counts' => ['counted' => '0'],
             '/shifts/{id}/close' => ['counted' => '0'],
             '/sales/{id}/void' => ['reason' => 'Hackeo'],
+            '/sales/{id}/email' => ['email' => 'hackeo@example.com'],
+            '/sales/{id}/invoice' => [],
+            '/sales/{id}/credit-notes' => ['environment' => 'homologacion'],
             '/sales/{id}/returns' => [
                 'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
                 'paymentMethodId' => $this->bIds['paymentMethod'], 'lines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
             ],
+            '/suppliers/{id}' => ['name' => 'Hackeo', 'status' => 'inactive'],
+            '/suppliers/{id}/payments' => ['clientUuid' => self::uuid(), 'amount' => '1', 'method' => 'transfer'],
+            '/suppliers/{id}/adjustments' => ['amount' => '1', 'notes' => 'Hackeo'],
+            '/customers/{id}' => ['name' => 'Hackeo', 'documentType' => null, 'documentNumber' => null, 'vatCondition' => 5, 'status' => 'inactive'],
+            '/promotions/{id}' => ['name' => 'Hackeo', 'kind' => 'percent', 'percent' => '100', 'scope' => 'all', 'status' => 'active'],
+            '/customers/{id}/adjustments' => ['amount' => '-100000', 'notes' => 'Hackeo'],
+            '/customers/{id}/payments' => [
+                'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'amount' => '1',
+                'payments' => [['paymentMethodId' => collect($this->a['client']->get('/payment-methods')->body)->firstWhere('kind', 'cash')['id'], 'amount' => '1']],
+            ],
+            '/sales/{id}/exchanges' => [
+                'clientUuid' => self::uuid(), 'registerId' => $this->a['client']->get('/registers')->body[0]['id'], 'reason' => 'Hackeo',
+                'returnLines' => [['saleLineId' => $this->bIds['saleLine'], 'quantity' => '1', 'restock' => true]],
+                'lines' => [['variantId' => $this->bIds['variant'], 'quantity' => '1']], 'payments' => [], 'expectedTotal' => '1000.00',
+            ],
         ];
         $idFor = fn (string $path) => match (true) {
+            str_starts_with($path, '/subscription/payments') => $this->bIds['subscriptionPayment'],
+            str_starts_with($path, '/settlements') => $this->bIds['settlement'],
             str_starts_with($path, '/branches') => $this->bIds['branch'],
             str_starts_with($path, '/roles') => $this->bIds['role'],
             str_starts_with($path, '/employees') => $this->bIds['membership'],
@@ -128,6 +185,10 @@ class IsolationTest extends TestCase
             str_starts_with($path, '/payment-methods') => $this->bIds['paymentMethod'],
             str_starts_with($path, '/shifts') => $this->bIds['shift'],
             str_starts_with($path, '/sales') => $this->bIds['sale'],
+            str_starts_with($path, '/suppliers') => $this->bIds['supplier'],
+            str_starts_with($path, '/purchases') => $this->bIds['purchase'],
+            str_starts_with($path, '/customers') => $this->bIds['customer'],
+            str_starts_with($path, '/promotions') => $this->bIds['promotion'],
             default => null,
         };
         $checked = [];
@@ -152,7 +213,8 @@ class IsolationTest extends TestCase
             'GET /products/{id}', 'GET /products/{id}/history', 'PUT /products/{id}', 'POST /products/{id}/status',
             'GET /stock-counts/{id}', 'PUT /stock-counts/{id}/lines', 'POST /stock-counts/{id}/close', 'POST /stock-counts/{id}/cancel',
             'PUT /registers/{id}', 'PUT /payment-methods/{id}', 'GET /shifts/{id}', 'POST /shifts/{id}/movements', 'POST /shifts/{id}/counts',
-            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/returns',
+            'POST /shifts/{id}/close', 'GET /sales/{id}', 'POST /sales/{id}/void', 'POST /sales/{id}/email', 'POST /sales/{id}/returns', 'POST /sales/{id}/exchanges', 'POST /sales/{id}/credit-notes', 'PUT /suppliers/{id}', 'GET /suppliers/{id}', 'POST /suppliers/{id}/payments', 'POST /suppliers/{id}/adjustments', 'GET /purchases/{id}',
+            'GET /customers/{id}', 'PUT /customers/{id}', 'PUT /promotions/{id}', 'POST /customers/{id}/adjustments', 'POST /customers/{id}/payments',
         ] as $expected) {
             $this->assertContains($expected, $checked);
         }

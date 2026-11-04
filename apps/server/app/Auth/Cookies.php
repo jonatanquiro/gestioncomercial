@@ -54,6 +54,6 @@ final class Cookies
 
     private static function make(string $name, string $value, int $maxAgeSeconds, bool $httpOnly): Cookie
     {
-        return Cookie::create($name, $value, time() + $maxAgeSeconds, '/', null, (bool) config('session.secure'), $httpOnly, true, Cookie::SAMESITE_LAX);
+        return Cookie::create($name, $value, time() + $maxAgeSeconds, (string) config('session.path', '/'), null, (bool) config('session.secure'), $httpOnly, true, Cookie::SAMESITE_LAX);
     }
 }

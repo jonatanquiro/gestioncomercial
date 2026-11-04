@@ -6,6 +6,8 @@ import {
   type PlatformCreateTenantResult,
   type PlatformTenantDto,
   platformCreateTenantSchema,
+  recordTenantPaymentSchema,
+  setTenantLicenseSchema,
   setTenantStatusSchema,
   TAX_CONDITION_LABELS,
   TAX_CONDITIONS,
@@ -19,6 +21,7 @@ import type { z } from 'zod';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Field, Input, Select } from '@/components/ui/field';
+import { ActionMenu } from '@/components/ui/menu';
 import { Alert, Badge, Card, EmptyState, PageHeader, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
@@ -94,7 +97,8 @@ function CreateTenantForm({ onDone }: { onDone: () => void }) {
     mutationFn: (v: CreateOut) => http.post<PlatformCreateTenantResult>('/platform/tenants', v),
     onSuccess: async (res, v) => {
       await queryClient.invalidateQueries({ queryKey: ['platform-tenants'] });
-      if (!res.ownerInvited) toast(`Comercio creado. ${v.ownerEmail} ya tenía cuenta: entra con su contraseña de siempre.`);
+      if (res.ownerPasswordSet) toast(`Comercio creado. ${v.ownerEmail} ya puede ingresar con la contraseña que definiste.`);
+      else if (!res.ownerInvited) toast(`Comercio creado. ${v.ownerEmail} ya tenía cuenta: entra con su contraseña de siempre.`);
       else if (res.invitationSent) toast(`Comercio creado. Le enviamos a ${v.ownerEmail} el enlace para elegir su contraseña.`);
       else toast(`Comercio creado, pero no se pudo enviar el correo. ${v.ownerEmail} puede entrar con «¿Olvidaste tu contraseña?».`, 'error');
       onDone();
@@ -155,10 +159,17 @@ function CreateTenantForm({ onDone }: { onDone: () => void }) {
         <Field label="Nombre del dueño" error={e.ownerName?.message}>
           {(p) => <Input {...p} {...register('ownerName')} />}
         </Field>
-        <Field label="Email del dueño" error={e.ownerEmail?.message} hint="Recibe un enlace para elegir su contraseña.">
+        <Field label="Email del dueño" error={e.ownerEmail?.message} hint="Será su usuario para ingresar al comercio.">
           {(p) => <Input {...p} type="email" {...register('ownerEmail')} />}
         </Field>
       </div>
+      <Field
+        label="Contraseña inicial del dueño (opcional)"
+        error={e.ownerPassword?.message}
+        hint="Para una cuenta nueva, definí una contraseña de al menos 10 caracteres y compartila con el dueño. Puede cambiarla desde Mi cuenta. Si la dejás vacía, se envía una invitación por correo. Si el email ya tiene cuenta, dejala vacía: conserva su contraseña actual."
+      >
+        {(p) => <Input {...p} type="password" autoComplete="new-password" {...register('ownerPassword')} />}
+      </Field>
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={onDone}>
           Cancelar
@@ -177,6 +188,9 @@ export function PlatformTenantsPage() {
   const [status, setStatus] = useState('');
   const [editing, setEditing] = useState<PlatformTenantDto | null>(null);
   const [creating, setCreating] = useState(false);
+  const [changingPlan, setChangingPlan] = useState<PlatformTenantDto | null>(null);
+  const [licensing, setLicensing] = useState<PlatformTenantDto | null>(null);
+  const [paying, setPaying] = useState<PlatformTenantDto | null>(null);
   const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
   if (search.trim()) params.set('q', search.trim());
   if (status) params.set('status', status);
@@ -261,9 +275,7 @@ export function PlatformTenantsPage() {
                 <Td>{BUSINESS_TYPE_NAMES[t.businessTypeCode] ?? t.businessTypeCode}</Td>
                 <Td>
                   {t.planCode ? (planNames[t.planCode] ?? t.planCode) : '—'}
-                  {t.trialEndsAt && t.subscriptionStatus === 'trialing' && (
-                    <div className="text-xs text-slate-500">Prueba hasta {formatDate(t.trialEndsAt)}</div>
-                  )}
+                  <BillingLine tenant={t} />
                 </Td>
                 <Td className="text-slate-600">
                   {t.branchCount} suc. · {t.userCount} usu.
@@ -273,10 +285,20 @@ export function PlatformTenantsPage() {
                 </Td>
                 <Td className="whitespace-nowrap">{formatDate(t.createdAt)}</Td>
                 <Td className="text-right">
+                  {t.status !== 'cancelled' && <Button size="sm" variant="secondary" onClick={() => setChangingPlan(t)}>Cambiar plan</Button>}
                   {t.status !== 'cancelled' && (
                     <Button size="sm" variant={t.status === 'suspended' ? 'secondary' : 'ghost'} onClick={() => setEditing(t)}>
                       {t.status === 'suspended' ? 'Habilitar' : 'Suspender'}
                     </Button>
+                  )}
+                  {t.status !== 'cancelled' && (
+                    <ActionMenu
+                      label={`Más acciones de ${t.tradeName}`}
+                      items={[
+                        { label: 'Registrar pago', onSelect: () => setPaying(t), hidden: t.freeForever },
+                        { label: t.freeForever ? 'Quitar licencia sin vencimiento' : 'Licencia sin vencimiento', onSelect: () => setLicensing(t) },
+                      ]}
+                    />
                   )}
                 </Td>
               </tr>
@@ -302,6 +324,15 @@ export function PlatformTenantsPage() {
       <Dialog open={creating} onOpenChange={setCreating} title="Nuevo comercio" wide>
         {creating && <CreateTenantForm onDone={() => setCreating(false)} />}
       </Dialog>
+      <Dialog open={changingPlan !== null} onOpenChange={o => !o && setChangingPlan(null)} title={`Cambiar plan de ${changingPlan?.tradeName ?? ''}`}>
+        {changingPlan && <ChangePlanForm tenant={changingPlan} plans={plans.data ?? []} onDone={() => setChangingPlan(null)} />}
+      </Dialog>
+      <Dialog open={licensing !== null} onOpenChange={(o) => !o && setLicensing(null)} title={licensing?.freeForever ? `Quitar la licencia de ${licensing.tradeName}` : `Licencia sin vencimiento para ${licensing?.tradeName ?? ''}`}>
+        {licensing && <LicenseForm tenant={licensing} onDone={() => setLicensing(null)} />}
+      </Dialog>
+      <Dialog open={paying !== null} onOpenChange={(o) => !o && setPaying(null)} title={`Registrar pago de ${paying?.tradeName ?? ''}`}>
+        {paying && <PaymentForm tenant={paying} onDone={() => setPaying(null)} />}
+      </Dialog>
       <Dialog
         open={editing !== null}
         onOpenChange={(o) => !o && setEditing(null)}
@@ -310,5 +341,121 @@ export function PlatformTenantsPage() {
         {editing && <StatusForm tenant={editing} onDone={() => setEditing(null)} />}
       </Dialog>
     </>
+  );
+}
+
+function ChangePlanForm({ tenant, plans, onDone }: { tenant: PlatformTenantDto; plans: PlanDto[]; onDone: () => void }) {
+  const [code, setCode] = useState('');
+  const [reason, setReason] = useState('');
+  const client = useQueryClient();
+  const toast = useToast();
+  const selected = plans.find(p => p.code === code);
+  const save = useMutation({ mutationFn: () => http.post(`/platform/tenants/${tenant.id}/plan`, { planCode: code, expectedPlanCode: tenant.planCode, reason }), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['platform-tenants'] }); await client.invalidateQueries({ queryKey: ['tenant'] }); toast('Plan del comercio actualizado'); onDone(); } });
+  return <form className="space-y-4" onSubmit={e => { e.preventDefault(); save.mutate(); }}>{save.error && <Alert>{errorMessage(save.error)}</Alert>}
+    <p className="text-sm text-slate-600">Plan actual: <strong>{plans.find(p => p.code === tenant.planCode)?.name ?? tenant.planCode}</strong></p>
+    <Field label="Nuevo plan">{p => <Select {...p} required value={code} onChange={e => setCode(e.target.value)}><option value="">Elegí un plan</option>{plans.filter(p => p.active && p.code !== tenant.planCode).map(p => <option key={p.id} value={p.code}>{p.name}</option>)}</Select>}</Field>
+    {selected && <p className="text-sm text-slate-600">Límites: {selected.limits.max_branches ?? 'Sin límite'} sucursales · {selected.limits.max_users ?? 'Sin límite'} usuarios · {selected.limits.max_products ?? 'Sin límite'} productos · {selected.limits.max_registers ?? 'Sin límite'} cajas.</p>}
+    <Field label="Motivo del cambio">{p => <Input {...p} required maxLength={300} value={reason} onChange={e => setReason(e.target.value)} />}</Field>
+    <Alert kind="info">Se aplica inmediatamente y queda auditado. Se conservan el estado y las fechas de la suscripción, sin reiniciar la prueba ni generar cobros automáticos. Si el uso actual supera los límites del nuevo plan, el cambio se rechaza.</Alert>
+    <Button type="submit" loading={save.isPending}>Confirmar cambio de plan</Button>
+  </form>;
+}
+
+const BILLING_LINE: Record<string, { text: string; tone: string }> = {
+  trial: { text: 'Prueba hasta', tone: 'text-slate-500' },
+  active: { text: 'Pagado hasta', tone: 'text-slate-500' },
+  grace: { text: 'Venció el', tone: 'text-amber-700' },
+  expired: { text: 'Pausado: venció el', tone: 'text-red-700' },
+};
+
+/** Hasta cuándo puede operar el comercio. Los planes sin precio no muestran nada. */
+function BillingLine({ tenant: t }: { tenant: PlatformTenantDto }) {
+  if (t.freeForever) return <div className="text-xs text-emerald-700">Sin vencimiento</div>;
+  const line = t.billingState ? BILLING_LINE[t.billingState] : undefined;
+  if (!line || !t.dueAt) return null;
+  return <div className={`text-xs ${line.tone}`}>{line.text} {formatDate(t.dueAt)}</div>;
+}
+
+type LicenseIn = z.input<typeof setTenantLicenseSchema>;
+type LicenseOut = z.output<typeof setTenantLicenseSchema>;
+
+function LicenseForm({ tenant, onDone }: { tenant: PlatformTenantDto; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { register, handleSubmit, formState } = useForm<LicenseIn, unknown, LicenseOut>({
+    resolver: zodResolver(setTenantLicenseSchema),
+    defaultValues: { freeForever: !tenant.freeForever, reason: '' },
+  });
+  const save = useMutation({
+    mutationFn: (v: LicenseOut) => http.post(`/platform/tenants/${tenant.id}/license`, v),
+    onSuccess: async (_, v) => {
+      await queryClient.invalidateQueries({ queryKey: ['platform-tenants'] });
+      toast(v.freeForever ? 'El comercio ya no vence ni paga' : 'El comercio vuelve a pagar su plan');
+      onDone();
+    },
+  });
+  return (
+    <form onSubmit={handleSubmit((v) => save.mutate(v))} className="space-y-4" noValidate>
+      {save.error && <Alert>{errorMessage(save.error)}</Alert>}
+      <p className="text-sm text-slate-600">
+        {tenant.freeForever
+          ? 'El comercio vuelve a regirse por su plan: si la prueba o el período pagado ya terminaron, entra en gracia o queda pausado hasta que pague.'
+          : 'El comercio usa el sistema sin pagar y sin vencimiento, con los límites de su plan. Se puede quitar cuando quieras.'}
+      </p>
+      <Field label="Motivo" error={formState.errors.reason?.message} hint="Queda registrado en la auditoría.">
+        {(p) => <Input {...p} autoFocus {...register('reason')} />}
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={onDone}>Cancelar</Button>
+        <Button type="submit" loading={save.isPending}>{tenant.freeForever ? 'Quitar licencia' : 'Dar licencia'}</Button>
+      </div>
+    </form>
+  );
+}
+
+type PaymentIn = z.input<typeof recordTenantPaymentSchema>;
+type PaymentOut = z.output<typeof recordTenantPaymentSchema>;
+
+function PaymentForm({ tenant, onDone }: { tenant: PlatformTenantDto; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { register, handleSubmit, formState, setError } = useForm<PaymentIn, unknown, PaymentOut>({
+    resolver: zodResolver(recordTenantPaymentSchema),
+    defaultValues: { months: 1, amount: '', notes: '' },
+  });
+  const e = formState.errors;
+  const save = useMutation({
+    mutationFn: (v: PaymentOut) => http.post(`/platform/tenants/${tenant.id}/payments`, v),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['platform-tenants'] });
+      toast('Pago registrado. El vencimiento ya se actualizó.');
+      onDone();
+    },
+    onError: (err) => {
+      if (err instanceof ApiRequestError) {
+        for (const [path, message] of Object.entries(err.fieldErrors())) setError(path as keyof PaymentIn, { message });
+      }
+    },
+  });
+  return (
+    <form onSubmit={handleSubmit((v) => save.mutate(v))} className="space-y-4" noValidate>
+      {save.error && <Alert>{errorMessage(save.error)}</Alert>}
+      <p className="text-sm text-slate-600">Para pagos que llegaron por otro medio, como una transferencia. Corre el vencimiento igual que un pago con Mercado Pago.</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Meses pagados" error={e.months?.message}>
+          {(p) => <Input {...p} type="number" min={1} max={36} {...register('months', { valueAsNumber: true })} />}
+        </Field>
+        <Field label="Importe recibido" error={e.amount?.message} hint="En pesos, con punto para los centavos.">
+          {(p) => <Input {...p} inputMode="decimal" placeholder="15000" {...register('amount')} />}
+        </Field>
+      </div>
+      <Field label="Detalle" error={e.notes?.message} hint="Por ejemplo: transferencia del 28/10, comprobante 1234.">
+        {(p) => <Input {...p} {...register('notes')} />}
+      </Field>
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={onDone}>Cancelar</Button>
+        <Button type="submit" loading={save.isPending}>Registrar pago</Button>
+      </div>
+    </form>
   );
 }

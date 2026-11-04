@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Auth\Actor;
 use App\Auth\Cookies;
+use App\Services\BillingService;
 use App\Services\MembershipContext;
 use App\Services\SessionService;
 use App\Support\AppError;
@@ -15,7 +16,8 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Exige una sesión de comercio válida y arma el actor del request. Fija el comercio activo
  * en TenantContext a partir de la sesión. Con el parámetro "any" la ruta acepta usuarios
- * sin comercio activo o con el comercio suspendido (por ejemplo /auth/me).
+ * sin comercio activo o con el comercio suspendido (por ejemplo /auth/me). Con "billing"
+ * acepta un comercio con la suscripción vencida, para que pueda pagarla.
  */
 class AuthenticateUser
 {
@@ -23,6 +25,7 @@ class AuthenticateUser
         private readonly SessionService $sessions,
         private readonly MembershipContext $memberships,
         private readonly TenantContext $context,
+        private readonly BillingService $billing,
     ) {}
 
     public function handle(Request $request, Closure $next, ?string $mode = null): Response
@@ -59,6 +62,9 @@ class AuthenticateUser
             }
         }
         $this->context->set($actor->tenantId);
+        if ($mode === null && $this->billing->blocked()) {
+            throw AppError::subscriptionExpired();
+        }
 
         return $next($request);
     }

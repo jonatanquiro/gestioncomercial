@@ -74,7 +74,7 @@ class StockService
             $after = $before->plus($delta);
             $product = $products[$variants[$line['variantId']]->product_id];
             if (! $force && $delta->isNegative() && $after->isNegative() && (! $allowNegative || $product->block_negative_stock)) {
-                $insufficient[] = ['variantId' => $line['variantId'], 'name' => $product->name, 'onHand' => Money::quantity($before), 'requested' => Money::quantity($delta->negated())];
+                $insufficient[] = ['variantId' => $line['variantId'], 'name' => ProductVariant::displayName($product->name, $variants[$line['variantId']]->label), 'onHand' => Money::quantity($before), 'requested' => Money::quantity($delta->negated())];
 
                 continue;
             }
@@ -95,7 +95,9 @@ class StockService
             ]);
         }
         if ($insufficient !== []) {
-            throw new AppError(409, 'INSUFFICIENT_STOCK', 'No hay stock suficiente y el comercio no permite stock negativo', $insufficient);
+            // Con el artículo y lo que queda, así en una venta de varias líneas se sabe cuál corregir.
+            $which = implode('; ', array_map(fn ($i) => "{$i['name']} (hay ".Money::plainQuantity($i['onHand']).')', $insufficient));
+            throw new AppError(409, 'INSUFFICIENT_STOCK', "No hay stock suficiente de {$which}. El comercio no permite stock negativo.", $insufficient);
         }
 
         return $created;

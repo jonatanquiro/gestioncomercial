@@ -1,5 +1,5 @@
 import type { PermissionCode } from './permissions';
-import type { PaymentKind, SaleMode, TaxCondition, TenantSettings, VatRate } from './schemas';
+import type { Appearance, PaymentKind, SaleMode, SalePaymentKind, TaxCondition, TenantSettings, VatRate } from './schemas';
 
 /** Formato único de error de la API. */
 export interface ApiError {
@@ -25,12 +25,68 @@ export interface MembershipSummary {
 }
 
 export interface MeResponse {
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string | null; username: string | null };
   tenant: { id: string; tradeName: string; status: string; businessTypeCode: string } | null;
   role: { id: string; name: string } | null;
+  /** Estado del cobro del comercio activo. */
+  subscription: SubscriptionStateDto | null;
   permissions: PermissionCode[];
   branchIds: string[];
   memberships: MembershipSummary[];
+}
+
+/**
+ * free: sin vencimiento · trial: en prueba · active: pagada · grace: vencida, todavía opera ·
+ * expired: pausada hasta que se pague.
+ */
+export type SubscriptionState = 'free' | 'trial' | 'active' | 'grace' | 'expired';
+
+export interface SubscriptionStateDto {
+  state: SubscriptionState;
+  /** Fin de la prueba o del período pagado. */
+  dueAt: string | null;
+  /** Desde cuándo se pausa si no se paga. */
+  blockAt: string | null;
+  freeForever: boolean;
+}
+
+export interface SubscriptionPlanDto {
+  code: string;
+  name: string;
+  /** Precio por mes. */
+  price: string;
+  currency: string;
+  limits: Record<string, number>;
+}
+
+export interface SubscriptionPaymentDto {
+  id: string;
+  planName: string | null;
+  months: number;
+  amount: string;
+  currency: string;
+  method: 'mercadopago' | 'manual';
+  status: 'pending' | 'approved' | 'rejected' | 'refunded' | 'error';
+  periodFrom: string | null;
+  periodTo: string | null;
+  createdAt: string;
+}
+
+export interface SubscriptionDto extends SubscriptionStateDto {
+  plan: SubscriptionPlanDto | null;
+  /** Planes que se pueden pagar (activos y con precio). */
+  plans: SubscriptionPlanDto[];
+  monthOptions: number[];
+  graceDays: number;
+  /** Hay credencial de Mercado Pago configurada. */
+  mercadoPago: boolean;
+  payments: SubscriptionPaymentDto[];
+}
+
+export interface SubscriptionCheckoutResult {
+  id: string;
+  /** Dirección de Mercado Pago a la que se manda a la persona. */
+  url: string;
 }
 
 export interface TenantDto {
@@ -45,8 +101,9 @@ export interface TenantDto {
   businessTypeCode: string;
   status: string;
   settings: TenantSettings;
+  appearance?: Appearance;
   plan: { code: string; name: string; limits: Record<string, number>; features: string[] } | null;
-  usage: { branches: number; users: number };
+  usage: { branches: number; users: number; products: number; hasSales: boolean };
 }
 
 export interface BranchDto {
@@ -70,7 +127,10 @@ export interface EmployeeDto {
   membershipId: string;
   userId: string;
   name: string;
-  email: string;
+  email: string | null;
+  username: string | null;
+  /** Trabaja solo en este comercio: el comercio puede ponerle una contraseña nueva. */
+  canSetPassword: boolean;
   roleId: string;
   roleName: string;
   status: 'active' | 'inactive';
@@ -106,9 +166,11 @@ export interface SessionDto {
 
 export interface PlatformCreateTenantResult {
   id: string;
-  /** false si el email ya tenía cuenta: entra con su contraseña de siempre. */
+  /** Se invitó a un dueño nuevo a elegir su contraseña por correo. */
   ownerInvited: boolean;
   invitationSent: boolean;
+  /** El dueño nuevo puede ingresar directamente con la contraseña definida en el alta. */
+  ownerPasswordSet: boolean;
 }
 
 export interface PlatformTenantDto {
@@ -120,6 +182,9 @@ export interface PlatformTenantDto {
   planCode: string | null;
   subscriptionStatus: string | null;
   trialEndsAt: string | null;
+  billingState: SubscriptionState | null;
+  dueAt: string | null;
+  freeForever: boolean;
   createdAt: string;
   userCount: number;
   branchCount: number;
@@ -156,9 +221,26 @@ export interface BarcodeDto {
   quantityFactor: string;
 }
 
+/** Variante activa de un producto: lo que se vende y se stockea. */
+export interface ProductVariantDto {
+  id: string;
+  /** Valores en el orden de ProductDto.optionNames. */
+  options: string[];
+  /** «M / Rojo»; null si el producto no tiene propiedades. */
+  label: string | null;
+  sku: string | null;
+  price: string;
+  /** Precio de contado; null si se cobra el de lista con cualquier medio. */
+  cashPrice: string | null;
+  /** null si no hay costo cargado o si el usuario no tiene permiso para ver costos. */
+  cost: string | null;
+  barcodes: BarcodeDto[];
+  /** Suma de todos los depósitos; null si no controla stock o el usuario no puede verlo. */
+  stock: string | null;
+}
+
 export interface ProductDto {
   id: string;
-  variantId: string;
   kind: 'good' | 'service';
   name: string;
   description: string | null;
@@ -169,31 +251,71 @@ export interface ProductDto {
   saleMode: SaleMode;
   vatRate: VatRate;
   trackStock: boolean;
+  /** Se aplica a cada variante. */
   minStock: string | null;
   blockNegativeStock: boolean;
-  sku: string | null;
-  price: string;
-  /** null si no hay costo cargado o si el usuario no tiene permiso para ver costos. */
-  cost: string | null;
-  barcodes: BarcodeDto[];
-  /** Suma de todos los depósitos; null si no controla stock o el usuario no puede verlo. */
+  /** Propiedades (Talle, Color…); vacío si el producto tiene una sola variante. */
+  optionNames: string[];
+  /** Variantes activas; siempre al menos una. */
+  variants: ProductVariantDto[];
+  /** Suma de todas las variantes; null si no controla stock o el usuario no puede verlo. */
   stock: string | null;
   status: 'active' | 'inactive';
   version: number;
   updatedAt: string;
 }
 
+/** Una variante lista para vender o contar: lo que devuelven el buscador, el lector y los más vendidos. */
+export interface ItemDto {
+  productId: string;
+  variantId: string;
+  /** Nombre del producto. Para mostrar: variantDisplayName(name, variantLabel). */
+  name: string;
+  variantLabel: string | null;
+  kind: 'good' | 'service';
+  saleMode: SaleMode;
+  trackStock: boolean;
+  minStock: string | null;
+  sku: string | null;
+  price: string;
+  /** Precio de contado; null si se cobra el de lista con cualquier medio. */
+  cashPrice: string | null;
+  /** Costo vigente; null si no tiene o el usuario no puede ver costos. */
+  cost: string | null;
+  barcodes: BarcodeDto[];
+  /** null si no controla stock o el usuario no puede verlo. */
+  stock: string | null;
+  /** Estado del producto. */
+  status: 'active' | 'inactive';
+}
+
 export interface ProductHistoryDto {
-  prices: Array<{ price: string; validFrom: string; validTo: string | null; changedBy: string | null; batchId: string | null }>;
+  prices: Array<{ variantLabel: string | null; price: string; validFrom: string; validTo: string | null; changedBy: string | null; batchId: string | null }>;
   /** Vacío si el usuario no puede ver costos. */
-  costs: Array<{ cost: string; source: string; at: string; changedBy: string | null }>;
+  costs: Array<{ variantLabel: string | null; cost: string; source: string; at: string; changedBy: string | null }>;
   changes: Array<{ at: string; actorName: string | null; action: string; before: unknown; after: unknown }>;
 }
 
 export interface ProductLookupDto {
-  product: ProductDto;
+  item: ItemDto;
   /** Unidades que representa el código leído (12 si es el código del pack). */
   quantityFactor: string;
+}
+
+/** Sugerencia del catálogo de referencia (datos abiertos de SEPA) para un código que el comercio no tiene. */
+export interface ReferenceProductDto {
+  code: string;
+  name: string;
+  brandName: string | null;
+  /** Contenido de la etiqueta, por ejemplo "500 g" o "2,25 l". */
+  presentation: string | null;
+  source: 'sepa';
+}
+
+/** Resultado de la búsqueda en el catálogo de referencia. */
+export interface ReferenceSearchItemDto extends ReferenceProductDto {
+  /** El comercio ya tiene un producto con este código. */
+  added: boolean;
 }
 
 export interface WarehouseDto {
@@ -208,6 +330,7 @@ export interface StockRowDto {
   productId: string;
   variantId: string;
   name: string;
+  variantLabel: string | null;
   sku: string | null;
   categoryName: string | null;
   saleMode: SaleMode;
@@ -228,6 +351,7 @@ export interface StockMovementDto {
   productId: string;
   variantId: string;
   productName: string;
+  variantLabel: string | null;
   warehouseName: string;
   quantity: string;
   balanceAfter: string;
@@ -261,6 +385,7 @@ export interface StockCountLineDto {
   variantId: string;
   productId: string;
   name: string;
+  variantLabel: string | null;
   sku: string | null;
   saleMode: SaleMode;
   expected: string;
@@ -277,8 +402,12 @@ export interface BulkPriceRowDto {
   productId: string;
   variantId: string;
   name: string;
+  variantLabel: string | null;
   oldPrice: string;
   newPrice: string;
+  /** Precio de contado antes y después: mantiene la proporción con el de lista (ADR 0023). */
+  oldCashPrice: string | null;
+  newCashPrice: string | null;
   /** Variación porcentual del precio. */
   variation: string | null;
   /** Solo con permiso para ver costos. */
@@ -310,6 +439,8 @@ export interface PaymentMethodDto {
   name: string;
   kind: PaymentKind;
   requiresReference: boolean;
+  /** Cobra a precio de contado (ADR 0023). */
+  cashPrice: boolean;
   active: boolean;
   sortOrder: number;
 }
@@ -324,6 +455,9 @@ export interface SaleLineDto {
   unitCost: string | null;
   discountPercent: string;
   discountAmount: string;
+  /** Promoción aplicada a la línea y cuánto descontó (ADR 0020). */
+  promotionName: string | null;
+  promotionDiscount: string;
   vatRate: VatRate;
   total: string;
   returnedQuantity: string;
@@ -339,23 +473,38 @@ export interface SaleDto {
   registerName: string;
   shiftId: string;
   cashierName: string;
+  /** Lista con la que se cobró: «cash» si todo se pagó con medios de contado. */
+  priceList: 'list' | 'cash';
   subtotal: string;
   discountTotal: string;
   total: string;
   changeGiven: string;
   discountAuthorizedBy: string | null;
+  /** sale: venta de mercadería · gift_card: venta de una tarjeta · account_payment: cobro de cuenta corriente. */
+  kind: SaleKind;
+  customer: CustomerDto | null;
+  /** Si la venta es la de una gift card: la tarjeta emitida. No tiene artículos. */
+  giftCard: GiftCardDto | null;
+  /** Si la venta es un cambio: la venta de la que salió el crédito. */
+  exchangeOf: { saleId: string; saleNumber: number; credit: string } | null;
   lines: SaleLineDto[];
-  payments: Array<{ paymentMethodId: string; name: string; kind: PaymentKind; amount: string; reference: string | null }>;
+  payments: Array<{ paymentMethodId: string; name: string; kind: SalePaymentKind; amount: string; reference: string | null; payerName: string | null; payerPhone: string | null }>;
   void: { at: string; byName: string; authorizedByName: string | null; reason: string } | null;
   returns: Array<{
     id: string;
     number: number;
     createdAt: string;
     total: string;
+    /** Parte de la devolución que volvió a la gift card con que se pagó (ADR 0015). */
+    giftCardAmount: string;
+    /** Parte que bajó la deuda de la cuenta corriente (ADR 0016). */
+    accountAmount: string;
     reason: string;
     paymentMethodName: string;
     userName: string;
     authorizedByName: string | null;
+    /** La venta nueva, si la devolución fue parte de un cambio. */
+    exchangeSale: { id: string; number: number } | null;
     lines: Array<{ saleLineId: string; quantity: string; amount: string; restock: boolean }>;
   }>;
 }
@@ -369,6 +518,71 @@ export interface SaleSummaryDto {
   registerName: string;
   total: string;
   returnedTotal: string;
+  /** Código de la gift card si la venta es la de una tarjeta. */
+  giftCardCode: string | null;
+  kind: SaleKind;
+  customerName: string | null;
+}
+
+export type SaleKind = 'sale' | 'gift_card' | 'account_payment';
+
+export interface CustomerDto {
+  id: string;
+  name: string;
+  documentType: 80 | 86 | 96 | null;
+  documentNumber: string | null;
+  vatCondition: 1 | 4 | 5 | 6;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  creditLimit: string | null;
+  /** Positivo: lo que debe. Negativo: saldo a favor. */
+  balance: string;
+  status: 'active' | 'inactive';
+}
+
+export interface CustomerListDto extends Paginated<CustomerDto> {
+  /** Lo que el comercio tiene para cobrar en cuentas corrientes. */
+  receivable: string;
+}
+
+export interface CustomerDetailDto extends CustomerDto {
+  movements: Array<{
+    id: string;
+    kind: 'sale' | 'payment' | 'return' | 'void' | 'adjustment';
+    amount: string;
+    balanceAfter: string;
+    createdAt: string;
+    notes: string | null;
+    userName: string;
+    sale: { id: string; number: number } | null;
+  }>;
+}
+
+export type GiftCardState = 'active' | 'used' | 'expired' | 'voided';
+export interface GiftCardDto {
+  id: string;
+  code: string;
+  amount: string;
+  balance: string;
+  state: GiftCardState;
+  /** Último día en que se puede usar (AAAA-MM-DD). */
+  expiresOn: string;
+  recipientName: string | null;
+  fromName: string | null;
+  /** Dedicatoria que se imprime en la tarjeta. */
+  message: string | null;
+  createdAt: string;
+  branchName: string;
+  sale: { id: string; number: number };
+  /** Solo en la consulta por código. */
+  movements?: Array<{ kind: 'issue' | 'redeem' | 'reversal' | 'void' | 'refund'; amount: string; balanceAfter: string; createdAt: string; sale: { id: string; number: number } | null }>;
+}
+
+export interface GiftCardListDto extends Paginated<GiftCardDto> {
+  /** Saldo vigente: lo que el comercio todavía debe entregar en mercadería. */
+  outstanding: { count: number; amount: string };
 }
 
 export interface ShiftTotalsByMethod {
@@ -398,7 +612,7 @@ export interface CashShiftDto {
   difference: string | null;
   totalsByMethod: ShiftTotalsByMethod[] | null;
   closingNotes: string | null;
-  movements: Array<{ id: string; type: 'sale' | 'refund' | 'void' | 'withdrawal' | 'deposit'; amount: string; reason: string | null; userName: string; occurredAt: string }>;
+  movements: Array<{ id: string; type: 'sale' | 'refund' | 'void' | 'withdrawal' | 'deposit' | 'supplier_payment'; amount: string; reason: string | null; userName: string; occurredAt: string }>;
   counts: Array<{ kind: 'partial' | 'closing'; counted: string; expected: string | null; difference: string | null; countedByName: string; countedAt: string }>;
 }
 
@@ -417,4 +631,126 @@ export interface CashShiftSummaryDto {
 export interface AuthorizerDto {
   membershipId: string;
   name: string;
+}
+
+// ---------------------------------------------------------------- Compras (ADR 0014)
+
+export interface SupplierDto {
+  id: string;
+  name: string;
+  cuit: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  status: 'active' | 'inactive';
+  /** Positivo: lo que se le debe. Negativo: pagos adelantados (ADR 0018). */
+  balance: string;
+}
+
+export interface SupplierDetailDto extends SupplierDto {
+  movements: Array<{
+    id: string;
+    kind: 'purchase' | 'payment' | 'adjustment';
+    amount: string;
+    balanceAfter: string;
+    method: 'cash' | 'transfer' | 'check' | 'other' | null;
+    reference: string | null;
+    notes: string | null;
+    createdAt: string;
+    userName: string;
+    purchase: { id: string; number: number; document: string | null } | null;
+  }>;
+}
+
+export interface PurchaseDto {
+  id: string;
+  number: number;
+  createdAt: string;
+  supplierId: string | null;
+  supplierName: string | null;
+  warehouseName: string;
+  /** N° de factura o remito del proveedor. */
+  document: string | null;
+  notes: string | null;
+  /** null si falta el costo de alguna línea o el usuario no puede ver costos. */
+  totalCost: string | null;
+  updatedCosts: boolean;
+  /** Lo que la compra dejó para pagar al proveedor; null si no quedó deuda. */
+  payableAmount: string | null;
+  createdByName: string | null;
+  lineCount: number;
+  /** Solo en el detalle. */
+  lines: Array<{ variantId: string; description: string; quantity: string; unitCost: string | null }> | null;
+}
+
+
+// ---------------------------------------------------------------- Reportes (ADR 0019)
+
+export type ReportGroupBy = 'day' | 'product' | 'variant' | 'category' | 'cashier' | 'payment';
+
+export interface SalesReportDto {
+  summary: {
+    count: number;
+    gross: string;
+    returns: string;
+    net: string;
+    averageTicket: string;
+    units: string;
+    /** Solo con margen: permiso reports.profit y plan con reportes avanzados. */
+    cost?: string;
+    margin?: string;
+    /** Líneas vendidas sin costo cargado: el margen queda sobreestimado. */
+    missingCost?: number;
+  };
+  rows: Array<{ key: string; label: string; detail?: string; quantity?: string; count?: number; total: string; cost?: string; margin?: string; missingCost?: number }>;
+  profit: boolean;
+}
+
+export interface StaleReportDto {
+  rows: Array<{ variantId: string; productId: string; name: string; stock: string; lastSaleAt: string | null; stockValue: string | null }>;
+  profit: boolean;
+}
+
+// ---------------------------------------------------------------- Promociones (ADR 0020)
+
+export interface PromotionDto {
+  id: string;
+  name: string;
+  kind: 'percent' | 'nxm' | 'combo';
+  percent: string | null;
+  buyQuantity: number | null;
+  payQuantity: number | null;
+  /** Combo (ADR 0024): precio del conjunto, sus productos y lo que cuestan por separado (a precio de lista). */
+  comboPrice: string | null;
+  items: Array<{ productId: string; name: string; quantity: number }>;
+  regularPrice: string | null;
+  scope: 'all' | 'category' | 'product';
+  categoryId: string | null;
+  productId: string | null;
+  /** Nombre de la categoría o del producto. */
+  targetName: string | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  status: 'active' | 'inactive';
+  /** Activa y dentro de las fechas: se aplica hoy. */
+  current: boolean;
+}
+
+/** Total de la venta en curso con promociones, calculado por el servidor. */
+export interface SaleQuoteDto {
+  lines: Array<{ variantId: string; unitPrice: string; promotionId: string | null; promotionName: string | null; promotionDiscount: string; total: string }>;
+  subtotal: string;
+  discountTotal: string;
+  total: string;
+}
+
+/** Resultado de la importación de productos o de su vista previa (ADR 0022). */
+export interface ProductImportReportDto {
+  summary: { products: number; variants: number; updated: number; unchanged: number; skipped: number; errors: number };
+  newCategories: string[];
+  newBrands: string[];
+  warnings: string[];
+  /** Errores con el número de fila de la planilla; null si son de toda la planilla (por ejemplo, el plan). */
+  errors: Array<{ row: number | null; message: string }>;
+  rows: Array<{ row: number; action: 'create' | 'update' | 'unchanged' | 'skip' | 'error'; name: string; variant: string | null; price: string | null; oldPrice: string | null; detail: string | null }>;
 }

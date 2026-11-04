@@ -121,6 +121,11 @@
       "label": "Vender sin conexión"
     },
     {
+      "code": "fiscal.issue",
+      "module": "Ventas",
+      "label": "Emitir facturas electrónicas"
+    },
+    {
       "code": "cash.open",
       "module": "Caja",
       "label": "Abrir caja"
@@ -290,6 +295,7 @@
         "sales.void",
         "sales.return",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.withdraw",
@@ -348,6 +354,7 @@
         "sales.void",
         "sales.return",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.withdraw",
@@ -398,6 +405,7 @@
         "sales.void",
         "sales.return",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.withdraw",
@@ -425,6 +433,7 @@
         "sales.discount",
         "sales.read_own",
         "sales.offline",
+        "fiscal.issue",
         "cash.open",
         "cash.close",
         "cash.count",
@@ -510,7 +519,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "quick_keys",
@@ -534,7 +544,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "weight_sale",
@@ -559,7 +570,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "multiple_registers",
@@ -586,7 +598,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "multiple_registers",
@@ -611,7 +624,8 @@
         "saleModes": [
           "unit",
           "weight"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "weight_sale",
@@ -635,7 +649,8 @@
         "saleModes": [
           "unit",
           "length"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "unit_conversions",
@@ -656,7 +671,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "variants",
@@ -677,7 +693,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "variants"
@@ -697,7 +714,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "variants"
@@ -716,7 +734,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": [
         "variants",
@@ -737,7 +756,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "kits"
@@ -757,7 +777,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "kits"
@@ -777,7 +798,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": false
       },
       "recommendedFeatures": [
         "serial_numbers"
@@ -792,7 +814,8 @@
         "priceRoundingStep": 10,
         "saleModes": [
           "unit"
-        ]
+        ],
+        "referenceCatalog": true
       },
       "recommendedFeatures": []
     }

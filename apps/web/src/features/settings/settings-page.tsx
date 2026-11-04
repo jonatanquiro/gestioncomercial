@@ -11,6 +11,7 @@ import { Alert, Card, PageHeader, Spinner } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatCuit, parseDecimalInput } from '@/lib/format';
+import { SettingsTabs } from '@/features/settings/settings-tabs';
 import { useCan } from '@/lib/session';
 
 type FormIn = z.input<typeof updateTenantSchema>;
@@ -101,6 +102,13 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
             <span className="block text-slate-500">La venta no se frena si falta cargar una compra; se genera una alerta para revisar el inventario.</span>
           </span>
         </label>
+        <label className="flex items-start gap-3 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4 rounded border-slate-300" {...register('settings.referenceCatalog')} />
+          <span>
+            <span className="font-medium">Ofrecer el catálogo de Precios Claros al cargar productos</span>
+            <span className="block text-slate-500">Sirve para almacén, kiosco, bebidas, limpieza y perfumería. En ropa, calzado o ferretería casi no hay nada útil.</span>
+          </span>
+        </label>
         <Controller
           control={control}
           name="settings.priceRoundingStep"
@@ -126,6 +134,9 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
         >
           {(p) => <Input {...p} inputMode="decimal" className="max-w-40" {...register('settings.discountLimitPercent', { setValueAs: (v: string) => parseDecimalInput(v) })} />}
         </Field>
+        <Field label="Plazo para cambios (días)" error={e.settings?.exchangeDays?.message} hint="Se imprime en el ticket de cambio y el sistema avisa si ya venció. Con 0 no se imprime plazo.">
+          {(p) => <Input {...p} inputMode="numeric" className="max-w-40" {...register('settings.exchangeDays', { setValueAs: (v: string) => (/^\d+$/.test(String(v).trim()) ? Number(v) : NaN) })} />}
+        </Field>
       </Card>
       <div className="flex justify-end">
         <Button type="submit" loading={save.isPending}>
@@ -143,6 +154,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Configuración" description="Datos del negocio y parámetros de funcionamiento." />
+      <SettingsTabs />
       {tenant.isLoading && <Spinner />}
       {tenant.error && <Alert>{errorMessage(tenant.error)}</Alert>}
       {tenant.data && <SettingsForm tenant={tenant.data} />}

@@ -1,4 +1,4 @@
-import { createStockCountSchema, type StockCountDetailDto, type StockCountDto, type StockCountLineDto } from '@gc/contracts';
+import { createStockCountSchema, type StockCountDetailDto, type StockCountDto, type StockCountLineDto, variantDisplayName } from '@gc/contracts';
 import { dec } from '@gc/domain';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
@@ -157,7 +157,7 @@ function CountedInput({ line, disabled, onSave }: { line: StockCountLineDto; dis
   };
   return (
     <Input
-      aria-label={`Cantidad contada de ${line.name}`}
+      aria-label={`Cantidad contada de ${variantDisplayName(line.name, line.variantLabel)}`}
       inputMode="decimal"
       className="ml-auto w-28 text-right"
       value={value}
@@ -251,7 +251,10 @@ export function CountDetailPage() {
             {c.lines.map((l) => (
               <tr key={l.variantId}>
                 <Td>
-                  <div className="font-medium">{l.name}</div>
+                  <div className="font-medium">
+                    {l.name}
+                    {l.variantLabel && <span className="block font-semibold text-brand-700 sm:ml-1.5 sm:inline">{l.variantLabel}</span>}
+                  </div>
                   <div className="text-xs text-slate-500">Contado {formatDateTime(l.countedAt)}</div>
                 </Td>
                 <Td className="text-right whitespace-nowrap text-slate-600">{formatQty(l.expected, l.saleMode)}</Td>

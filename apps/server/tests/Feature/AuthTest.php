@@ -69,7 +69,7 @@ class AuthTest extends TestCase
         ['input' => $input] = $this->registerTenant();
         $c = $this->client();
         $this->assertSame(401, $c->get('/auth/me')->status);
-        $this->assertSame(200, $c->post('/auth/login', ['email' => strtoupper($input['email']), 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $c->post('/auth/login', ['login' => strtoupper($input['email']), 'password' => self::PASSWORD])->status);
         $this->assertSame($input['email'], $c->get('/auth/me')->body['user']['email']);
 
         $stolen = $c->cookies;
@@ -82,7 +82,7 @@ class AuthTest extends TestCase
     public function test_las_cookies_de_sesion_son_http_only_y_same_site(): void
     {
         ['input' => $input] = $this->registerTenant();
-        $res = $this->client()->post('/auth/login', ['email' => $input['email'], 'password' => self::PASSWORD]);
+        $res = $this->client()->post('/auth/login', ['login' => $input['email'], 'password' => self::PASSWORD]);
         $byName = [];
         foreach ($res->cookies as $cookie) {
             $byName[$cookie->getName()] = $cookie;
@@ -96,8 +96,8 @@ class AuthTest extends TestCase
     {
         ['input' => $input] = $this->registerTenant();
         $c = $this->client();
-        $wrong = $c->post('/auth/login', ['email' => $input['email'], 'password' => 'otra-clave-incorrecta']);
-        $missing = $c->post('/auth/login', ['email' => 'nadie@test.local', 'password' => 'otra-clave-incorrecta']);
+        $wrong = $c->post('/auth/login', ['login' => $input['email'], 'password' => 'otra-clave-incorrecta']);
+        $missing = $c->post('/auth/login', ['login' => 'nadie@test.local', 'password' => 'otra-clave-incorrecta']);
         $this->assertSame(401, $wrong->status);
         $this->assertSame(401, $missing->status);
         $this->assertSame($missing->body['code'], $wrong->body['code']);
@@ -110,7 +110,7 @@ class AuthTest extends TestCase
         $c = $this->client();
         $statuses = [];
         for ($i = 0; $i < 11; $i++) {
-            $statuses[] = $c->post('/auth/login', ['email' => $input['email'], 'password' => 'incorrecta-123'])->status;
+            $statuses[] = $c->post('/auth/login', ['login' => $input['email'], 'password' => 'incorrecta-123'])->status;
         }
         $this->assertSame(array_fill(0, 10, 401), array_slice($statuses, 0, 10));
         $this->assertSame(429, $statuses[10]);
@@ -128,7 +128,7 @@ class AuthTest extends TestCase
     {
         ['client' => $client, 'input' => $input] = $this->registerTenant();
         $other = $this->client();
-        $other->post('/auth/login', ['email' => $input['email'], 'password' => self::PASSWORD]);
+        $other->post('/auth/login', ['login' => $input['email'], 'password' => self::PASSWORD]);
         $list = $client->get('/auth/sessions')->body;
         $this->assertCount(2, $list);
         $otherSession = collect($list)->firstWhere('current', false);
@@ -161,8 +161,8 @@ class AuthTest extends TestCase
         $this->assertSame('RESET_TOKEN_INVALID', $reuse->body['code']);
 
         $this->assertSame(401, $client->get('/auth/me')->status);
-        $this->assertSame(401, $anon->post('/auth/login', ['email' => $input['email'], 'password' => self::PASSWORD])->status);
-        $this->assertSame(200, $anon->post('/auth/login', ['email' => $input['email'], 'password' => $newPassword])->status);
+        $this->assertSame(401, $anon->post('/auth/login', ['login' => $input['email'], 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $anon->post('/auth/login', ['login' => $input['email'], 'password' => $newPassword])->status);
     }
 
     public function test_recuperacion_responde_igual_si_el_email_no_existe_y_no_envia_correo(): void
@@ -176,7 +176,7 @@ class AuthTest extends TestCase
     {
         ['client' => $client, 'input' => $input] = $this->registerTenant();
         $other = $this->client();
-        $other->post('/auth/login', ['email' => $input['email'], 'password' => self::PASSWORD]);
+        $other->post('/auth/login', ['login' => $input['email'], 'password' => self::PASSWORD]);
         $bad = $client->post('/auth/change-password', ['currentPassword' => 'no-es-esta-1', 'newPassword' => 'nueva-clave-segura-9']);
         $this->assertSame(400, $bad->status);
         $this->assertSame('INVALID_PASSWORD', $bad->body['code']);
@@ -190,7 +190,7 @@ class AuthTest extends TestCase
         $password = '  clave con espacios  ';
         ['input' => $input] = $this->registerTenant(['password' => $password]);
         $c = $this->client();
-        $this->assertSame(401, $c->post('/auth/login', ['email' => $input['email'], 'password' => trim($password)])->status);
-        $this->assertSame(200, $c->post('/auth/login', ['email' => $input['email'], 'password' => $password])->status);
+        $this->assertSame(401, $c->post('/auth/login', ['login' => $input['email'], 'password' => trim($password)])->status);
+        $this->assertSame(200, $c->post('/auth/login', ['login' => $input['email'], 'password' => $password])->status);
     }
 }

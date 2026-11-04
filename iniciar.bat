@@ -18,7 +18,7 @@ rem ------------------------------------------------------------------
 
 set "REPO_URL=https://github.com/jonatanquiro/gestioncomercial.git"
 rem Rama con la version mas nueva para probar (cambia cuando se aprueban los PR).
-set "BRANCH=claude/project-thread-e4hh0n"
+set "BRANCH=claude/project-thread-fsg3x5"
 set "PORT=8000"
 
 rem --- Carpeta del sistema: la de este archivo, una subcarpeta gestioncomercial* (por ejemplo

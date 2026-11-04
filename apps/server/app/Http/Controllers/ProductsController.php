@@ -3,12 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Auth\Actor;
+use App\Http\Controllers\Concerns\ImportsProducts;
 use App\Models\AuditEntry;
 use App\Models\Barcode;
 use App\Models\Brand;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductVariant;
+use App\Models\ReferenceProduct;
+use App\Models\Sale;
+use App\Models\SaleLine;
 use App\Models\StockLevel;
 use App\Models\User;
 use App\Models\VariantCost;
@@ -32,12 +36,22 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
-/** Productos y servicios (sección 4, Catálogo). La variante única del MVP viaja aplanada en el DTO. */
+/**
+ * Productos y servicios (sección 4, Catálogo). Un producto tiene una o más variantes (ADR 0013):
+ * sin propiedades, una sola sin etiqueta; con propiedades (Talle, Color), una por combinación.
+ */
 class ProductsController extends Controller
 {
+    use ImportsProducts;
+
     public const VAT_RATES = ['21', '10.5', '27', '5', '2.5', '0', 'exento', 'no_gravado'];
 
     public const SALE_MODES = ['unit', 'weight', 'length', 'volume'];
+
+    /** Mismos límites que MAX_PRODUCT_OPTIONS / MAX_PRODUCT_VARIANTS de packages/contracts. */
+    public const MAX_OPTIONS = 3;
+
+    public const MAX_VARIANTS = 100;
 
     /** Campos del maestro que se auditan. */
     private const MASTER_FIELDS = [
@@ -78,36 +92,132 @@ class ProductsController extends Controller
         return $this->json($this->dto($id, $this->actor($request)));
     }
 
+    /**
+     * Buscador por variante para vender o contar, también sin código de barras: cada palabra tiene
+     * que estar en el nombre o en la etiqueta («remera m rojo»). Solo productos activos.
+     */
+    public function items(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
+        $q = Input::validate($request->query(), ['q' => ['nullable', 'string', 'max:100']]);
+        $query = self::searchVariants(self::activeVariants(), $q['q'] ?? null)->where('products.status', 'active');
+        $total = (clone $query)->count();
+        $rows = $query->orderBy('products.name')->orderBy('product_variants.label')->orderBy('product_variants.id')
+            ->forPage($page, $pageSize)->get(['product_variants.*']);
+
+        return $this->json(['items' => $this->itemDtos($rows, $actor), 'total' => $total, 'page' => $page, 'pageSize' => $pageSize]);
+    }
+
+    /** Accesos rápidos del punto de venta: las variantes activas más vendidas de los últimos 30 días. */
+    public function favorites(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $recent = Sale::where('status', 'confirmed')->where('confirmed_at', '>=', now()->subDays(30))->select('id');
+        $ranking = SaleLine::whereIn('sale_id', $recent)->groupBy('variant_id')->selectRaw('variant_id, COUNT(*) AS n')
+            ->orderByDesc('n')->orderBy('variant_id')->limit(24)->pluck('variant_id');
+        $variants = self::activeVariants()->where('products.status', 'active')->whereIn('product_variants.id', $ranking)
+            ->get(['product_variants.*'])->keyBy('id');
+        $ordered = $ranking->map(fn ($id) => $variants[$id] ?? null)->filter()->take(12)->values();
+
+        return $this->json($this->itemDtos($ordered, $actor));
+    }
+
     /** Búsqueda exacta por código de barras o SKU (lector del POS y de los formularios de stock). */
     public function lookup(Request $request): JsonResponse
     {
         $actor = $this->actor($request);
         $q = Input::validate($request->query(), ['code' => ['required', 'string', 'max:64']]);
         $barcode = Barcode::where('code', $q['code'])->first();
-        $variant = $barcode ? ProductVariant::find($barcode->variant_id) : ProductVariant::where('sku', $q['code'])->first();
+        $variant = $barcode ? ProductVariant::find($barcode->variant_id) : ProductVariant::where('sku', $q['code'])->where('status', 'active')->first();
         if (! $variant) {
             throw AppError::notFound('Código');
         }
 
-        return $this->json(['product' => $this->dto($variant->product_id, $actor), 'quantityFactor' => $barcode ? Money::quantity($barcode->quantity_factor) : '1.000']);
+        return $this->json(['item' => $this->itemDtos(collect([$variant]), $actor)[0], 'quantityFactor' => $barcode ? Money::quantity($barcode->quantity_factor) : '1.000']);
+    }
+
+    /**
+     * Códigos de barras internos para las variantes que no tienen (ADR 0014): EAN-13 con prefijo
+     * 29, reservado para uso dentro del comercio, así no choca con códigos de fábrica. Devuelve las
+     * variantes pedidas, con o sin código nuevo, listas para imprimir etiquetas.
+     */
+    public function generateBarcodes(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'variantIds' => ['required', 'array', 'list', 'min:1', 'max:500'],
+            'variantIds.*' => ['required', 'string', 'uuid', 'distinct'],
+        ]);
+        $generated = DB::transaction(function () use ($actor, $v) {
+            // Serializa por comercio: dos pedidos a la vez no toman el mismo número.
+            $this->entitlements->lockTenant($actor->tenantId);
+            $missing = ProductVariant::whereIn('id', $v['variantIds'])->where('status', 'active')
+                ->whereNotIn('id', Barcode::whereIn('variant_id', $v['variantIds'])->select('variant_id'))->orderBy('product_id')->orderBy('label')->get();
+            $last = Barcode::where('code', 'like', '29%')->whereRaw('CHAR_LENGTH(code) = 13')->max('code');
+            $next = $last === null ? 1 : (int) substr($last, 2, 10) + 1;
+            $rows = [];
+            $now = now()->format('Y-m-d H:i:s.u');
+            foreach ($missing as $variant) {
+                $code = self::ean13('29'.str_pad((string) $next++, 10, '0', STR_PAD_LEFT));
+                $rows[] = ['id' => (string) Str::uuid7(), 'variant_id' => $variant->id, 'code' => $code, 'quantity_factor' => '1.000', 'created_at' => $now];
+            }
+            Barcode::insertForTenant($rows);
+            foreach ($missing->groupBy('product_id') as $productId => $variants) {
+                $codes = $variants->mapWithKeys(fn ($variant) => [$variant->label ?? '—' => collect($rows)->firstWhere('variant_id', $variant->id)['code']])->all();
+                $this->record($actor, 'product.barcodes_generated', $productId, null, ['barcodes' => $codes]);
+            }
+
+            return count($rows);
+        });
+        $variants = ProductVariant::whereIn('id', $v['variantIds'])->get()->sortBy(fn ($x) => array_search($x->id, $v['variantIds'], true))->values();
+
+        return $this->json(['generated' => $generated, 'items' => $this->itemDtos($variants, $actor)]);
+    }
+
+    /** Agrega el dígito verificador a los 12 primeros dígitos de un EAN-13. */
+    public static function ean13(string $twelve): string
+    {
+        $sum = 0;
+        foreach (str_split($twelve) as $i => $digit) {
+            $sum += (int) $digit * ($i % 2 === 0 ? 1 : 3);
+        }
+
+        return $twelve.((10 - $sum % 10) % 10);
+    }
+
+    /** Sugerencia del catálogo de referencia (SEPA) para un código que el comercio todavía no cargó. */
+    public function reference(Request $request): JsonResponse
+    {
+        $q = Input::validate($request->query(), ['code' => ['required', 'string', 'max:64']]);
+        $key = ReferenceProduct::key($q['code']);
+        $found = $key === null ? null : ReferenceProduct::find($key);
+        if (! $found) {
+            throw AppError::notFound('Código');
+        }
+
+        return $this->json(['code' => $q['code'], 'name' => $found->name, 'brandName' => $found->brand, 'presentation' => $found->presentation, 'source' => $found->source]);
     }
 
     public function history(Request $request, string $id): JsonResponse
     {
         $actor = $this->actor($request);
-        $variant = ProductVariant::where('product_id', $id)->first() ?? throw AppError::notFound('Producto');
-        $prices = VariantPrice::where('variant_id', $variant->id)->orderByDesc('valid_from')->limit(100)->get();
-        $costs = $actor->can('costs.read') ? VariantCost::where('variant_id', $variant->id)->orderByDesc('at')->limit(100)->get() : collect();
+        Product::find($id) ?? throw AppError::notFound('Producto');
+        $labels = ProductVariant::where('product_id', $id)->pluck('label', 'id');
+        $prices = VariantPrice::whereIn('variant_id', $labels->keys())->orderByDesc('valid_from')->limit(100)->get();
+        $costs = $actor->can('costs.read') ? VariantCost::whereIn('variant_id', $labels->keys())->orderByDesc('at')->limit(100)->get() : collect();
         $users = User::whereIn('id', $prices->pluck('changed_by')->merge($costs->pluck('changed_by'))->filter()->unique())->pluck('name', 'id');
         $changes = AuditEntry::where('tenant_id', $actor->tenantId)->where('entity_type', 'product')->where('entity_id', $id)
             ->orderByDesc('at')->limit(100)->get();
 
         return $this->json([
             'prices' => $prices->map(fn (VariantPrice $p) => [
+                'variantLabel' => $labels[$p->variant_id] ?? null,
                 'price' => $p->price, 'validFrom' => Dates::iso($p->valid_from), 'validTo' => Dates::iso($p->valid_to),
                 'changedBy' => $users[$p->changed_by] ?? null, 'batchId' => $p->batch_id,
             ])->all(),
             'costs' => $costs->map(fn (VariantCost $c) => [
+                'variantLabel' => $labels[$c->variant_id] ?? null,
                 'cost' => $c->cost, 'source' => $c->source, 'at' => Dates::iso($c->at), 'changedBy' => $users[$c->changed_by] ?? null,
             ])->all(),
             'changes' => $changes->map(fn (AuditEntry $e) => [
@@ -121,41 +231,126 @@ class ProductsController extends Controller
     {
         $actor = $this->actor($request);
         $input = $this->validated($this->body($request), true);
-        if ($input['cost'] !== null && ! $actor->can('costs.update')) {
-            throw AppError::forbidden('costs.update');
-        }
-        $initial = $input['initialStock'];
-        if ($initial !== null && ! BigDecimal::of($initial)->isZero() && ! $actor->can('stock.adjust')) {
-            throw AppError::forbidden('stock.adjust');
+        foreach ($input['variants'] as $v) {
+            if ($v['cost'] !== null && ! $actor->can('costs.update')) {
+                throw AppError::forbidden('costs.update');
+            }
+            if ($v['initialStock'] !== null && ! BigDecimal::of($v['initialStock'])->isZero() && ! $actor->can('stock.adjust')) {
+                throw AppError::forbidden('stock.adjust');
+            }
         }
 
-        $id = $this->guardUnique(fn () => DB::transaction(function () use ($actor, $input, $initial) {
+        $id = $this->guardUnique(fn () => DB::transaction(function () use ($actor, $input) {
             $this->entitlements->lockTenant($actor->tenantId);
             $this->entitlements->assertBelowLimit('max_products', Product::where('status', 'active')->count());
+            $this->assertVariantsAllowed($input, null);
             $this->assertReferences($input);
-            $this->assertCodesFree($input, null);
+            $this->assertCodesFree($input['variants'], []);
 
-            $product = Product::create([...$this->masterColumns($input), 'status' => 'active', 'created_by' => $actor->userId]);
-            $variant = ProductVariant::create(['product_id' => $product->id, 'sku' => $input['sku'], 'price' => $input['price'], 'cost' => null]);
-            $this->products->setPrice($variant, $input['price'], $actor->userId, initial: true);
-            if ($input['cost'] !== null) {
-                $this->products->setCost($variant, $input['cost'], 'initial', $actor->userId, initial: true);
-            }
-            $this->saveBarcodes($variant->id, $input['barcodes']);
-            $this->stock->initVariant($variant->id);
-            if ($initial !== null && $product->track_stock && ! BigDecimal::of($initial)->isZero()) {
-                $warehouse = Warehouse::where('is_default', true)->orderBy('created_at')->first() ?? throw AppError::notFound('Depósito');
-                $this->stock->apply(
-                    [['warehouseId' => $warehouse->id, 'variantId' => $variant->id, 'type' => 'adjust', 'quantity' => $initial, 'sourceLineId' => $variant->id]],
-                    ['sourceType' => 'initial_stock', 'sourceId' => $product->id, 'reason' => 'Stock inicial', 'userId' => $actor->userId],
-                );
-            }
-            $this->record($actor, 'product.created', $product->id, null, $this->auditView($input));
-
-            return $product->id;
+            return $this->createProduct($actor, $input);
         }));
 
         return $this->json($this->dto($id, $actor), 201);
+    }
+
+    /** Búsqueda en el catálogo de referencia (SEPA) por nombre, marca o código, marcando lo que el comercio ya tiene. */
+    public function referenceSearch(Request $request): JsonResponse
+    {
+        ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
+        $q = Input::validate($request->query(), ['q' => ['nullable', 'string', 'max:100']]);
+        $term = trim($q['q'] ?? '');
+        $query = ReferenceProduct::query();
+        if (preg_match('/^\d{6,14}$/', $term)) {
+            $query->whereKey(ReferenceProduct::key($term) ?? '');
+        } else {
+            foreach (array_filter(explode(' ', $term)) as $word) {
+                $like = self::like($word);
+                $query->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('brand', 'like', $like));
+            }
+        }
+        $total = (clone $query)->count();
+        $rows = $query->orderByDesc('seen_in')->orderBy('name')->orderBy('code')->forPage($page, $pageSize)->get();
+        $taken = Barcode::whereIn('code', $rows->flatMap(fn (ReferenceProduct $r) => ReferenceProduct::spellings($r->code)))->pluck('code')
+            ->map(fn ($c) => ReferenceProduct::key($c))->flip();
+
+        return $this->json([
+            'items' => $rows->map(fn (ReferenceProduct $r) => [
+                'code' => ReferenceProduct::barcode($r->code), 'name' => $r->name, 'brandName' => $r->brand, 'presentation' => $r->presentation,
+                'source' => $r->source, 'added' => isset($taken[$r->code]),
+            ])->values()->all(),
+            'total' => $total, 'page' => $page, 'pageSize' => $pageSize,
+        ]);
+    }
+
+    /**
+     * Alta de varios productos del catálogo de referencia, con precio y stock inicial.
+     * Quedan como cualquier alta manual: activos, IVA 21 % y por unidad.
+     */
+    public function addFromReference(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Input::validate($this->body($request), [
+            'categoryId' => ['present', 'nullable', 'string', 'uuid'],
+            'items' => ['required', 'array', 'list', 'min:1', 'max:100'],
+            'items.*' => ['array'],
+            'items.*.code' => ['required', 'string', 'regex:/^\d{6,14}$/', 'distinct'],
+            'items.*.price' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'items.*.initialStock' => ['nullable', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
+        ], [
+            'items.min' => 'Elegí al menos un producto',
+            'items.max' => 'Hasta 100 productos por vez',
+            'items.*.code.regex' => 'Código inválido',
+            'items.*.code.distinct' => 'Código repetido',
+        ]);
+        $refs = ReferenceProduct::whereIn('code', array_map(fn ($i) => ReferenceProduct::key($i['code']) ?? '', $v['items']))->get()->keyBy('code');
+        $details = [];
+        foreach ($v['items'] as $i => $item) {
+            if (isset($item['initialStock']) && BigDecimal::of($item['initialStock'])->hasNonZeroFractionalPart()) {
+                $details[] = ['path' => "items.{$i}.initialStock", 'message' => 'En la venta por unidad, la cantidad tiene que ser entera'];
+            }
+            if (isset($item['initialStock']) && ! BigDecimal::of($item['initialStock'])->isZero() && ! $actor->can('stock.adjust')) {
+                throw AppError::forbidden('stock.adjust');
+            }
+            if (! isset($refs[ReferenceProduct::key($item['code']) ?? ''])) {
+                $details[] = ['path' => "items.{$i}.code", 'message' => 'No está en el catálogo'];
+            }
+        }
+        if ($details !== []) {
+            throw AppError::validation($details);
+        }
+
+        $ids = $this->guardUnique(fn () => DB::transaction(function () use ($actor, $v, $refs) {
+            $this->entitlements->lockTenant($actor->tenantId);
+            $active = Product::where('status', 'active')->count();
+            $this->entitlements->assertBelowLimit('max_products', $active + count($v['items']) - 1);
+            $brands = Brand::pluck('id', 'name')->mapWithKeys(fn ($id, $name) => [mb_strtolower($name) => $id])->all();
+            $ids = [];
+            foreach ($v['items'] as $item) {
+                $ref = $refs[ReferenceProduct::key($item['code'])];
+                $brandId = null;
+                if ($ref->brand !== null) {
+                    $brandId = $brands[mb_strtolower($ref->brand)] ??= $this->createBrand($actor, $ref->brand);
+                }
+                $input = [
+                    'kind' => 'good', 'name' => $ref->name, 'description' => null, 'categoryId' => $v['categoryId'] ?? null, 'brandId' => $brandId,
+                    'saleMode' => 'unit', 'vatRate' => '21', 'trackStock' => true, 'minStock' => null, 'blockNegativeStock' => false,
+                    'optionNames' => [],
+                    'variants' => [[
+                        'id' => null, 'options' => [], 'label' => null, 'sku' => null, 'price' => Money::round($item['price']), 'cashPrice' => null, 'cost' => null,
+                        'barcodes' => [['code' => ReferenceProduct::barcode($ref->code), 'quantityFactor' => '1.000']],
+                        'initialStock' => isset($item['initialStock']) ? Money::quantity($item['initialStock']) : null,
+                    ]],
+                ];
+                $this->assertReferences($input);
+                // El comercio puede tenerlo cargado con o sin ceros adelante.
+                $this->assertCodesFree([['sku' => null, 'barcodes' => array_map(fn ($c) => ['code' => $c], ReferenceProduct::spellings($ref->code))]], []);
+                $ids[] = $this->createProduct($actor, $input);
+            }
+
+            return $ids;
+        }));
+
+        return $this->json(['created' => count($ids)], 201);
     }
 
     public function update(Request $request, string $id): JsonResponse
@@ -168,32 +363,90 @@ class ProductsController extends Controller
             if ($product->version !== $input['version']) {
                 throw AppError::conflict('VERSION_CONFLICT', 'Otra persona modificó este producto. Cerrá y volvé a abrirlo para ver los cambios.');
             }
-            $variant = ProductVariant::where('product_id', $id)->lockForUpdate()->firstOrFail();
-            // Quien no ve costos no los puede pisar sin querer: se conserva el vigente.
-            if (! $actor->can('costs.read')) {
-                $input['cost'] = $variant->cost === null ? null : Money::roundUnit($variant->cost);
+            $existing = ProductVariant::where('product_id', $id)->orderBy('created_at')->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $active = $existing->where('status', 'active');
+            $before = $this->auditView($this->currentInput($product, $active));
+            $this->assertVariantsAllowed($input, $product);
+
+            // Una combinación quitada que se vuelve a cargar recupera su variante, con su historial.
+            foreach ($input['variants'] as &$v) {
+                $v['isNew'] = $v['id'] === null;
+                if ($v['id'] !== null && ! $existing->has($v['id'])) {
+                    throw AppError::notFound('Variante');
+                }
+                if ($v['id'] === null && $v['label'] !== null) {
+                    $v['id'] = $existing->first(fn (ProductVariant $e) => $e->status === 'inactive' && $e->label !== null
+                        && mb_strtolower($e->label) === mb_strtolower($v['label']))?->id;
+                }
             }
-            $priceChanges = ! BigDecimal::of($variant->price)->isEqualTo($input['price']);
-            $costChanges = $variant->cost === null ? $input['cost'] !== null : ($input['cost'] === null || ! BigDecimal::of($variant->cost)->isEqualTo($input['cost']));
-            if ($priceChanges && ! $actor->can('prices.update')) {
-                throw AppError::forbidden('prices.update');
+            unset($v);
+            $kept = array_flip(array_filter(array_column($input['variants'], 'id')));
+            $removed = $active->reject(fn (ProductVariant $e) => isset($kept[$e->id]));
+
+            $seeCost = $actor->can('costs.read');
+            foreach ($input['variants'] as $i => $v) {
+                $current = $v['id'] !== null ? $existing[$v['id']] : null;
+                // Quien no ve costos no los puede pisar sin querer: se conserva el vigente.
+                if (! $seeCost) {
+                    $input['variants'][$i]['cost'] = $v['cost'] = $current?->cost === null ? null : Money::roundUnit($current->cost);
+                }
+                $priceChanges = $current !== null && (! BigDecimal::of($current->price)->isEqualTo($v['price'])
+                    || ($current->cash_price === null ? $v['cashPrice'] !== null : ($v['cashPrice'] === null || ! BigDecimal::of($current->cash_price)->isEqualTo($v['cashPrice']))));
+                $costChanges = $current === null
+                    ? $v['cost'] !== null
+                    : ($current->cost === null ? $v['cost'] !== null : ($v['cost'] === null || ! BigDecimal::of($current->cost)->isEqualTo($v['cost'])));
+                if ($priceChanges && ! $actor->can('prices.update')) {
+                    throw AppError::forbidden('prices.update');
+                }
+                if ($costChanges && ! $actor->can('costs.update')) {
+                    throw AppError::forbidden('costs.update');
+                }
+                if ($v['initialStock'] !== null && ! BigDecimal::of($v['initialStock'])->isZero() && ! $actor->can('stock.adjust')) {
+                    throw AppError::forbidden('stock.adjust');
+                }
             }
-            if ($costChanges && ! $actor->can('costs.update')) {
-                throw AppError::forbidden('costs.update');
-            }
-            if ($product->track_stock && ! $input['trackStock'] && StockLevel::where('variant_id', $variant->id)->where('on_hand', '<>', 0)->exists()) {
+            $withStock = fn (Collection $variants) => StockLevel::whereIn('variant_id', $variants->keys())->where('on_hand', '<>', 0)->value('variant_id');
+            if ($product->track_stock && ! $input['trackStock'] && $withStock($active)) {
                 throw AppError::conflict('STOCK_NOT_ZERO', 'Para dejar de controlar el stock, primero llevalo a cero con un ajuste.');
             }
+            if ($product->track_stock && ($stocked = $withStock($removed))) {
+                throw AppError::conflict('STOCK_NOT_ZERO', "Para quitar la variante {$existing[$stocked]->label}, primero llevá su stock a cero con un ajuste.");
+            }
             $this->assertReferences($input);
-            $this->assertCodesFree($input, $variant->id);
+            $this->assertCodesFree($input['variants'], $existing->keys()->all());
 
-            $before = $this->auditView($this->currentInput($product, $variant));
-            $product->forceFill([...$this->masterColumns($input), 'version' => $product->version + 1])->save();
-            $variant->forceFill(['sku' => $input['sku']])->save();
-            $this->products->setPrice($variant, $input['price'], $actor->userId);
-            $this->products->setCost($variant, $input['cost'], 'manual', $actor->userId);
-            Barcode::where('variant_id', $variant->id)->delete();
-            $this->saveBarcodes($variant->id, $input['barcodes']);
+            $product->forceFill([...$this->masterColumns($input), 'option_names' => $input['optionNames'] ?: null, 'version' => $product->version + 1])->save();
+            // Se liberan etiquetas, códigos internos y de barras del producto para reasignarlos sin chocar entre variantes.
+            ProductVariant::where('product_id', $id)->update(['label' => null, 'sku' => null]);
+            Barcode::whereIn('variant_id', $existing->keys())->delete();
+            $finalLabels = array_flip(array_map(fn ($v) => mb_strtolower((string) $v['label']), $input['variants']));
+            foreach ($removed as $e) {
+                ProductVariant::whereKey($e->id)->update([
+                    'status' => 'inactive', 'label' => $e->label !== null && ! isset($finalLabels[mb_strtolower($e->label)]) ? $e->label : null,
+                ]);
+            }
+            $warehouse = null;
+            foreach ($input['variants'] as $v) {
+                if ($v['id'] === null) {
+                    $variant = $this->createVariant($actor, $product->id, $v);
+                } else {
+                    $variant = $existing[$v['id']];
+                    // Por consulta y no con save(): las columnas recién liberadas no figuran como modificadas en el modelo.
+                    ProductVariant::whereKey($variant->id)->update([
+                        'options' => $v['options'] ? json_encode($v['options'], JSON_UNESCAPED_UNICODE) : null, 'label' => $v['label'], 'sku' => $v['sku'], 'status' => 'active', 'cash_price' => $v['cashPrice'],
+                    ]);
+                    $this->products->setPrice($variant, $v['price'], $actor->userId);
+                    $this->products->setCost($variant, $v['cost'], 'manual', $actor->userId);
+                    $this->saveBarcodes($variant->id, $v['barcodes']);
+                }
+                if ($v['isNew'] && $input['trackStock'] && $v['initialStock'] !== null && ! BigDecimal::of($v['initialStock'])->isZero()) {
+                    $warehouse ??= $this->defaultWarehouse();
+                    $this->stock->apply(
+                        [['warehouseId' => $warehouse->id, 'variantId' => $variant->id, 'type' => 'adjust', 'quantity' => $v['initialStock'], 'sourceLineId' => (string) Str::uuid7()]],
+                        ['sourceType' => 'initial_stock', 'sourceId' => $product->id, 'reason' => 'Stock inicial', 'userId' => $actor->userId],
+                    );
+                }
+            }
             $after = $this->auditView($input);
             $this->record($actor, 'product.updated', $id, ...self::diff($before, $after));
         }));
@@ -217,7 +470,6 @@ class ProductsController extends Controller
             }
             $previous = $product->status;
             $product->forceFill(['status' => $input['status'], 'version' => $product->version + 1])->save();
-            ProductVariant::where('product_id', $id)->update(['status' => $input['status']]);
             $this->record($actor, $input['status'] === 'active' ? 'product.activated' : 'product.deactivated', $id, ['status' => $previous], ['status' => $input['status']]);
         });
 
@@ -226,19 +478,91 @@ class ProductsController extends Controller
 
     // ------------------------------------------------------------------ Consulta
 
-    /** Filtro de texto: nombre que contiene, o SKU o código de barras exacto. */
+    /** Filtro de texto de productos: cada palabra en el nombre o en una variante, o SKU / código de barras exacto. */
     public static function search(Builder $query, ?string $term): Builder
     {
-        if ($term === null || $term === '') {
+        $term = trim((string) $term);
+        if ($term === '') {
             return $query;
         }
-        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term).'%';
 
-        return $query->where(function ($w) use ($term, $like) {
-            $w->where('products.name', 'like', $like)
+        return $query->where(function ($w) use ($term) {
+            $w->where(function ($all) use ($term) {
+                foreach (self::words($term) as $word) {
+                    $all->where(fn ($one) => self::matchName($one, 'products.name', $word)
+                        ->orWhereIn('products.id', self::matchLabel(ProductVariant::where('status', 'active'), 'label', $word)->select('product_id')));
+                }
+            })
                 ->orWhereIn('products.id', ProductVariant::where('sku', $term)->select('product_id'))
                 ->orWhereIn('products.id', ProductVariant::whereIn('id', Barcode::where('code', $term)->select('variant_id'))->select('product_id'));
         });
+    }
+
+    /** Variantes activas con su producto (para filtrar y ordenar por columnas de products). */
+    public static function activeVariants(): Builder
+    {
+        return ProductVariant::query()
+            ->join('products', function ($j) {
+                $j->on('products.tenant_id', '=', 'product_variants.tenant_id')->on('products.id', '=', 'product_variants.product_id');
+            })
+            ->where('product_variants.status', 'active');
+    }
+
+    /** Filtro de texto por variante sobre activeVariants(): cada palabra en el nombre o la etiqueta, o SKU / código exacto. */
+    public static function searchVariants(Builder $query, ?string $term): Builder
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return $query;
+        }
+
+        return $query->where(function ($w) use ($term) {
+            $w->where(function ($all) use ($term) {
+                foreach (self::words($term) as $word) {
+                    $all->where(fn ($one) => self::matchName($one, 'products.name', $word)
+                        ->orWhere(fn ($label) => self::matchLabel($label, 'product_variants.label', $word)));
+                }
+            })
+                ->orWhere('product_variants.sku', $term)
+                ->orWhereIn('product_variants.id', Barcode::where('code', $term)->select('variant_id'));
+        });
+    }
+
+    /** @return list<string> */
+    private static function words(string $term): array
+    {
+        return array_values(array_filter(preg_split('/\s+/u', $term) ?: [], fn ($w) => $w !== ''));
+    }
+
+    private static function like(string $word): string
+    {
+        return '%'.self::escapeLike($word).'%';
+    }
+
+    private static function escapeLike(string $word): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $word);
+    }
+
+    /**
+     * Palabra en el nombre: contenida si tiene 3 letras o más; si es más corta (talles como «M»
+     * o «38»), al principio de una palabra, para que «m» no traiga todo lo que dice «remera».
+     */
+    private static function matchName($query, string $column, string $word)
+    {
+        $esc = self::escapeLike($word);
+
+        return mb_strlen($word) >= 3
+            ? $query->where($column, 'like', "%{$esc}%")
+            : $query->where(fn ($w) => $w->where($column, 'like', "{$esc}%")->orWhere($column, 'like', "% {$esc}%"));
+    }
+
+    /** Palabra al principio de uno de los valores de la etiqueta («M / Rojo»). */
+    private static function matchLabel($query, string $column, string $word)
+    {
+        $esc = self::escapeLike($word);
+
+        return $query->where(fn ($w) => $w->where($column, 'like', "{$esc}%")->orWhere($column, 'like', "% / {$esc}%"));
     }
 
     private function dto(string $id, Actor $actor): array
@@ -258,21 +582,23 @@ class ProductsController extends Controller
         if ($products->isEmpty()) {
             return [];
         }
-        $variants = ProductVariant::whereIn('product_id', $products->pluck('id'))->get()->keyBy('product_id');
+        $variants = ProductVariant::whereIn('product_id', $products->pluck('id'))->where('status', 'active')
+            ->orderBy('created_at')->orderBy('id')->get()->groupBy('product_id');
+        $variantIds = $variants->flatten()->pluck('id');
         $categories = Category::whereIn('id', $products->pluck('category_id')->filter()->unique())->pluck('name', 'id');
         $brands = Brand::whereIn('id', $products->pluck('brand_id')->filter()->unique())->pluck('name', 'id');
-        $barcodes = Barcode::whereIn('variant_id', $variants->pluck('id'))->orderBy('created_at')->orderBy('code')->get()->groupBy('variant_id');
-        $stock = $actor->can('stock.read')
-            ? StockLevel::whereIn('variant_id', $variants->pluck('id'))->groupBy('variant_id')->selectRaw('variant_id, SUM(on_hand) AS total')->pluck('total', 'variant_id')
-            : collect();
+        $barcodes = $this->barcodesOf($variantIds);
+        $stock = $this->stockOf($variantIds, $actor);
         $seeCost = $actor->can('costs.read');
+        $seeStock = $actor->can('stock.read');
 
-        return $products->map(function (Product $p) use ($variants, $categories, $brands, $barcodes, $stock, $seeCost, $actor) {
-            $v = $variants[$p->id];
+        return $products->map(function (Product $p) use ($variants, $categories, $brands, $barcodes, $stock, $seeCost, $seeStock) {
+            $own = collect($variants->get($p->id, []));
+            $showStock = $p->track_stock && $seeStock;
+            $total = $own->reduce(fn (BigDecimal $sum, ProductVariant $v) => $sum->plus((string) ($stock[$v->id] ?? '0')), BigDecimal::zero());
 
             return [
                 'id' => $p->id,
-                'variantId' => $v->id,
                 'kind' => $p->kind,
                 'name' => $p->name,
                 'description' => $p->description,
@@ -285,16 +611,78 @@ class ProductsController extends Controller
                 'trackStock' => $p->track_stock,
                 'minStock' => $p->min_stock === null ? null : Money::quantity($p->min_stock),
                 'blockNegativeStock' => $p->block_negative_stock,
-                'sku' => $v->sku,
-                'price' => Money::round($v->price),
-                'cost' => $seeCost && $v->cost !== null ? Money::roundUnit($v->cost) : null,
-                'barcodes' => collect($barcodes->get($v->id, []))->map(fn (Barcode $b) => ['code' => $b->code, 'quantityFactor' => Money::quantity($b->quantity_factor)])->values()->all(),
-                'stock' => $p->track_stock && $actor->can('stock.read') ? Money::quantity($stock[$v->id] ?? '0') : null,
+                'optionNames' => $p->option_names ?? [],
+                'variants' => $own->map(fn (ProductVariant $v) => [
+                    'id' => $v->id,
+                    'options' => $v->options ?? [],
+                    'label' => $v->label,
+                    'sku' => $v->sku,
+                    'price' => Money::round($v->price),
+                    'cashPrice' => $v->cash_price === null ? null : Money::round($v->cash_price),
+                    'cost' => $seeCost && $v->cost !== null ? Money::roundUnit($v->cost) : null,
+                    'barcodes' => $barcodes->get($v->id, []),
+                    'stock' => $showStock ? Money::quantity($stock[$v->id] ?? '0') : null,
+                ])->values()->all(),
+                'stock' => $showStock ? Money::quantity($total) : null,
                 'status' => $p->status,
                 'version' => $p->version,
                 'updatedAt' => Dates::iso($p->updated_at),
             ];
         })->values()->all();
+    }
+
+    /**
+     * Forma de ItemDto: una variante con los datos del producto que hacen falta para venderla o contarla.
+     *
+     * @param  Collection<int, ProductVariant>  $variants
+     */
+    private function itemDtos(Collection $variants, Actor $actor): array
+    {
+        if ($variants->isEmpty()) {
+            return [];
+        }
+        $products = Product::whereIn('id', $variants->pluck('product_id')->unique())->get()->keyBy('id');
+        $barcodes = $this->barcodesOf($variants->pluck('id'));
+        $stock = $this->stockOf($variants->pluck('id'), $actor);
+        $seeStock = $actor->can('stock.read');
+        $seeCost = $actor->can('costs.read');
+
+        return $variants->map(function (ProductVariant $v) use ($products, $barcodes, $stock, $seeStock, $seeCost) {
+            $p = $products[$v->product_id];
+
+            return [
+                'productId' => $p->id,
+                'variantId' => $v->id,
+                'name' => $p->name,
+                'variantLabel' => $v->label,
+                'kind' => $p->kind,
+                'saleMode' => $p->sale_mode,
+                'trackStock' => $p->track_stock,
+                'minStock' => $p->min_stock === null ? null : Money::quantity($p->min_stock),
+                'sku' => $v->sku,
+                'price' => Money::round($v->price),
+                'cashPrice' => $v->cash_price === null ? null : Money::round($v->cash_price),
+                'cost' => $seeCost && $v->cost !== null ? Money::roundUnit($v->cost) : null,
+                'barcodes' => $barcodes->get($v->id, []),
+                'stock' => $p->track_stock && $seeStock ? Money::quantity($stock[$v->id] ?? '0') : null,
+                'status' => $p->status === 'active' && $v->status === 'active' ? 'active' : 'inactive',
+            ];
+        })->values()->all();
+    }
+
+    /** @return Collection<string, list<array{code: string, quantityFactor: string}>> por variante */
+    private function barcodesOf(Collection $variantIds): Collection
+    {
+        return Barcode::whereIn('variant_id', $variantIds)->orderBy('created_at')->orderBy('code')->get()->groupBy('variant_id')
+            ->map(fn ($list) => $list->map(fn (Barcode $b) => ['code' => $b->code, 'quantityFactor' => Money::quantity($b->quantity_factor)])->values()->all());
+    }
+
+    /** Stock sumado de todos los depósitos, por variante. Vacío si el usuario no puede verlo. */
+    private function stockOf(Collection $variantIds, Actor $actor): Collection
+    {
+        return $actor->can('stock.read')
+            ? StockLevel::whereIn('variant_id', $variantIds)->groupBy('variant_id')->selectRaw('variant_id, SUM(on_hand) AS total')->pluck('total', 'variant_id')
+            : collect();
     }
 
     // ------------------------------------------------------------------ Alta y edición
@@ -313,22 +701,36 @@ class ProductsController extends Controller
             'trackStock' => ['present', Input::strictBoolean()],
             'minStock' => ['present', 'nullable', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
             'blockNegativeStock' => ['present', Input::strictBoolean()],
-            'sku' => ['nullable', 'string', 'max:60'],
-            'price' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
-            'cost' => ['present', 'nullable', ...Input::decimal(Input::COST, 'Costo inválido')],
-            'barcodes' => ['present', 'array', 'list', 'max:20'],
-            'barcodes.*' => ['array'],
-            'barcodes.*.code' => ['required', 'string', 'max:64', 'regex:/^[0-9A-Za-z.\-_\/]+$/', 'distinct'],
-            'barcodes.*.quantityFactor' => ['required', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
+            'optionNames' => ['present', 'array', 'list', 'max:'.self::MAX_OPTIONS],
+            'optionNames.*' => ['required', 'string', 'max:30'],
+            'variants' => ['required', 'array', 'list', 'min:1', 'max:'.self::MAX_VARIANTS],
+            'variants.*' => ['array'],
+            'variants.*.id' => ['present', 'nullable', 'string', 'uuid'],
+            'variants.*.options' => ['present', 'array', 'list', 'max:'.self::MAX_OPTIONS],
+            'variants.*.options.*' => ['required', 'string', 'max:40'],
+            'variants.*.sku' => ['nullable', 'string', 'max:60'],
+            'variants.*.price' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'variants.*.cashPrice' => ['nullable', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'variants.*.cost' => ['present', 'nullable', ...Input::decimal(Input::COST, 'Costo inválido')],
+            'variants.*.barcodes' => ['present', 'array', 'list', 'max:20'],
+            'variants.*.barcodes.*' => ['array'],
+            'variants.*.barcodes.*.code' => ['required', 'string', 'max:64', 'regex:/^[0-9A-Za-z.\-_\/]+$/'],
+            'variants.*.barcodes.*.quantityFactor' => ['required', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
+            'variants.*.initialStock' => ['present', 'nullable', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')],
         ];
-        $rules += $creating
-            ? ['initialStock' => ['present', 'nullable', ...Input::decimal(Input::QUANTITY, 'Cantidad inválida')]]
-            : ['version' => ['required', 'integer', 'min:1']];
+        if (! $creating) {
+            $rules['version'] = ['required', 'integer', 'min:1'];
+        }
         $v = Input::validate($data, $rules, [
-            'barcodes.*.code.regex' => 'Solo letras, números y . - _ /',
-            'barcodes.*.code.distinct' => 'Código repetido',
+            'optionNames.max' => 'Hasta '.self::MAX_OPTIONS.' propiedades',
+            'variants.required' => 'Agregá al menos una variante',
+            'variants.min' => 'Agregá al menos una variante',
+            'variants.max' => 'Hasta '.self::MAX_VARIANTS.' variantes por producto',
+            'variants.*.barcodes.*.code.regex' => 'Solo letras, números y . - _ /',
         ]);
 
+        // Los servicios no tienen stock.
+        $trackStock = $v['kind'] === 'good' && $v['trackStock'];
         $input = [
             'kind' => $v['kind'],
             'name' => $v['name'],
@@ -337,44 +739,114 @@ class ProductsController extends Controller
             'brandId' => $v['brandId'] ?? null,
             'saleMode' => $v['saleMode'],
             'vatRate' => $v['vatRate'],
-            // Los servicios no tienen stock.
-            'trackStock' => $v['kind'] === 'good' && $v['trackStock'],
+            'trackStock' => $trackStock,
             'minStock' => isset($v['minStock']) ? Money::quantity($v['minStock']) : null,
             'blockNegativeStock' => (bool) $v['blockNegativeStock'],
-            'sku' => $v['sku'] ?? null,
-            'price' => Money::round($v['price']),
-            'cost' => isset($v['cost']) ? Money::roundUnit($v['cost']) : null,
-            'barcodes' => array_map(fn ($b) => ['code' => $b['code'], 'quantityFactor' => Money::quantity($b['quantityFactor'])], $v['barcodes']),
+            'optionNames' => array_values($v['optionNames']),
+            'variants' => array_map(fn ($x) => [
+                'id' => $x['id'] ?? null,
+                'options' => array_values($x['options']),
+                'label' => $x['options'] === [] ? null : implode(' / ', $x['options']),
+                'sku' => $x['sku'] ?? null,
+                'price' => Money::round($x['price']),
+                // Igual al de lista no es un precio de contado distinto.
+                'cashPrice' => isset($x['cashPrice']) && ! BigDecimal::of($x['cashPrice'])->isEqualTo($x['price']) ? Money::round($x['cashPrice']) : null,
+                'cost' => isset($x['cost']) ? Money::roundUnit($x['cost']) : null,
+                'barcodes' => array_map(fn ($b) => ['code' => $b['code'], 'quantityFactor' => Money::quantity($b['quantityFactor'])], $x['barcodes']),
+                'initialStock' => isset($x['initialStock']) ? Money::quantity($x['initialStock']) : null,
+            ], $v['variants']),
         ];
-        if ($creating) {
-            $input['initialStock'] = isset($v['initialStock']) && $input['trackStock'] ? Money::quantity($v['initialStock']) : null;
-        } else {
+        if (! $creating) {
             $input['version'] = (int) $v['version'];
         }
 
+        // Las mismas reglas entre campos que refineProduct en packages/contracts.
         $details = [];
-        foreach ($input['barcodes'] as $i => $b) {
-            if (BigDecimal::of($b['quantityFactor'])->isZero()) {
-                $details[] = ['path' => "barcodes.{$i}.quantityFactor", 'message' => 'Debe ser mayor a cero'];
+        $names = [];
+        foreach ($input['optionNames'] as $i => $name) {
+            if (isset($names[mb_strtolower($name)])) {
+                $details[] = ['path' => "optionNames.{$i}", 'message' => 'Propiedad repetida'];
             }
+            $names[mb_strtolower($name)] = true;
         }
-        // Lo que se vende por unidad se cuenta en unidades enteras.
-        if ($input['saleMode'] === 'unit') {
-            $quantities = ['minStock' => $input['minStock'], 'initialStock' => $input['initialStock'] ?? null];
-            foreach ($input['barcodes'] as $i => $b) {
-                $quantities["barcodes.{$i}.quantityFactor"] = $b['quantityFactor'];
+        if ($input['optionNames'] === [] && count($input['variants']) > 1) {
+            $details[] = ['path' => 'optionNames', 'message' => 'Para cargar variantes, agregá al menos una propiedad (talle, color…)'];
+        }
+        $combos = [];
+        $skus = [];
+        $codes = [];
+        $unit = $input['saleMode'] === 'unit';
+        $whole = 'En la venta por unidad, la cantidad tiene que ser entera';
+        foreach ($input['variants'] as $i => $x) {
+            if ($creating && $x['id'] !== null) {
+                $details[] = ['path' => "variants.{$i}.id", 'message' => 'Identificador inválido'];
             }
-            foreach ($quantities as $path => $q) {
-                if ($q !== null && BigDecimal::of($q)->hasNonZeroFractionalPart()) {
-                    $details[] = ['path' => $path, 'message' => 'En la venta por unidad, la cantidad tiene que ser entera'];
+            if (! $creating && $x['id'] !== null && $x['initialStock'] !== null) {
+                $details[] = ['path' => "variants.{$i}.initialStock", 'message' => 'El stock de una variante existente se cambia con un ajuste'];
+            }
+            if (count($x['options']) !== count($input['optionNames'])) {
+                $details[] = ['path' => "variants.{$i}.options", 'message' => 'Completá todas las propiedades'];
+            } elseif ($x['label'] !== null) {
+                $key = mb_strtolower(implode("\0", $x['options']));
+                if (isset($combos[$key])) {
+                    $details[] = ['path' => "variants.{$i}.options", 'message' => 'Esta combinación ya está cargada'];
+                }
+                $combos[$key] = true;
+            }
+            if ($x['sku'] !== null) {
+                if (isset($skus[$x['sku']])) {
+                    $details[] = ['path' => "variants.{$i}.sku", 'message' => 'Código repetido'];
+                }
+                $skus[$x['sku']] = true;
+            }
+            foreach ($x['barcodes'] as $j => $b) {
+                if (isset($codes[$b['code']])) {
+                    $details[] = ['path' => "variants.{$i}.barcodes.{$j}.code", 'message' => 'Código repetido'];
+                }
+                $codes[$b['code']] = true;
+                if (BigDecimal::of($b['quantityFactor'])->isZero()) {
+                    $details[] = ['path' => "variants.{$i}.barcodes.{$j}.quantityFactor", 'message' => 'Debe ser mayor a cero'];
+                } elseif ($unit && BigDecimal::of($b['quantityFactor'])->hasNonZeroFractionalPart()) {
+                    $details[] = ['path' => "variants.{$i}.barcodes.{$j}.quantityFactor", 'message' => $whole];
                 }
             }
+            if ($x['cashPrice'] !== null && BigDecimal::of($x['cashPrice'])->isGreaterThan($x['price'])) {
+                $details[] = ['path' => "variants.{$i}.cashPrice", 'message' => 'El precio de contado no puede ser mayor que el de lista'];
+            }
+            if ($unit && $x['initialStock'] !== null && BigDecimal::of($x['initialStock'])->hasNonZeroFractionalPart()) {
+                $details[] = ['path' => "variants.{$i}.initialStock", 'message' => $whole];
+            }
+        }
+        if ($unit && $input['minStock'] !== null && BigDecimal::of($input['minStock'])->hasNonZeroFractionalPart()) {
+            $details[] = ['path' => 'minStock', 'message' => $whole];
         }
         if ($details !== []) {
             throw AppError::validation($details);
         }
+        if (! $trackStock) {
+            foreach ($input['variants'] as &$x) {
+                $x['initialStock'] = null;
+            }
+            unset($x);
+        }
 
         return $input;
+    }
+
+    /**
+     * Crear propiedades o variantes nuevas requiere la función «variants» del plan. Sin ella, se
+     * pueden seguir editando y vendiendo las variantes que ya existen.
+     */
+    private function assertVariantsAllowed(array $input, ?Product $product): void
+    {
+        if ($input['optionNames'] === [] || in_array('variants', $this->entitlements->plan()['features'] ?? [], true)) {
+            return;
+        }
+        $adds = $product === null || ($product->option_names ?? []) !== $input['optionNames']
+            || collect($input['variants'])->contains(fn ($v) => $v['id'] === null);
+        if ($adds) {
+            throw AppError::badRequest('VARIANTS_PLAN', 'Tu plan no incluye productos con variantes (talles, colores…).');
+        }
     }
 
     /** Categoría y marca tienen que ser del comercio (el filtro automático devuelve 404 si no). */
@@ -388,22 +860,28 @@ class ProductsController extends Controller
         }
     }
 
-    /** Código de barras y SKU únicos en el comercio, con un mensaje que dice dónde está el repetido. */
-    private function assertCodesFree(array $input, ?string $ownVariantId): void
+    /**
+     * Código de barras y SKU únicos en el comercio, con un mensaje que dice dónde está el repetido.
+     *
+     * @param  list<array{sku: ?string, barcodes: list<array{code: string}>}>  $variants
+     * @param  list<string>  $ownVariantIds  variantes del mismo producto, que se reasignan
+     */
+    private function assertCodesFree(array $variants, array $ownVariantIds): void
     {
-        $codes = array_column($input['barcodes'], 'code');
+        $codes = array_merge(...array_map(fn ($v) => array_column($v['barcodes'], 'code'), $variants));
         if ($codes !== []) {
-            $taken = Barcode::whereIn('code', $codes)->when($ownVariantId, fn ($w) => $w->where('variant_id', '<>', $ownVariantId))->get();
+            $taken = Barcode::whereIn('code', $codes)->whereNotIn('variant_id', $ownVariantIds)->get();
             if ($taken->isNotEmpty()) {
                 $names = Product::whereIn('id', ProductVariant::whereIn('id', $taken->pluck('variant_id'))->select('product_id'))->pluck('name')->all();
                 throw new AppError(409, 'BARCODE_DUPLICATE', 'El código '.$taken->first()->code.' ya está cargado en '.implode(', ', $names),
                     $taken->map(fn ($b) => ['code' => $b->code])->values()->all());
             }
         }
-        if ($input['sku'] !== null) {
-            $sku = ProductVariant::where('sku', $input['sku'])->when($ownVariantId, fn ($w) => $w->whereKeyNot($ownVariantId))->first();
+        $skus = array_values(array_filter(array_column($variants, 'sku')));
+        if ($skus !== []) {
+            $sku = ProductVariant::whereIn('sku', $skus)->whereNotIn('id', $ownVariantIds)->first();
             if ($sku) {
-                throw AppError::conflict('SKU_DUPLICATE', "El código interno {$input['sku']} ya está cargado en ".Product::find($sku->product_id)?->name);
+                throw AppError::conflict('SKU_DUPLICATE', "El código interno {$sku->sku} ya está cargado en ".Product::find($sku->product_id)?->name);
             }
         }
     }
@@ -420,8 +898,69 @@ class ProductsController extends Controller
             if (str_contains($e->getMessage(), 'product_variants_tenant_sku_uq')) {
                 throw AppError::conflict('SKU_DUPLICATE', 'El código interno ya está cargado en otro producto');
             }
+            if (str_contains($e->getMessage(), 'product_variants_product_label_uq')) {
+                throw AppError::conflict('VARIANT_DUPLICATE', 'Hay dos variantes con la misma combinación');
+            }
             throw $e;
         }
+    }
+
+    /** Crea el producto con sus variantes, precios, costos, códigos y stock inicial. Corre dentro de la transacción del llamador. */
+    private function createProduct(Actor $actor, array $input): string
+    {
+        $product = Product::create([
+            ...$this->masterColumns($input), 'option_names' => $input['optionNames'] ?: null, 'status' => 'active', 'created_by' => $actor->userId,
+        ]);
+        $warehouse = null;
+        foreach ($input['variants'] as $v) {
+            $variant = $this->createVariant($actor, $product->id, $v);
+            $initial = $v['initialStock'];
+            if ($initial !== null && $product->track_stock && ! BigDecimal::of($initial)->isZero()) {
+                $warehouse ??= $this->defaultWarehouse();
+                $this->stock->apply(
+                    [['warehouseId' => $warehouse->id, 'variantId' => $variant->id, 'type' => 'adjust', 'quantity' => $initial, 'sourceLineId' => $variant->id]],
+                    ['sourceType' => 'initial_stock', 'sourceId' => $product->id, 'reason' => 'Stock inicial', 'userId' => $actor->userId],
+                );
+            }
+        }
+        $this->record($actor, 'product.created', $product->id, null, $this->auditView($input));
+
+        return $product->id;
+    }
+
+    /** Variante nueva con su precio, costo, códigos y saldos en cero. */
+    private function createVariant(Actor $actor, string $productId, array $v): ProductVariant
+    {
+        $variant = ProductVariant::create([
+            'product_id' => $productId, 'options' => $v['options'] ?: null, 'label' => $v['label'],
+            'sku' => $v['sku'], 'price' => $v['price'], 'cash_price' => $v['cashPrice'] ?? null, 'cost' => null,
+        ]);
+        $this->products->setPrice($variant, $v['price'], $actor->userId, initial: true);
+        if ($v['cost'] !== null) {
+            $this->products->setCost($variant, $v['cost'], 'initial', $actor->userId, initial: true);
+        }
+        $this->saveBarcodes($variant->id, $v['barcodes']);
+        $this->stock->initVariant($variant->id);
+
+        return $variant;
+    }
+
+    private function defaultWarehouse(): Warehouse
+    {
+        return Warehouse::where('is_default', true)->orderBy('created_at')->first() ?? throw AppError::notFound('Depósito');
+    }
+
+    /** Marca que viene del catálogo y el comercio todavía no tiene: se crea con su auditoría, como desde Categorías y marcas. */
+    private function createBrand(Actor $actor, string $name): string
+    {
+        $brand = Brand::create(['name' => $name]);
+        $this->audit->record([
+            'tenantId' => $actor->tenantId, 'actorType' => 'user', 'actorId' => $actor->userId, 'actorName' => $actor->userName,
+            'action' => 'brand.created', 'entityType' => 'brand', 'entityId' => $brand->id, 'before' => null, 'after' => ['name' => $name],
+            'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
+
+        return $brand->id;
     }
 
     private function saveBarcodes(string $variantId, array $barcodes): void
@@ -442,31 +981,54 @@ class ProductsController extends Controller
         return $out;
     }
 
-    private function currentInput(Product $p, ProductVariant $v): array
+    /** @param  Collection<string, ProductVariant>  $variants  las activas */
+    private function currentInput(Product $p, Collection $variants): array
     {
         $input = [];
         foreach (self::MASTER_FIELDS as $key => $column) {
             $input[$key] = $p->{$column};
         }
         $input['minStock'] = $p->min_stock === null ? null : Money::quantity($p->min_stock);
+        $barcodes = Barcode::whereIn('variant_id', $variants->keys())->get()->groupBy('variant_id');
 
         return $input + [
-            'sku' => $v->sku,
-            'price' => Money::round($v->price),
-            'cost' => $v->cost === null ? null : Money::roundUnit($v->cost),
-            'barcodes' => Barcode::where('variant_id', $v->id)->orderBy('code')->get()
-                ->map(fn ($b) => ['code' => $b->code, 'quantityFactor' => Money::quantity($b->quantity_factor)])->all(),
+            'optionNames' => $p->option_names ?? [],
+            'variants' => $variants->map(fn (ProductVariant $v) => [
+                'label' => $v->label,
+                'sku' => $v->sku,
+                'price' => Money::round($v->price),
+                'cashPrice' => $v->cash_price === null ? null : Money::round($v->cash_price),
+                'cost' => $v->cost === null ? null : Money::roundUnit($v->cost),
+                'barcodes' => collect($barcodes->get($v->id, []))
+                    ->map(fn ($b) => ['code' => $b->code, 'quantityFactor' => Money::quantity($b->quantity_factor)])->all(),
+            ])->values()->all(),
         ];
     }
 
+    /**
+     * Lo que se audita. Sin propiedades, la variante única va aplanada (sku, price, cost, barcodes),
+     * igual que antes de las variantes; con propiedades, cada variante por su etiqueta.
+     */
     private function auditView(array $input): array
     {
-        $view = array_intersect_key($input, self::MASTER_FIELDS + ['sku' => 1, 'price' => 1, 'cost' => 1]);
-        $barcodes = $input['barcodes'];
-        usort($barcodes, fn ($a, $b) => strcmp($a['code'], $b['code']));
-        $view['barcodes'] = array_map(fn ($b) => $b['code'].($b['quantityFactor'] !== '1.000' ? " ×{$b['quantityFactor']}" : ''), $barcodes);
+        $view = array_intersect_key($input, self::MASTER_FIELDS);
+        $codes = function (array $barcodes): array {
+            usort($barcodes, fn ($a, $b) => strcmp($a['code'], $b['code']));
 
-        return $view;
+            return array_map(fn ($b) => $b['code'].($b['quantityFactor'] !== '1.000' ? " ×{$b['quantityFactor']}" : ''), $barcodes);
+        };
+        if ($input['optionNames'] === []) {
+            $v = $input['variants'][0];
+
+            return $view + ['sku' => $v['sku'], 'price' => $v['price'], ...(($v['cashPrice'] ?? null) !== null ? ['cashPrice' => $v['cashPrice']] : []), 'cost' => $v['cost'], 'barcodes' => $codes($v['barcodes'])];
+        }
+        $variants = [];
+        foreach ($input['variants'] as $v) {
+            $variants[$v['label']] = ['sku' => $v['sku'], 'price' => $v['price'], ...(($v['cashPrice'] ?? null) !== null ? ['cashPrice' => $v['cashPrice']] : []), 'cost' => $v['cost'], 'barcodes' => $codes($v['barcodes'])];
+        }
+        ksort($variants);
+
+        return $view + ['optionNames' => $input['optionNames'], 'variants' => $variants];
     }
 
     /** Solo los campos que cambiaron. @return array{0: array, 1: array} */
@@ -474,10 +1036,10 @@ class ProductsController extends Controller
     {
         $b = [];
         $a = [];
-        foreach ($after as $key => $value) {
-            if (($before[$key] ?? null) !== $value) {
+        foreach (array_keys($before + $after) as $key) {
+            if (($before[$key] ?? null) !== ($after[$key] ?? null)) {
                 $b[$key] = $before[$key] ?? null;
-                $a[$key] = $value;
+                $a[$key] = $after[$key] ?? null;
             }
         }
 
@@ -488,6 +1050,9 @@ class ProductsController extends Controller
     {
         if (is_array($values) && ! $actor->can('costs.read')) {
             unset($values['cost']);
+            if (isset($values['variants']) && is_array($values['variants'])) {
+                $values['variants'] = array_map(fn ($v) => is_array($v) ? array_diff_key($v, ['cost' => 1]) : $v, $values['variants']);
+            }
         }
 
         return $values;

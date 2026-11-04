@@ -14,6 +14,18 @@ const optionalText = (max: number) =>
 
 export const emailSchema = z.string().trim().toLowerCase().pipe(z.email('Email inválido')).pipe(z.string().max(254));
 
+/** Nombre de usuario para ingresar sin email (ADR 0010). Sin @, para distinguirlo del email. */
+export const usernameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(3, 'El usuario debe tener al menos 3 caracteres')
+  .max(30, 'El usuario no puede superar 30 caracteres')
+  .regex(/^[a-z0-9][a-z0-9._-]*$/, 'Usá letras sin acentos, números, punto, guion o guion bajo, empezando por letra o número');
+
+const optionalEmail = emailSchema.optional().nullable().or(z.literal('').transform(() => null));
+const optionalUsername = usernameSchema.optional().nullable().or(z.literal('').transform(() => null));
+
 export const passwordSchema = z
   .string()
   .min(10, 'La contraseña debe tener al menos 10 caracteres')
@@ -54,7 +66,7 @@ export const registerTenantSchema = z.object({
 export type RegisterTenantInput = z.infer<typeof registerTenantSchema>;
 
 export const loginSchema = z.object({
-  email: emailSchema,
+  login: z.string().trim().toLowerCase().min(1, 'Obligatorio').max(254),
   password: z.string().min(1, 'Obligatorio').max(128),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -87,8 +99,20 @@ export const tenantSettingsSchema = z.object({
   priceRoundingStep: z.union([z.literal(0), z.literal(1), z.literal(5), z.literal(10), z.literal(50), z.literal(100)]),
   /** Descuento máximo por línea con sales.discount; más arriba hace falta sales.discount_unlimited o un PIN. */
   discountLimitPercent: discountPercentSchema,
+  /** Mostrar «Agregar desde catálogo» (Precios Claros). El valor inicial depende del rubro. */
+  referenceCatalog: z.boolean(),
+  /** Días para cambiar lo comprado, impresos en el ticket de cambio. 0: sin plazo. */
+  exchangeDays: z.number({ message: 'Ingresá un número de días' }).int('Ingresá un número entero de días').min(0, 'No puede ser negativo').max(365, 'Como máximo 365 días'),
 });
 export type TenantSettings = z.infer<typeof tenantSettingsSchema>;
+
+export const appearanceSchema = z.object({
+  logoData: z.string().max(350000).nullable(),
+  primaryColor: z.string().regex(/^#[0-9a-fA-F]{6}$/), menuColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  font: z.enum(['system', 'archivo', 'serif']), navigation: z.enum(['side', 'top']),
+  textSize: z.enum(['normal', 'large']), density: z.enum(['normal', 'compact']),
+});
+export type Appearance = z.infer<typeof appearanceSchema>;
 
 export const updateTenantSchema = z.object({
   tradeName: trimmed(120),
@@ -97,7 +121,7 @@ export const updateTenantSchema = z.object({
   taxCondition: taxConditionSchema,
   address: optionalText(200),
   phone: optionalText(40),
-  email: emailSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  email: optionalEmail,
   settings: tenantSettingsSchema,
 });
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
@@ -112,13 +136,16 @@ export const updateBranchSchema = createBranchSchema.extend({
 
 // ---------- Usuarios y roles ----------
 
-export const createEmployeeSchema = z.object({
-  name: trimmed(120),
-  email: emailSchema,
-  password: passwordSchema,
-  roleId: uuidSchema,
-  branchIds: z.array(uuidSchema).min(1, 'Elegí al menos una sucursal').max(100),
-});
+export const createEmployeeSchema = z
+  .object({
+    name: trimmed(120),
+    username: optionalUsername,
+    email: optionalEmail,
+    password: passwordSchema,
+    roleId: uuidSchema,
+    branchIds: z.array(uuidSchema).min(1, 'Elegí al menos una sucursal').max(100),
+  })
+  .refine((v) => v.username || v.email, { path: ['username'], message: 'Indicá un nombre de usuario o un email' });
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 
 export const updateMembershipSchema = z.object({
@@ -127,6 +154,11 @@ export const updateMembershipSchema = z.object({
   status: z.enum(['active', 'inactive']),
 });
 export type UpdateMembershipInput = z.infer<typeof updateMembershipSchema>;
+
+/** Contraseña que el comercio le pone a alguien que trabaja solo ahí (por ejemplo, sin email). */
+export const setEmployeePasswordSchema = z.object({ password: passwordSchema });
+
+export const updateUsernameSchema = z.object({ username: optionalUsername });
 
 export const roleSchema = z.object({
   name: trimmed(60),
@@ -146,7 +178,7 @@ export const setTenantStatusSchema = z.object({
   reason: trimmed(300),
 });
 
-/** Alta manual de un comercio desde la plataforma. El dueño recibe una invitación para elegir su contraseña. */
+/** Alta manual: contraseña inicial opcional; sin ella se invita al dueño por correo. */
 export const platformCreateTenantSchema = z.object({
   tradeName: trimmed(120),
   legalName: optionalText(160),
@@ -156,6 +188,7 @@ export const platformCreateTenantSchema = z.object({
   planCode: trimmed(40),
   ownerName: trimmed(120),
   ownerEmail: emailSchema,
+  ownerPassword: z.union([passwordSchema, z.literal('')]).nullable().optional(),
 });
 export type PlatformCreateTenantInput = z.infer<typeof platformCreateTenantSchema>;
 
@@ -208,7 +241,32 @@ export const barcodeSchema = z.object({
   quantityFactor: z.string().trim().regex(/^\d{1,11}(\.\d{1,3})?$/, 'Cantidad inválida').refine((v) => Number(v) > 0, 'Debe ser mayor a cero'),
 });
 
-const productBase = {
+/** Hasta 3 propiedades por producto (Talle, Color…), como en Tienda Nube. ADR 0013. */
+export const MAX_PRODUCT_OPTIONS = 3;
+export const MAX_PRODUCT_VARIANTS = 100;
+
+const variantSchema = z.object({
+  /** Variante existente que se edita; null para una nueva. */
+  id: uuidSchema.nullable(),
+  /** Valores de cada propiedad, en el orden de optionNames. */
+  options: z.array(z.string().trim().min(1, 'Obligatorio').max(40)).max(MAX_PRODUCT_OPTIONS),
+  sku: optionalText(60),
+  price: moneySchema,
+  /** Precio de contado (ADR 0023): opcional; sin él, se cobra el de lista con cualquier medio. */
+  cashPrice: moneySchema.nullable().optional(),
+  cost: costSchema.nullable(),
+  barcodes: z.array(barcodeSchema).max(20),
+  /** Stock inicial en el depósito principal, solo para variantes nuevas (necesita el permiso de ajustar stock). */
+  initialStock: quantitySchema.nullable(),
+});
+export type VariantInput = z.infer<typeof variantSchema>;
+
+/** «M / Rojo»: la etiqueta con la que se muestra la variante. null si el producto no tiene propiedades. */
+export const variantLabel = (options: string[]): string | null => (options.length === 0 ? null : options.join(' / '));
+/** «Remera · M / Rojo». */
+export const variantDisplayName = (productName: string, label: string | null): string => (label ? `${productName} · ${label}` : productName);
+
+const productShape = z.object({
   kind: z.enum(PRODUCT_KINDS),
   name: trimmed(160),
   description: optionalText(500),
@@ -217,31 +275,88 @@ const productBase = {
   saleMode: z.enum(SALE_MODES),
   vatRate: z.enum(VAT_RATES),
   trackStock: z.boolean(),
+  /** Se aplica a cada variante. */
   minStock: quantitySchema.nullable(),
   blockNegativeStock: z.boolean(),
-  sku: optionalText(60),
-  price: moneySchema,
-  cost: costSchema.nullable(),
-  barcodes: z
-    .array(barcodeSchema)
-    .max(20)
-    .superRefine((list, ctx) => {
-      const seen = new Set<string>();
-      list.forEach((b, i) => {
-        if (seen.has(b.code)) ctx.addIssue({ code: 'custom', path: [i, 'code'], message: 'Código repetido' });
-        seen.add(b.code);
-      });
-    }),
-};
+  optionNames: z.array(z.string().trim().min(1, 'Obligatorio').max(30)).max(MAX_PRODUCT_OPTIONS, `Hasta ${MAX_PRODUCT_OPTIONS} propiedades`),
+  variants: z.array(variantSchema).min(1, 'Agregá al menos una variante').max(MAX_PRODUCT_VARIANTS, `Hasta ${MAX_PRODUCT_VARIANTS} variantes por producto`),
+});
 
-export const createProductSchema = z.object({
-  ...productBase,
-  /** Stock inicial en el depósito principal (necesita el permiso de ajustar stock). */
-  initialStock: quantitySchema.nullable(),
+/** Reglas entre campos, las mismas que ProductsController::validated. */
+function refineProduct(p: z.infer<typeof productShape>, ctx: z.RefinementCtx) {
+  const names = new Set<string>();
+  p.optionNames.forEach((n, i) => {
+    if (names.has(n.toLowerCase())) ctx.addIssue({ code: 'custom', path: ['optionNames', i], message: 'Propiedad repetida' });
+    names.add(n.toLowerCase());
+  });
+  if (p.optionNames.length === 0 && p.variants.length > 1) {
+    ctx.addIssue({ code: 'custom', path: ['optionNames'], message: 'Para cargar variantes, agregá al menos una propiedad (talle, color…)' });
+  }
+  const combos = new Set<string>();
+  const skus = new Set<string>();
+  const codes = new Set<string>();
+  p.variants.forEach((v, i) => {
+    if (v.cashPrice && Number(v.cashPrice) > Number(v.price)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'cashPrice'], message: 'El precio de contado no puede ser mayor que el de lista' });
+    if (v.options.length !== p.optionNames.length) {
+      ctx.addIssue({ code: 'custom', path: ['variants', i, 'options'], message: 'Completá todas las propiedades' });
+    } else if (p.optionNames.length > 0) {
+      const key = v.options.join('\u0000').toLowerCase();
+      if (combos.has(key)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'options'], message: 'Esta combinación ya está cargada' });
+      combos.add(key);
+    }
+    if (v.sku) {
+      if (skus.has(v.sku)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'sku'], message: 'Código repetido' });
+      skus.add(v.sku);
+    }
+    v.barcodes.forEach((b, j) => {
+      if (codes.has(b.code)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'barcodes', j, 'code'], message: 'Código repetido' });
+      codes.add(b.code);
+    });
+    if (p.saleMode === 'unit') {
+      const quantities: Array<[string | null, (string | number)[]]> = [
+        [v.initialStock, ['variants', i, 'initialStock']],
+        ...v.barcodes.map((b, j): [string, (string | number)[]] => [b.quantityFactor, ['variants', i, 'barcodes', j, 'quantityFactor']]),
+      ];
+      for (const [q, path] of quantities) {
+        if (q !== null && !Number.isInteger(Number(q))) ctx.addIssue({ code: 'custom', path, message: 'En la venta por unidad, la cantidad tiene que ser entera' });
+      }
+    }
+  });
+  if (p.saleMode === 'unit' && p.minStock !== null && !Number.isInteger(Number(p.minStock))) {
+    ctx.addIssue({ code: 'custom', path: ['minStock'], message: 'En la venta por unidad, la cantidad tiene que ser entera' });
+  }
+}
+
+export const createProductSchema = productShape.superRefine((p, ctx) => {
+  refineProduct(p, ctx);
+  p.variants.forEach((v, i) => {
+    if (v.id !== null) ctx.addIssue({ code: 'custom', path: ['variants', i, 'id'], message: 'Identificador inválido' });
+  });
 });
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
-export const updateProductSchema = z.object({ ...productBase, version: z.number().int().min(1) });
+/** Alta de varios productos del catálogo de referencia (SEPA), cada uno con su precio. */
+export const addReferenceProductsSchema = z.object({
+  categoryId: uuidSchema.nullable(),
+  items: z
+    .array(z.object({
+      code: z.string().trim().regex(/^\d{6,14}$/, 'Código inválido'),
+      price: moneySchema,
+      initialStock: quantitySchema.refine((v) => Number.isInteger(Number(v)), 'En la venta por unidad, la cantidad tiene que ser entera').nullable().optional(),
+    }))
+    .min(1, 'Elegí al menos un producto')
+    .max(100, 'Hasta 100 productos por vez'),
+});
+export type AddReferenceProductsInput = z.infer<typeof addReferenceProductsSchema>;
+
+export const updateProductSchema = productShape.extend({ version: z.number().int().min(1) }).superRefine((p, ctx) => {
+  refineProduct(p, ctx);
+  p.variants.forEach((v, i) => {
+    if (v.id !== null && v.initialStock !== null) {
+      ctx.addIssue({ code: 'custom', path: ['variants', i, 'initialStock'], message: 'El stock de una variante existente se cambia con un ajuste' });
+    }
+  });
+});
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 
 export const productStatusSchema = z.object({ status: z.enum(['active', 'inactive']) });
@@ -308,6 +423,8 @@ export const applyBulkPriceSchema = bulkPriceSchema.extend({ fingerprint: z.stri
 
 export const PAYMENT_KINDS = ['cash', 'debit', 'credit', 'transfer', 'qr', 'other'] as const;
 export type PaymentKind = (typeof PAYMENT_KINDS)[number];
+/** En los pagos de una venta también aparecen el crédito por cambio y la gift card, que son internos y no se configuran. */
+export type SalePaymentKind = PaymentKind | 'exchange' | 'gift_card' | 'account';
 export const PAYMENT_KIND_LABELS: Record<PaymentKind, string> = {
   cash: 'Efectivo',
   debit: 'Tarjeta de débito',
@@ -330,11 +447,99 @@ export const createSaleSchema = z.object({
     .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, discountPercent: discountPercentSchema }))
     .min(1, 'Agregá al menos un artículo')
     .max(300),
-  payments: z.array(z.object({ paymentMethodId: uuidSchema, amount: positiveMoney, reference: optionalText(80) })).max(10),
+  payments: z
+    .array(
+      z.object({
+        paymentMethodId: uuidSchema,
+        amount: positiveMoney,
+        reference: optionalText(80),
+        /** Quién transfiere o paga con QR: lo piden muchos comercios para identificar el cobro. */
+        payerName: optionalText(120),
+        payerPhone: optionalText(30).refine((v) => !v || /^[\d\s()+-]{6,30}$/.test(v), 'Teléfono inválido'),
+      }),
+    )
+    .max(10),
+  /** Cliente de la venta (opcional) y lo que se le carga a su cuenta corriente (ADR 0016). */
+  customerId: uuidSchema.nullable().optional(),
+  accountAmount: positiveMoney.nullable().optional(),
+  /** Gift cards con que se paga primero (ADR 0015). */
+  giftCards: z
+    .array(z.object({ code: z.string().trim().min(1, 'Obligatorio').max(30), amount: positiveMoney }))
+    .max(5)
+    .refine((cards) => new Set(cards.map((c) => c.code.toUpperCase())).size === cards.length, 'La gift card está repetida')
+    .optional(),
   expectedTotal: moneySchema,
   authorization: pinAuthorizationSchema.nullable().optional(),
 });
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
+
+/** Cambio (ADR 0014): lo devuelto de la venta queda como crédito que paga esta venta nueva. */
+export const createExchangeSchema = createSaleSchema.extend({
+  reason: trimmed(180),
+  returnLines: z
+    .array(z.object({ saleLineId: uuidSchema, quantity: positiveQuantity, restock: z.boolean() }))
+    .min(1, 'Elegí qué se devuelve')
+    .max(300),
+});
+export type CreateExchangeInput = z.infer<typeof createExchangeSchema>;
+
+/** Gift card (ADR 0015): se vende por un monto y vale hasta 6 meses. */
+export const GIFT_CARD_MAX_MONTHS = 6;
+export const createGiftCardSchema = z.object({
+  clientUuid: uuidSchema,
+  registerId: uuidSchema,
+  amount: positiveMoney,
+  validMonths: z.number().int().min(1, `La validez va de 1 a ${GIFT_CARD_MAX_MONTHS} meses`).max(GIFT_CARD_MAX_MONTHS, `La validez va de 1 a ${GIFT_CARD_MAX_MONTHS} meses`),
+  recipientName: optionalText(80),
+  fromName: optionalText(80),
+  message: optionalText(200),
+  payments: createSaleSchema.shape.payments,
+});
+export type CreateGiftCardInput = z.infer<typeof createGiftCardSchema>;
+
+/** Envío del comprobante por email: el ticket o la factura autorizada. El email no queda en la venta. */
+export const sendSaleEmailSchema = z.object({
+  email: emailSchema,
+  invoiceId: uuidSchema.nullable().optional(),
+  saveToCustomer: z.boolean().optional(),
+});
+export type SendSaleEmailInput = z.infer<typeof sendSaleEmailSchema>;
+
+// ---------------------------------------------------------------- Clientes y cuenta corriente (ADR 0016)
+
+/** Tipos de documento de ARCA que se cargan en un cliente. */
+export const CUSTOMER_DOCUMENT_TYPES = { 96: 'DNI', 80: 'CUIT', 86: 'CUIL' } as const;
+/** Condición frente al IVA con el código de ARCA. */
+export const CUSTOMER_VAT_CONDITIONS = { 5: 'Consumidor final', 6: 'Monotributo', 1: 'Responsable inscripto', 4: 'Exento' } as const;
+
+export const customerSchema = z
+  .object({
+    name: trimmed(120),
+    documentType: z.union([z.literal(96), z.literal(80), z.literal(86)]).nullable(),
+    documentNumber: z.string().trim().transform((v) => v.replace(/\D/g, '')).nullable(),
+    vatCondition: z.union([z.literal(5), z.literal(6), z.literal(1), z.literal(4)]),
+    phone: optionalText(30),
+    email: optionalEmail,
+    address: optionalText(200),
+    notes: optionalText(300),
+    /** Tope de deuda; null: no se le vende a cuenta corriente. */
+    creditLimit: moneySchema.nullable(),
+  })
+  .superRefine((c, ctx) => {
+    const number = c.documentNumber || null;
+    if ((c.documentType === null) !== (number === null)) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'Completá el tipo y el número de documento, o ninguno' });
+    else if (c.documentType === 96 && !/^\d{6,9}$/.test(number!)) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'Ingresá un DNI válido, sin puntos' });
+    else if ((c.documentType === 80 || c.documentType === 86) && !isValidCuit(number!)) ctx.addIssue({ code: 'custom', path: ['documentNumber'], message: 'El CUIT o CUIL no es válido' });
+  });
+export type CustomerInput = z.infer<typeof customerSchema>;
+export const updateCustomerSchema = customerSchema.and(z.object({ status: z.enum(['active', 'inactive']) }));
+
+/** Cobro de deuda: se cobra como una venta, con cualquier medio. */
+export const collectAccountSchema = z.object({ clientUuid: uuidSchema, registerId: uuidSchema, amount: positiveMoney, payments: createSaleSchema.shape.payments });
+export const adjustAccountSchema = z.object({
+  amount: z.string().regex(/^-?\d{1,12}(\.\d{1,2})?$/, 'Importe inválido').refine((v) => !/^-?0+(\.0+)?$/.test(v), 'El importe no puede ser cero'),
+  notes: trimmed(200),
+});
 
 export const voidSaleSchema = z.object({ reason: trimmed(200), authorization: pinAuthorizationSchema.nullable().optional() });
 
@@ -360,12 +565,133 @@ export const paymentMethodSchema = z.object({
   name: trimmed(60),
   kind: z.enum(PAYMENT_KINDS),
   requiresReference: z.boolean(),
+  /** Cobra a precio de contado (ADR 0023). */
+  cashPrice: z.boolean(),
   active: z.boolean(),
   sortOrder: z.number().int().min(0).max(999),
 });
 export type PaymentMethodInput = z.infer<typeof paymentMethodSchema>;
 
+/** Pago a un proveedor: en efectivo sale de una caja abierta (ADR 0018). */
+export const SUPPLIER_PAYMENT_METHODS = { cash: 'Efectivo de la caja', transfer: 'Transferencia', check: 'Cheque', other: 'Otro' } as const;
+export const supplierPaymentSchema = z
+  .object({
+    clientUuid: uuidSchema,
+    amount: positiveMoney,
+    method: z.enum(['cash', 'transfer', 'check', 'other']),
+    registerId: uuidSchema.nullable(),
+    reference: optionalText(80),
+    notes: optionalText(200),
+  })
+  .refine((p) => p.method !== 'cash' || p.registerId, { path: ['registerId'], message: 'Elegí la caja de la que sale el efectivo' });
+
+/** Promoción (ADR 0020): porcentaje o N×M sobre todo, una categoría o un producto. */
+export const promotionSchema = z
+  .object({
+    name: trimmed(80),
+    kind: z.enum(['percent', 'nxm', 'combo']),
+    percent: discountPercentSchema.nullable(),
+    buyQuantity: z.number().int().min(2, 'Tiene que llevar al menos 2').max(100).nullable(),
+    payQuantity: z.number().int().min(1).max(99).nullable(),
+    /** Combo (ADR 0024): precio del conjunto y sus productos. */
+    comboPrice: moneySchema.nullable().optional(),
+    items: z.array(z.object({ productId: uuidSchema, quantity: z.number().int().min(1, 'Mínimo 1').max(99, 'Máximo 99') })).max(10, 'Hasta 10 productos por combo').optional(),
+    scope: z.enum(['all', 'category', 'product']),
+    categoryId: uuidSchema.nullable(),
+    productId: uuidSchema.nullable(),
+    startsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    endsOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  })
+  .superRefine((p, ctx) => {
+    if (p.kind === 'percent' && (!p.percent || Number(p.percent) <= 0)) ctx.addIssue({ code: 'custom', path: ['percent'], message: 'Ingresá el porcentaje' });
+    if (p.kind === 'nxm' && !p.buyQuantity) ctx.addIssue({ code: 'custom', path: ['buyQuantity'], message: 'Ingresá cuántas lleva' });
+    if (p.kind === 'nxm' && !p.payQuantity) ctx.addIssue({ code: 'custom', path: ['payQuantity'], message: 'Ingresá cuántas paga' });
+    if (p.kind === 'nxm' && p.buyQuantity && p.payQuantity && p.payQuantity >= p.buyQuantity) ctx.addIssue({ code: 'custom', path: ['payQuantity'], message: 'Tiene que pagar menos de las que lleva' });
+    if (p.kind === 'combo' && !p.comboPrice) ctx.addIssue({ code: 'custom', path: ['comboPrice'], message: 'Ingresá el precio del combo' });
+    if (p.kind === 'combo' && (p.items ?? []).reduce((n, i) => n + i.quantity, 0) < 2) ctx.addIssue({ code: 'custom', path: ['items'], message: 'El combo tiene que llevar al menos dos unidades' });
+    if (p.scope === 'category' && !p.categoryId) ctx.addIssue({ code: 'custom', path: ['categoryId'], message: 'Elegí la categoría' });
+    if (p.scope === 'product' && !p.productId) ctx.addIssue({ code: 'custom', path: ['productId'], message: 'Elegí el producto' });
+    if (p.startsOn && p.endsOn && p.endsOn < p.startsOn) ctx.addIssue({ code: 'custom', path: ['endsOn'], message: 'La fecha de fin no puede ser anterior a la de inicio' });
+  });
+export type PromotionInput = z.infer<typeof promotionSchema>;
+
 export const posPinSchema = z.object({
   password: z.string().min(1, 'Obligatorio'),
   pin: z.string().regex(/^\d{4,6}$/, 'El PIN tiene que tener de 4 a 6 números'),
 });
+
+// ---------- Suscripción (ADR 0012) ----------
+
+/** Meses que se pueden pagar juntos con Mercado Pago (BillingService::MONTH_OPTIONS). */
+export const SUBSCRIPTION_MONTH_OPTIONS = [1, 3, 6, 12] as const;
+
+export const subscriptionCheckoutSchema = z.object({
+  planCode: trimmed(40),
+  months: z.literal(SUBSCRIPTION_MONTH_OPTIONS, 'Valor inválido'),
+});
+
+export const setTenantLicenseSchema = z.object({
+  freeForever: z.boolean(),
+  reason: trimmed(300),
+});
+
+/** Pago recibido por otro medio (transferencia), registrado por el operador. */
+export const recordTenantPaymentSchema = z.object({
+  months: z.number().int().min(1, 'Entre 1 y 36 meses').max(36, 'Entre 1 y 36 meses'),
+  amount: moneySchema,
+  notes: trimmed(300),
+});
+
+// ---------------------------------------------------------------- Compras (ADR 0014)
+
+export const supplierSchema = z.object({
+  name: trimmed(120),
+  cuit: cuitSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  phone: optionalText(30),
+  email: emailSchema.optional().nullable().or(z.literal('').transform(() => null)),
+  notes: optionalText(300),
+});
+export type SupplierInput = z.infer<typeof supplierSchema>;
+export const updateSupplierSchema = supplierSchema.extend({ status: z.enum(['active', 'inactive']) });
+
+/** Ingreso de mercadería: el costo es opcional y, con updateCosts, pasa a ser el costo vigente. */
+export const createPurchaseSchema = z.object({
+  clientUuid: uuidSchema,
+  warehouseId: uuidSchema,
+  supplierId: uuidSchema.nullable(),
+  document: optionalText(60),
+  notes: optionalText(300),
+  updateCosts: z.boolean(),
+  /** Lo que queda para pagar al proveedor (la factura, con impuestos); requiere proveedor (ADR 0018). */
+  payableAmount: positiveMoney.nullable().optional(),
+  lines: z
+    .array(z.object({ variantId: uuidSchema, quantity: positiveQuantity, unitCost: costSchema.nullable() }))
+    .min(1, 'Agregá al menos un artículo')
+    .max(300),
+});
+export type CreatePurchaseInput = z.infer<typeof createPurchaseSchema>;
+
+
+// ---------------------------------------------------------------- Importación de productos (ADR 0022)
+
+export const MAX_IMPORT_ROWS = 2000;
+const importCell = (max: number) => z.string().max(max).optional();
+/** Filas tal cual la planilla: el servidor interpreta números («1.250,50»), IVA y forma de venta. */
+export const productImportSchema = z.object({
+  rows: z
+    .array(
+      z.object({
+        row: z.number().int().min(1),
+        options: z.array(z.string().max(40)).max(3),
+        name: importCell(160), barcode: importCell(64), sku: importCell(60), price: importCell(30), cashPrice: importCell(30), cost: importCell(30),
+        initialStock: importCell(30), minStock: importCell(30), category: importCell(80), brand: importCell(80),
+        vatRate: importCell(20), saleMode: importCell(20), description: importCell(500),
+      }),
+    )
+    .min(1, 'La planilla no tiene filas con datos')
+    .max(MAX_IMPORT_ROWS, `Hasta ${MAX_IMPORT_ROWS} filas por importación: dividí la planilla en partes`),
+  optionNames: z.array(z.string().trim().min(1).max(30)).max(3, 'Hasta 3 propiedades de variantes (talle, color…)'),
+  updateExisting: z.boolean(),
+  dryRun: z.boolean(),
+});
+export type ProductImportInput = z.infer<typeof productImportSchema>;

@@ -1,8 +1,13 @@
 const dateTime = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 const date = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium' });
 
-export const formatDateTime = (iso: string) => dateTime.format(new Date(iso));
-export const formatDate = (iso: string) => date.format(new Date(iso));
+/** Una fecha inválida muestra «—» en lugar de romper la pantalla (Intl lanza RangeError). */
+const safe = (f: Intl.DateTimeFormat, iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : f.format(d);
+};
+export const formatDateTime = (iso: string) => safe(dateTime, iso);
+export const formatDate = (iso: string) => safe(date, iso);
 
 export function formatCuit(cuit: string | null | undefined) {
   if (!cuit || cuit.length !== 11) return cuit ?? '';
@@ -10,7 +15,7 @@ export function formatCuit(cuit: string | null | undefined) {
 }
 
 export const TENANT_STATUS_LABELS: Record<string, string> = {
-  trial: 'Prueba',
+  trial: 'Período de prueba',
   active: 'Activo',
   past_due: 'Pago vencido',
   suspended: 'Suspendido',

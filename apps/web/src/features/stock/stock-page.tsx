@@ -1,12 +1,13 @@
-import { type Paginated, type StockOperationResult, type StockRowDto, stockAdjustmentSchema, stockWasteSchema } from '@gc/contracts';
+import { type Paginated, type StockOperationResult, type StockRowDto, stockAdjustmentSchema, stockWasteSchema, variantDisplayName } from '@gc/contracts';
 import { dec, formatArs } from '@gc/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { type FormEvent, useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { categoriesQuery, newClientUuid, warehousesQuery, zodFieldErrors } from '@/features/catalog/queries';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { ActionMenu } from '@/components/ui/menu';
 import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -17,14 +18,6 @@ import { useCan } from '@/lib/session';
 const PAGE_SIZE = 25;
 
 type Operation = 'adjust' | 'waste';
-
-function stockError(err: unknown) {
-  if (err instanceof ApiRequestError && err.code === 'INSUFFICIENT_STOCK') {
-    const d = (err.details as Array<{ name: string; onHand: string }>)[0];
-    return `No hay stock suficiente de ${d?.name ?? 'este artículo'} (hay ${formatQty(d?.onHand)}) y el comercio no permite stock negativo.`;
-  }
-  return errorMessage(err);
-}
 
 /** Ajuste ("el stock real es…" o "sumar/restar") o merma de un artículo. */
 function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowDto; warehouseId: string; operation: Operation; onDone: () => void }) {
@@ -48,7 +41,7 @@ function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowD
     },
     onError: (err) => {
       if (err instanceof ApiRequestError) setErrors(err.fieldErrors());
-      setError(stockError(err));
+      setError(errorMessage(err));
     },
   });
   function submit(e: FormEvent) {
@@ -111,7 +104,7 @@ function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowD
           Cancelar
         </Button>
         <Button type="submit" variant={operation === 'waste' ? 'danger' : 'primary'} loading={save.isPending}>
-          {operation === 'adjust' ? 'Ajustar stock' : 'Registrar baja'}
+          {operation === 'adjust' ? 'Ajustar stock' : 'Registrar merma o vencido'}
         </Button>
       </div>
     </form>
@@ -120,6 +113,7 @@ function OperationForm({ row, warehouseId, operation, onDone }: { row: StockRowD
 
 export function StockPage() {
   const can = useCan();
+  const navigate = useNavigate();
   const allowed = can('stock.read');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -208,7 +202,10 @@ export function StockPage() {
             {stock.data.items.map((r) => (
               <tr key={r.variantId}>
                 <Td>
-                  <div className="font-medium">{r.name}</div>
+                  <div className="font-medium">
+                    {r.name}
+                    {r.variantLabel && <span className="block font-semibold text-brand-700 sm:ml-1.5 sm:inline">{r.variantLabel}</span>}
+                  </div>
                   {r.sku && <div className="text-xs text-slate-500">{r.sku}</div>}
                 </Td>
                 <Td>{r.categoryName ?? '—'}</Td>
@@ -230,22 +227,17 @@ export function StockPage() {
                 )}
                 <Td className="text-right whitespace-nowrap">
                   {can('stock.adjust') && (
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ row: r, operation: 'adjust' })}>
+                    <Button size="sm" variant="subtle" onClick={() => setDialog({ row: r, operation: 'adjust' })}>
                       Ajustar
                     </Button>
                   )}
-                  {can('stock.waste') && (
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ row: r, operation: 'waste' })}>
-                      Baja
-                    </Button>
-                  )}
-                  <Link
-                    to="/app/stock/movimientos"
-                    search={{ productId: r.productId }}
-                    className="inline-flex h-8 items-center rounded-lg px-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                  >
-                    Movimientos
-                  </Link>
+                  <ActionMenu
+                    label={`Más acciones de ${variantDisplayName(r.name, r.variantLabel)}`}
+                    items={[
+                      { label: 'Merma o vencido', hidden: !can('stock.waste'), onSelect: () => setDialog({ row: r, operation: 'waste' }) },
+                      { label: 'Ver movimientos', onSelect: () => void navigate({ to: '/app/stock/movimientos', search: { productId: r.productId } }) },
+                    ]}
+                  />
                 </Td>
               </tr>
             ))}
@@ -257,7 +249,7 @@ export function StockPage() {
         open={dialog !== null}
         onOpenChange={(o) => !o && setDialog(null)}
         title={dialog?.operation === 'adjust' ? 'Ajustar stock' : 'Baja por merma o vencimiento'}
-        description={dialog?.row.name}
+        description={dialog ? variantDisplayName(dialog.row.name, dialog.row.variantLabel) : undefined}
       >
         {dialog && <OperationForm key={`${dialog.row.variantId}-${dialog.operation}`} row={dialog.row} warehouseId={warehouse} operation={dialog.operation} onDone={() => setDialog(null)} />}
       </Dialog>

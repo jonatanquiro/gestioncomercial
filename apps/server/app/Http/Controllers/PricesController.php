@@ -13,6 +13,7 @@ use App\Support\Input;
 use App\Support\Money;
 use App\Support\Pricing;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -61,6 +62,9 @@ class PricesController extends Controller
             $variants = ProductVariant::whereIn('id', array_column($result['rows'], 'variantId'))->get()->keyBy('id');
             foreach ($result['rows'] as $row) {
                 $this->products->setPrice($variants[$row['variantId']], $row['newPrice'], $actor->userId, $batch->id);
+                if ($row['oldCashPrice'] !== null) {
+                    $variants[$row['variantId']]->forceFill(['cash_price' => $row['newCashPrice']])->save();
+                }
             }
             $this->audit->record([
                 'tenantId' => $actor->tenantId,
@@ -129,23 +133,23 @@ class PricesController extends Controller
             ->when($scope['categoryId'], fn ($w, $id) => $w->where('category_id', $id))
             ->when($scope['brandId'], fn ($w, $id) => $w->where('brand_id', $id))
             ->when($scope['productIds'] !== null, fn ($w) => $w->whereIn('id', $scope['productIds']));
-        if ((clone $query)->count() > self::MAX_ROWS) {
+        if (ProductVariant::whereIn('product_id', (clone $query)->select('id'))->where('status', 'active')->count() > self::MAX_ROWS) {
             throw AppError::badRequest('TOO_MANY_PRODUCTS', 'El cambio abarca más de '.self::MAX_ROWS.' artículos. Acotalo por categoría o marca.');
         }
         $products = $query->orderBy('name')->orderBy('id')->get(['id', 'name']);
-        $variantQuery = ProductVariant::whereIn('product_id', $products->pluck('id'))->orderBy('id');
-        $variants = ($lock ? $variantQuery->lockForUpdate() : $variantQuery)->get()->keyBy('product_id');
+        $variantQuery = ProductVariant::whereIn('product_id', $products->pluck('id'))->where('status', 'active')->orderBy('id');
+        $variants = ($lock ? $variantQuery->lockForUpdate() : $variantQuery)->get()->sortBy('label')->groupBy('product_id');
 
         ['kind' => $kind, 'value' => $value] = $input['rule'];
         $seeCost = $actor->can('costs.read');
         $rows = [];
         $skipped = [];
-        foreach ($products as $p) {
-            $v = $variants[$p->id];
+        foreach ($products->flatMap(fn ($p) => collect($variants->get($p->id, []))->map(fn ($v) => [$p, $v])) as [$p, $v]) {
+            $name = ProductVariant::displayName($p->name, $v->label);
             $old = Money::round($v->price);
             $cost = $v->cost === null ? null : Money::roundUnit($v->cost);
             if (in_array($kind, ['markup', 'margin'], true) && ($cost === null || BigDecimal::of($cost)->isZero())) {
-                $skipped[] = ['productId' => $p->id, 'name' => $p->name, 'reason' => 'No tiene costo cargado'];
+                $skipped[] = ['productId' => $p->id, 'name' => $name, 'reason' => 'No tiene costo cargado'];
 
                 continue;
             }
@@ -156,29 +160,40 @@ class PricesController extends Controller
                 'margin' => Pricing::priceFromMargin($cost, $value),
             };
             if (BigDecimal::of($raw)->isNegative()) {
-                $skipped[] = ['productId' => $p->id, 'name' => $p->name, 'reason' => 'El precio quedaría negativo'];
+                $skipped[] = ['productId' => $p->id, 'name' => $name, 'reason' => 'El precio quedaría negativo'];
 
                 continue;
             }
             $new = Pricing::roundPriceUp($raw, $input['roundingStep']);
             if (BigDecimal::of($new)->isEqualTo($old)) {
-                $skipped[] = ['productId' => $p->id, 'name' => $p->name, 'reason' => 'El precio no cambia'];
+                $skipped[] = ['productId' => $p->id, 'name' => $name, 'reason' => 'El precio no cambia'];
 
                 continue;
+            }
+            // El precio de contado (ADR 0023) mantiene la misma proporción con el de lista.
+            $oldCash = $v->cash_price === null ? null : Money::round($v->cash_price);
+            $newCash = null;
+            if ($oldCash !== null && ! BigDecimal::of($old)->isZero()) {
+                $scaled = BigDecimal::of($oldCash)->multipliedBy($new)->dividedBy($old, 2, RoundingMode::HALF_UP);
+                $newCash = Pricing::roundPriceUp((string) $scaled, $input['roundingStep']);
+                $newCash = BigDecimal::of($newCash)->isLessThan($new) ? $newCash : null;
             }
             $rows[] = [
                 'productId' => $p->id,
                 'variantId' => $v->id,
                 'name' => $p->name,
+                'variantLabel' => $v->label,
                 'oldPrice' => $old,
                 'newPrice' => $new,
+                'oldCashPrice' => $oldCash,
+                'newCashPrice' => $newCash,
                 'variation' => BigDecimal::of($old)->isZero() ? null : Pricing::variationPercent($old, $new),
                 'cost' => $seeCost ? $cost : null,
                 'markup' => $seeCost && $cost !== null && ! BigDecimal::of($cost)->isZero() ? Pricing::markupPercentOf($cost, $new) : null,
                 'margin' => $seeCost && $cost !== null && ! BigDecimal::of($new)->isZero() ? Pricing::marginPercentOf($cost, $new) : null,
             ];
         }
-        $fingerprint = hash('sha256', json_encode(array_map(fn ($r) => [$r['variantId'], $r['oldPrice'], $r['newPrice']], $rows)));
+        $fingerprint = hash('sha256', json_encode(array_map(fn ($r) => [$r['variantId'], $r['oldPrice'], $r['newPrice'], $r['oldCashPrice'], $r['newCashPrice']], $rows)));
 
         return ['rows' => $rows, 'skipped' => $skipped, 'fingerprint' => $fingerprint];
     }

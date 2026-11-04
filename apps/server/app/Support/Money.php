@@ -25,6 +25,23 @@ final class Money
         return (string) self::of($value)->toScale(2, RoundingMode::HalfUp);
     }
 
+    /** «$ 15.000» o «$ 1.234,50», como se muestra en la web: para mensajes al usuario. */
+    public static function pesos(string|BigDecimal $amount): string
+    {
+        $rounded = self::round($amount);
+        $negative = str_starts_with($rounded, '-');
+        [$int, $dec] = explode('.', ltrim($rounded, '-'));
+        $grouped = ltrim(strrev(implode('.', str_split(strrev($int), 3))), '.');
+
+        return ($negative ? '-' : '').'$ '.$grouped.($dec === '00' ? '' : ','.$dec);
+    }
+
+    /** «3.000» → «3», «1.250» → «1,25»: cantidad para un mensaje (con punto se leería «tres mil»). */
+    public static function plainQuantity(string|BigDecimal $quantity): string
+    {
+        return str_replace('.', ',', rtrim(rtrim(self::quantity($quantity), '0'), '.'));
+    }
+
     /** Costos unitarios: 4 decimales. */
     public static function roundUnit(string|int|BigDecimal $value): string
     {

@@ -9,5 +9,5 @@ class Product extends BaseModel
 {
     use BelongsToTenant;
 
-    protected $casts = ['track_stock' => 'boolean', 'block_negative_stock' => 'boolean', 'version' => 'integer'];
+    protected $casts = ['track_stock' => 'boolean', 'block_negative_stock' => 'boolean', 'version' => 'integer', 'option_names' => 'array'];
 }

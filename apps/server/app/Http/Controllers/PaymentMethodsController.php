@@ -20,8 +20,9 @@ class PaymentMethodsController extends Controller
 
     public function index(): JsonResponse
     {
-        return $this->json(PaymentMethod::orderBy('sort_order')->orderBy('name')->get()->map(fn (PaymentMethod $m) => [
-            'id' => $m->id, 'name' => $m->name, 'kind' => $m->kind, 'requiresReference' => $m->requires_reference,
+        // El crédito por cambio es interno: no se configura ni se elige al cobrar.
+        return $this->json(PaymentMethod::whereNotIn('kind', PaymentMethod::INTERNAL_KINDS)->orderBy('sort_order')->orderBy('name')->get()->map(fn (PaymentMethod $m) => [
+            'id' => $m->id, 'name' => $m->name, 'kind' => $m->kind, 'requiresReference' => $m->requires_reference, 'cashPrice' => (bool) $m->cash_price,
             'active' => $m->active, 'sortOrder' => (int) $m->sort_order,
         ])->all());
     }
@@ -33,7 +34,7 @@ class PaymentMethodsController extends Controller
         try {
             $method = DB::transaction(function () use ($actor, $input) {
                 $method = PaymentMethod::create([
-                    'name' => $input['name'], 'kind' => $input['kind'], 'requires_reference' => $input['requiresReference'],
+                    'name' => $input['name'], 'kind' => $input['kind'], 'requires_reference' => $input['requiresReference'], 'cash_price' => $input['cashPrice'],
                     'active' => $input['active'], 'sort_order' => $input['sortOrder'],
                 ]);
                 $this->record($actor, 'payment_method.created', $method->id, $input);
@@ -53,10 +54,10 @@ class PaymentMethodsController extends Controller
         $input = $this->input($request);
         try {
             DB::transaction(function () use ($actor, $id, $input) {
-                $method = PaymentMethod::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Medio de pago');
-                $before = ['name' => $method->name, 'kind' => $method->kind, 'requiresReference' => $method->requires_reference, 'active' => $method->active, 'sortOrder' => (int) $method->sort_order];
+                $method = PaymentMethod::whereKey($id)->whereNotIn('kind', PaymentMethod::INTERNAL_KINDS)->lockForUpdate()->first() ?? throw AppError::notFound('Medio de pago');
+                $before = ['name' => $method->name, 'kind' => $method->kind, 'requiresReference' => $method->requires_reference, 'cashPrice' => (bool) $method->cash_price, 'active' => $method->active, 'sortOrder' => (int) $method->sort_order];
                 $method->forceFill([
-                    'name' => $input['name'], 'kind' => $input['kind'], 'requires_reference' => $input['requiresReference'],
+                    'name' => $input['name'], 'kind' => $input['kind'], 'requires_reference' => $input['requiresReference'], 'cash_price' => $input['cashPrice'],
                     'active' => $input['active'], 'sort_order' => $input['sortOrder'],
                 ])->save();
                 $this->record($actor, 'payment_method.updated', $id, $input, $before);
@@ -74,11 +75,14 @@ class PaymentMethodsController extends Controller
             'name' => ['required', 'string', 'max:60'],
             'kind' => ['required', 'string', 'in:'.implode(',', self::KINDS)],
             'requiresReference' => ['present', Input::strictBoolean()],
+            'cashPrice' => ['nullable', Input::strictBoolean()],
             'active' => ['present', Input::strictBoolean()],
             'sortOrder' => ['required', 'integer', 'min:0', 'max:999'],
         ]);
         $input['name'] = trim($input['name']);
         $input['requiresReference'] = (bool) $input['requiresReference'];
+        // Sin indicarlo, el efectivo cobra a precio de contado y los demás a precio de lista.
+        $input['cashPrice'] = (bool) ($input['cashPrice'] ?? $input['kind'] === 'cash');
         $input['active'] = (bool) $input['active'];
         $input['sortOrder'] = (int) $input['sortOrder'];
 

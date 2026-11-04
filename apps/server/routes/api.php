@@ -5,17 +5,27 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BranchesController;
 use App\Http\Controllers\CashController;
 use App\Http\Controllers\CategoriesController;
+use App\Http\Controllers\CustomersController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeesController;
+use App\Http\Controllers\FiscalController;
+use App\Http\Controllers\GiftCardsController;
 use App\Http\Controllers\HealthController;
 use App\Http\Controllers\PaymentMethodsController;
+use App\Http\Controllers\PaymentsController;
 use App\Http\Controllers\PlatformController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\PricesController;
 use App\Http\Controllers\ProductsController;
+use App\Http\Controllers\PromotionsController;
+use App\Http\Controllers\PurchasesController;
+use App\Http\Controllers\ReportsController;
 use App\Http\Controllers\RolesController;
 use App\Http\Controllers\SalesController;
+use App\Http\Controllers\SettlementsController;
 use App\Http\Controllers\StockController;
 use App\Http\Controllers\StockCountsController;
+use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\TenantController;
 use Illuminate\Support\Facades\Route;
 
@@ -37,6 +47,8 @@ Route::post('auth/login', [AuthController::class, 'login'])->name('public.login'
 Route::post('auth/forgot-password', [AuthController::class, 'forgotPassword'])->name('public.forgot-password');
 Route::post('auth/reset-password', [AuthController::class, 'resetPassword'])->name('public.reset-password');
 Route::post('platform/auth/login', [PlatformController::class, 'login'])->name('public.platform-login');
+// Aviso automático de Mercado Pago: solo trae el número de pago, el estado se consulta a la API.
+Route::post('mercadopago/webhook', [SubscriptionController::class, 'webhook'])->name('public.mercadopago-webhook');
 
 // ---------------------------------------------------------------- Sesión propia (sin comercio obligatorio)
 // Cerrar sesión no exige CSRF: el peor caso es que alguien cierre tu sesión.
@@ -46,8 +58,16 @@ Route::middleware(['csrf.double', 'auth.user:any'])->group(function () {
     Route::get('auth/me', [AuthController::class, 'me']);
     Route::post('auth/switch-tenant', [AuthController::class, 'switchTenant']);
     Route::post('auth/change-password', [AuthController::class, 'changePassword']);
+    Route::put('auth/username', [AuthController::class, 'updateUsername']);
     Route::get('auth/sessions', [AuthController::class, 'sessions']);
     Route::delete('auth/sessions/{id}', [AuthController::class, 'revokeSession']);
+});
+
+// ---------------------------------------------------------------- Suscripción (también con el comercio pausado por falta de pago)
+Route::middleware(['csrf.double', 'auth.user:billing', 'perm:subscription.manage'])->group(function () {
+    Route::get('subscription', [SubscriptionController::class, 'show']);
+    Route::post('subscription/checkout', [SubscriptionController::class, 'checkout']);
+    Route::post('subscription/payments/{id}/check', [SubscriptionController::class, 'check']);
 });
 
 // ---------------------------------------------------------------- Comercio activo
@@ -55,6 +75,27 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     // Datos generales del comercio y sus sucursales: visibles para todo miembro activo.
     Route::get('tenant', [TenantController::class, 'show']);
     Route::put('tenant', [TenantController::class, 'update'])->middleware('perm:settings.manage');
+    Route::put('tenant/appearance', [TenantController::class, 'appearance'])->middleware('perm:settings.manage');
+    Route::get('fiscal/settings', [FiscalController::class, 'settings'])->middleware('perm:fiscal.manage');
+    Route::put('fiscal/settings', [FiscalController::class, 'save'])->middleware('perm:fiscal.manage');
+    Route::post('fiscal/csr', [FiscalController::class, 'csr'])->middleware('perm:fiscal.manage');
+    Route::post('fiscal/check', [FiscalController::class, 'check'])->middleware('perm:fiscal.manage');
+    Route::get('fiscal/status', [FiscalController::class, 'status'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::get('fiscal/invoices', [FiscalController::class, 'invoices'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::post('sales/{id}/invoice', [FiscalController::class, 'issue'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::post('sales/{id}/credit-notes', [FiscalController::class, 'creditNote'])->middleware('perm:fiscal.manage,fiscal.issue');
+    Route::get('payments', [PaymentsController::class, 'index'])->middleware('perm:cash.read_all');
+    Route::get('dashboard/today', [DashboardController::class, 'today'])->middleware('perm:sales.read_own,sales.read_all,cash.read_all,stock.read');
+    Route::get('reports/sales', [ReportsController::class, 'sales'])->middleware('perm:reports.sales');
+    Route::get('reports/stale', [ReportsController::class, 'stale'])->middleware('perm:reports.sales');
+    Route::get('settlements', [SettlementsController::class, 'index'])->middleware('perm:cash.read_all');
+    Route::post('settlements', [SettlementsController::class, 'store'])->middleware('perm:cash.read_all');
+    Route::get('settlements/{id}', [SettlementsController::class, 'show'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/refresh', [SettlementsController::class, 'refresh'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/import', [SettlementsController::class, 'import'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/review', [SettlementsController::class, 'review'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/match', [SettlementsController::class, 'match'])->middleware('perm:cash.read_all');
+    Route::post('settlements/{id}/close', [SettlementsController::class, 'close'])->middleware('perm:cash.read_all');
 
     Route::get('branches', [BranchesController::class, 'index']);
     Route::post('branches', [BranchesController::class, 'store'])->middleware('perm:branches.manage');
@@ -69,6 +110,7 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
         Route::get('employees', [EmployeesController::class, 'index']);
         Route::post('employees', [EmployeesController::class, 'store']);
         Route::put('employees/{membershipId}', [EmployeesController::class, 'update']);
+        Route::put('employees/{membershipId}/password', [EmployeesController::class, 'setPassword']);
     });
 
     Route::get('audit', [AuditController::class, 'index'])->middleware('perm:audit.read');
@@ -82,7 +124,14 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
 
     Route::get('products', [ProductsController::class, 'index'])->middleware('perm:products.read');
     Route::get('products/lookup', [ProductsController::class, 'lookup'])->middleware('perm:products.read');
+    Route::get('products/items', [ProductsController::class, 'items'])->middleware('perm:products.read');
+    Route::get('products/favorites', [ProductsController::class, 'favorites'])->middleware('perm:products.read');
+    Route::get('products/reference', [ProductsController::class, 'reference'])->middleware('perm:products.create');
+    Route::get('products/reference/search', [ProductsController::class, 'referenceSearch'])->middleware('perm:products.create');
+    Route::post('products/reference/add', [ProductsController::class, 'addFromReference'])->middleware('perm:products.create');
     Route::post('products', [ProductsController::class, 'store'])->middleware('perm:products.create');
+    Route::post('products/import', [ProductsController::class, 'import'])->middleware('perm:products.create');
+    Route::post('products/barcodes', [ProductsController::class, 'generateBarcodes'])->middleware('perm:products.update');
     Route::get('products/{id}', [ProductsController::class, 'show'])->middleware('perm:products.read');
     Route::get('products/{id}/history', [ProductsController::class, 'history'])->middleware('perm:products.read');
     Route::put('products/{id}', [ProductsController::class, 'update'])->middleware('perm:products.update');
@@ -92,6 +141,17 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
     Route::post('prices/bulk/apply', [PricesController::class, 'apply'])->middleware('perm:prices.bulk_update');
 
     // Inventario
+    // Compras: proveedores e ingreso de mercadería (ADR 0014).
+    Route::get('suppliers', [PurchasesController::class, 'suppliers'])->middleware('perm:suppliers.manage,purchases.create,purchases.receive,purchases.pay');
+    Route::post('suppliers', [PurchasesController::class, 'storeSupplier'])->middleware('perm:suppliers.manage');
+    Route::put('suppliers/{id}', [PurchasesController::class, 'updateSupplier'])->middleware('perm:suppliers.manage');
+    Route::get('suppliers/{id}', [PurchasesController::class, 'showSupplier'])->middleware('perm:suppliers.manage,purchases.create,purchases.pay');
+    Route::post('suppliers/{id}/payments', [PurchasesController::class, 'paySupplier'])->middleware('perm:purchases.pay');
+    Route::post('suppliers/{id}/adjustments', [PurchasesController::class, 'adjustSupplier'])->middleware('perm:purchases.pay');
+    Route::get('purchases', [PurchasesController::class, 'index'])->middleware('perm:purchases.create,purchases.receive');
+    Route::post('purchases', [PurchasesController::class, 'store'])->middleware('perm:purchases.create,purchases.receive');
+    Route::get('purchases/{id}', [PurchasesController::class, 'show'])->middleware('perm:purchases.create,purchases.receive');
+
     Route::get('warehouses', [StockController::class, 'warehouses'])->middleware('perm:stock.read');
     Route::get('stock', [StockController::class, 'index'])->middleware('perm:stock.read');
     Route::get('stock/movements', [StockController::class, 'movements'])->middleware('perm:stock.read');
@@ -125,10 +185,26 @@ Route::middleware(['csrf.double', 'auth.user'])->group(function () {
 
     // Ventas. Anular y devolver llegan también a quien vende: sin el permiso, piden el PIN de un encargado.
     Route::post('sales', [SalesController::class, 'store'])->middleware('perm:sales.create');
+    Route::post('sales/quote', [SalesController::class, 'quote'])->middleware('perm:sales.create');
+    Route::get('pos/promotions', [SalesController::class, 'activePromotions'])->middleware('perm:sales.create');
+    Route::get('promotions', [PromotionsController::class, 'index'])->middleware('perm:promotions.manage');
+    Route::post('promotions', [PromotionsController::class, 'store'])->middleware('perm:promotions.manage');
+    Route::put('promotions/{id}', [PromotionsController::class, 'update'])->middleware('perm:promotions.manage');
     Route::get('sales', [SalesController::class, 'index'])->middleware('perm:sales.read_own,sales.read_all');
     Route::get('sales/{id}', [SalesController::class, 'show'])->middleware('perm:sales.read_own,sales.read_all');
+    Route::post('sales/{id}/email', [SalesController::class, 'email'])->middleware('perm:sales.read_own,sales.read_all');
     Route::post('sales/{id}/void', [SalesController::class, 'void'])->middleware('perm:sales.create,sales.void');
     Route::post('sales/{id}/returns', [SalesController::class, 'storeReturn'])->middleware('perm:sales.create,sales.return');
+    Route::post('sales/{id}/exchanges', [SalesController::class, 'storeExchange'])->middleware('perm:sales.create');
+    Route::post('gift-cards', [SalesController::class, 'storeGiftCard'])->middleware('perm:sales.create');
+    Route::get('gift-cards', [GiftCardsController::class, 'index'])->middleware('perm:sales.read_all');
+    Route::get('gift-cards/lookup', [GiftCardsController::class, 'lookup'])->middleware('perm:sales.create,sales.read_all');
+    Route::get('customers', [CustomersController::class, 'index'])->middleware('perm:customers.manage,sales.create,accounts.collect');
+    Route::post('customers', [CustomersController::class, 'store'])->middleware('perm:customers.manage');
+    Route::get('customers/{id}', [CustomersController::class, 'show'])->middleware('perm:customers.manage,accounts.collect');
+    Route::put('customers/{id}', [CustomersController::class, 'update'])->middleware('perm:customers.manage');
+    Route::post('customers/{id}/adjustments', [CustomersController::class, 'adjust'])->middleware('perm:accounts.grant_credit');
+    Route::post('customers/{id}/payments', [SalesController::class, 'storeAccountPayment'])->middleware('perm:accounts.collect');
     Route::get('pos/authorizers', [PosController::class, 'authorizers'])->middleware('perm:sales.create');
     Route::post('auth/pos-pin', [PosController::class, 'setPin']);
 });
@@ -140,6 +216,9 @@ Route::prefix('platform')->middleware(['csrf.double', 'auth.platform'])->group(f
     Route::get('tenants', [PlatformController::class, 'tenants']);
     Route::post('tenants', [PlatformController::class, 'createTenant']);
     Route::post('tenants/{id}/status', [PlatformController::class, 'setTenantStatus']);
+    Route::post('tenants/{id}/plan', [PlatformController::class, 'changeTenantPlan']);
+    Route::post('tenants/{id}/license', [PlatformController::class, 'setTenantLicense']);
+    Route::post('tenants/{id}/payments', [PlatformController::class, 'recordTenantPayment']);
     Route::get('plans', [PlatformController::class, 'plans']);
     Route::put('plans/{id}', [PlatformController::class, 'updatePlan']);
     Route::get('audit', [PlatformController::class, 'audit']);

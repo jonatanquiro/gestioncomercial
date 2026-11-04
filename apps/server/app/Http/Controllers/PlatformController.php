@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Auth\Client;
 use App\Auth\Cookies;
+use App\Auth\PlatformActor;
 use App\Mail\OwnerInvitationMail;
 use App\Models\AuditEntry;
 use App\Models\Branch;
@@ -17,6 +18,8 @@ use App\Models\Subscription;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\BillingService;
+use App\Services\EntitlementsService;
 use App\Services\PasswordService;
 use App\Services\PlatformSessionService;
 use App\Services\ProvisioningService;
@@ -51,6 +54,8 @@ class PlatformController extends Controller
         private readonly AuditService $audit,
         private readonly TenantContext $context,
         private readonly ProvisioningService $provisioning,
+        private readonly EntitlementsService $entitlements,
+        private readonly BillingService $billing,
     ) {}
 
     /** Login con email y contraseña, con límite de intentos por IP. */
@@ -140,15 +145,17 @@ class PlatformController extends Controller
             $ids = $rows->pluck('id')->all();
 
             $subs = Subscription::whereIn('tenant_id', $ids)->where('status', '<>', 'cancelled')->get()->keyBy('tenant_id');
-            $planCodes = Plan::whereIn('id', $subs->pluck('plan_id')->unique()->all())->pluck('code', 'id');
+            $plans = Plan::whereIn('id', $subs->pluck('plan_id')->unique()->all())->get()->keyBy('id');
             $users = Membership::whereIn('tenant_id', $ids)->where('status', 'active')
                 ->groupBy('tenant_id')->selectRaw('tenant_id, count(*) as n')->pluck('n', 'tenant_id');
             $branches = Branch::whereIn('tenant_id', $ids)->where('status', 'active')
                 ->groupBy('tenant_id')->selectRaw('tenant_id, count(*) as n')->pluck('n', 'tenant_id');
 
             return [
-                'items' => $rows->map(function (Tenant $t) use ($subs, $planCodes, $users, $branches) {
+                'items' => $rows->map(function (Tenant $t) use ($subs, $plans, $users, $branches) {
                     $sub = $subs->get($t->id);
+                    $plan = $sub ? $plans->get($sub->plan_id) : null;
+                    $billing = $sub && $plan ? BillingService::evaluate($sub, $plan) : null;
 
                     return [
                         'id' => $t->id,
@@ -156,9 +163,12 @@ class PlatformController extends Controller
                         'cuit' => $t->cuit,
                         'businessTypeCode' => $t->business_type_code,
                         'status' => $t->status,
-                        'planCode' => $sub ? ($planCodes[$sub->plan_id] ?? null) : null,
+                        'planCode' => $plan?->code,
                         'subscriptionStatus' => $sub?->status,
                         'trialEndsAt' => Dates::iso($sub?->trial_ends_at),
+                        'billingState' => $billing['state'] ?? null,
+                        'dueAt' => Dates::iso($billing['dueAt'] ?? null),
+                        'freeForever' => (bool) $sub?->free_forever,
                         'createdAt' => Dates::iso($t->created_at),
                         'userCount' => (int) ($users[$t->id] ?? 0),
                         'branchCount' => (int) ($branches[$t->id] ?? 0),
@@ -173,8 +183,8 @@ class PlatformController extends Controller
 
     /**
      * Alta manual de un comercio (mismas reglas que platformCreateTenantSchema). Si el email del
-     * dueño no tiene cuenta, se crea una sin contraseña utilizable y se le envía una invitación
-     * para elegirla; si ya tiene cuenta, el comercio se suma a los suyos.
+     * dueño no tiene cuenta, se usa la contraseña indicada o se lo invita por correo.
+     * Si ya tiene cuenta, el comercio se suma a los suyos sin cambiar su contraseña.
      */
     public function createTenant(Request $request): JsonResponse
     {
@@ -190,23 +200,36 @@ class PlatformController extends Controller
             'planCode' => ['required', 'string', 'max:40', Rule::exists('plans', 'code')->where('active', true)],
             'ownerName' => ['required', 'string', 'max:120'],
             'ownerEmail' => ['required', 'string', 'email', 'max:254'],
-        ], ['planCode.exists' => 'Plan inexistente o inactivo']);
+            'ownerPassword' => ['nullable', 'string', 'min:10', 'max:128'],
+        ], ['planCode.exists' => 'Plan inexistente o inactivo', ...Input::passwordMessages('ownerPassword')]);
+        $password = $input['ownerPassword'] ?? null;
+        unset($input['ownerPassword']);
         $input['legalName'] = $input['legalName'] ?? null;
         $input['cuit'] = Input::optionalCuit($input['cuit'] ?? null);
         $client = Client::from($request);
         $token = Tokens::random();
 
-        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token) {
+        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token, $password) {
             $owner = User::where('email', $input['ownerEmail'])->lockForUpdate()->first();
             if ($owner && $owner->status !== 'active') {
                 throw AppError::conflict('USER_INACTIVE', 'Ese email pertenece a un usuario desactivado');
             }
-            $invited = $owner === null;
+            if ($owner && $password !== null) {
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => 'Ese email ya tiene cuenta. Dejá la contraseña vacía para conservar su acceso actual.']]);
+            }
+            $invited = $owner === null && $password === null;
+            try {
+                $hash = $owner ? null : $this->passwords->hash($password ?? Tokens::random());
+            } catch (AppError $e) {
+                if ($e->errorCode !== 'VALIDATION_ERROR') {
+                    throw $e;
+                }
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => $e->details[0]['message']]]);
+            }
             $owner ??= User::create([
                 'email' => $input['ownerEmail'],
                 'name' => $input['ownerName'],
-                // Nadie conoce esta contraseña: el dueño elige la suya con la invitación.
-                'password_hash' => $this->passwords->hash(Tokens::random()),
+                'password_hash' => $hash,
                 'password_changed_at' => Carbon::now(),
             ]);
             $tenantId = $this->provisioning->create($owner->id, $owner->name, $input, $client, [
@@ -237,7 +260,7 @@ class PlatformController extends Controller
             }
         }
 
-        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent], 201);
+        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent, 'ownerPasswordSet' => $password !== null], 201);
     }
 
     public function setTenantStatus(Request $request, string $id): JsonResponse
@@ -272,9 +295,64 @@ class PlatformController extends Controller
         return $this->json(['ok' => true]);
     }
 
+    /** Licencia sin vencimiento: el comercio no paga ni se pausa (mismas reglas que setTenantLicenseSchema). */
+    public function setTenantLicense(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'freeForever' => ['required', Input::strictBoolean()],
+            'reason' => ['required', 'string', 'max:300'],
+        ]);
+        $this->assertTenantOpen($id);
+        $this->billing->setFreeForever($id, $input['freeForever'], $input['reason'], $this->platformBy($actor));
+
+        return $this->json(['ok' => true]);
+    }
+
+    /** Pago recibido por otro medio, por ejemplo transferencia (mismas reglas que recordTenantPaymentSchema). */
+    public function recordTenantPayment(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'months' => ['required', 'integer', 'min:1', 'max:36'],
+            'amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'notes' => ['required', 'string', 'max:300'],
+        ], ['months.integer' => 'Entre 1 y 36 meses', 'months.min' => 'Entre 1 y 36 meses', 'months.max' => 'Entre 1 y 36 meses']);
+        $this->assertTenantOpen($id);
+        $payment = $this->billing->recordManual($id, (int) $input['months'], $input['amount'], $input['notes'], $this->platformBy($actor));
+
+        return $this->json(BillingService::paymentDto($payment, null), 201);
+    }
+
     public function plans(): JsonResponse
     {
         return $this->json(Plan::with(['limits', 'features'])->orderBy('sort_order')->get()->map(fn (Plan $p) => $this->planDto($p))->all());
+    }
+
+    public function changeTenantPlan(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['planCode' => ['required', 'string', 'max:40'], 'expectedPlanCode' => ['present', 'nullable', 'string', 'max:40'], 'reason' => ['required', 'string', 'max:300']]);
+        $this->context->withoutTenant(fn () => DB::transaction(function () use ($actor, $v, $id) {
+            $tenant = Tenant::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($tenant->status === 'cancelled') {
+                throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+            }
+            $subscription = Subscription::where('tenant_id', $id)->where('status', '<>', 'cancelled')->lockForUpdate()->first() ?? throw AppError::notFound('Suscripción vigente');
+            $previous = Plan::find($subscription->plan_id);
+            if ($previous?->code !== ($v['expectedPlanCode'] ?? null)) {
+                throw AppError::conflict('PLAN_CHANGED', 'Otra persona cambió el plan. Actualizá la lista y volvé a intentarlo.');
+            }
+            $plan = Plan::where('code', $v['planCode'])->where('active', true)->lockForUpdate()->first() ?? throw AppError::notFound('Plan activo');
+            if ($plan->id === $subscription->plan_id) {
+                throw AppError::badRequest('PLAN_UNCHANGED', 'Elegí un plan diferente');
+            }
+            $usage = $this->context->run($id, fn () => $this->entitlements->assertPlanFits($plan));
+            $subscription->forceFill(['plan_id' => $plan->id])->save();
+            $this->audit->record(['tenantId' => $id, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => 'Plataforma: '.$actor->name, 'action' => 'platform.tenant_plan_changed', 'entityType' => 'tenant', 'entityId' => $id, 'before' => ['planCode' => $previous?->code], 'after' => ['planCode' => $plan->code, 'reason' => $v['reason'], 'usage' => $usage], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        }));
+
+        return $this->json(['ok' => true]);
     }
 
     public function updatePlan(Request $request, string $id): JsonResponse
@@ -351,6 +429,20 @@ class PlatformController extends Controller
             'page' => $page,
             'pageSize' => $pageSize,
         ]);
+    }
+
+    private function assertTenantOpen(string $id): void
+    {
+        $tenant = Tenant::find($id) ?? throw AppError::notFound('Comercio');
+        if ($tenant->status === 'cancelled') {
+            throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+        }
+    }
+
+    /** @return array{actorType: string, actorId: string, actorName: string, ip: string, requestId: string} */
+    private function platformBy(PlatformActor $actor): array
+    {
+        return ['actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}", 'ip' => $actor->ip, 'requestId' => $actor->requestId];
     }
 
     /** Forma de PlanDto. */

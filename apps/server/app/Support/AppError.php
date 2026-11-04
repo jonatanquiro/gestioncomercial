@@ -29,7 +29,7 @@ class AppError extends RuntimeException
 
     public static function invalidCredentials(): self
     {
-        return new self(401, 'INVALID_CREDENTIALS', 'Email o contraseña incorrectos');
+        return new self(401, 'INVALID_CREDENTIALS', 'Usuario o contraseña incorrectos');
     }
 
     public static function forbidden(?string $permission = null): self
@@ -50,6 +50,11 @@ class AppError extends RuntimeException
     public static function tenantSuspended(): self
     {
         return new self(403, 'TENANT_SUSPENDED', 'El comercio está suspendido. Comunicate con soporte.');
+    }
+
+    public static function subscriptionExpired(): self
+    {
+        return new self(402, 'SUBSCRIPTION_EXPIRED', 'La suscripción del comercio venció. Regularizá el pago para seguir operando.');
     }
 
     public static function notFound(string $what = 'Recurso'): self

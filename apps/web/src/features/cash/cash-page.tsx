@@ -21,6 +21,7 @@ const MOVEMENT_LABELS: Record<CashShiftDto['movements'][number]['type'], string>
   refund: 'Devolución en efectivo',
   void: 'Anulación',
   withdrawal: 'Retiro',
+  supplier_payment: 'Pago a proveedor',
   deposit: 'Ingreso',
 };
 

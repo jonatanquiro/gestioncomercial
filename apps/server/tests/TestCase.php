@@ -2,6 +2,10 @@
 
 namespace Tests;
 
+use App\Models\Plan;
+use App\Models\PlanFeature;
+use App\Models\Subscription;
+use App\Tenancy\TenantContext;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
@@ -67,6 +71,21 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
+     * Pasa el comercio a un plan propio de la prueba con esas funciones, sin límites. No usa los
+     * planes sembrados: otras pruebas los editan desde la plataforma.
+     *
+     * @param  list<string>  $features
+     */
+    protected function usePlan(string $tenantId, array $features): void
+    {
+        $plan = Plan::create(['code' => 'prueba-'.bin2hex(random_bytes(6)), 'name' => 'Plan de prueba', 'price' => '0', 'active' => false, 'sort_order' => 99]);
+        foreach ($features as $feature) {
+            PlanFeature::create(['plan_id' => $plan->id, 'feature' => $feature]);
+        }
+        app(TenantContext::class)->run($tenantId, fn () => Subscription::first()->forceFill(['plan_id' => $plan->id])->save());
+    }
+
+    /**
      * Crea un empleado con el rol indicado y devuelve un cliente con su sesión iniciada.
      *
      * @param  list<string>  $branchIds
@@ -78,7 +97,7 @@ abstract class TestCase extends BaseTestCase
         $res = $owner->post('/employees', ['name' => 'Empleado Prueba', 'email' => $email, 'password' => self::PASSWORD, 'roleId' => $roleId, 'branchIds' => $branchIds]);
         $this->assertSame(201, $res->status, 'Alta de empleado falló: '.json_encode($res->body));
         $client = $this->client();
-        $this->assertSame(200, $client->post('/auth/login', ['email' => $email, 'password' => self::PASSWORD])->status);
+        $this->assertSame(200, $client->post('/auth/login', ['login' => $email, 'password' => self::PASSWORD])->status);
 
         return ['client' => $client, 'email' => $email, 'membershipId' => $res->body['membershipId']];
     }
@@ -99,10 +118,21 @@ abstract class TestCase extends BaseTestCase
         $this->fail("No existe el rol plantilla {$template}");
     }
 
-    /** Cuerpo válido de alta de producto, con un código de barras único. */
+    /** Campos de la variante que las pruebas de un producto simple pasan aplanados. */
+    private const VARIANT_KEYS = ['sku', 'price', 'cashPrice', 'cost', 'barcodes', 'initialStock'];
+
+    /**
+     * Cuerpo válido de alta de producto simple, con un código de barras único. sku, price, cost,
+     * barcodes e initialStock pueden venir aplanados: van a la única variante.
+     */
     protected static function productInput(array $overrides = []): array
     {
         self::$seq++;
+        $variant = [
+            'id' => null, 'options' => [], 'sku' => null, 'price' => '1000', 'cost' => '600',
+            'barcodes' => [['code' => '779'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT), 'quantityFactor' => '1']],
+            'initialStock' => null,
+        ];
 
         return array_merge([
             'kind' => 'good',
@@ -115,29 +145,31 @@ abstract class TestCase extends BaseTestCase
             'trackStock' => true,
             'minStock' => null,
             'blockNegativeStock' => false,
-            'sku' => null,
-            'price' => '1000',
-            'cost' => '600',
-            'barcodes' => [['code' => '779'.str_pad((string) random_int(0, 9999999999), 10, '0', STR_PAD_LEFT), 'quantityFactor' => '1']],
-            'initialStock' => null,
-        ], $overrides);
+            'optionNames' => [],
+            'variants' => [array_merge($variant, array_intersect_key($overrides, array_flip(self::VARIANT_KEYS)))],
+        ], array_diff_key($overrides, array_flip(self::VARIANT_KEYS)));
     }
 
-    /** Crea un producto y devuelve su DTO. */
+    /** Crea un producto y devuelve su DTO, con variantId de la primera variante como atajo. */
     protected function createProduct(ApiClient $client, array $overrides = []): array
     {
         $res = $client->post('/products', self::productInput($overrides));
         $this->assertSame(201, $res->status, 'Alta de producto falló: '.json_encode($res->body));
 
-        return $res->body;
+        return $res->body + ['variantId' => $res->body['variants'][0]['id']];
     }
 
-    /** Cuerpo de edición a partir del DTO actual. */
+    /** Cuerpo de edición a partir del DTO actual. Los campos de variante aplanados van a la primera. */
     protected static function productUpdate(array $dto, array $overrides = []): array
     {
-        $keys = ['kind', 'name', 'description', 'categoryId', 'brandId', 'saleMode', 'vatRate', 'trackStock', 'minStock', 'blockNegativeStock', 'sku', 'price', 'cost', 'barcodes', 'version'];
+        $keys = ['kind', 'name', 'description', 'categoryId', 'brandId', 'saleMode', 'vatRate', 'trackStock', 'minStock', 'blockNegativeStock', 'optionNames', 'version'];
+        $variants = array_map(fn ($v) => [
+            'id' => $v['id'], 'options' => $v['options'], 'sku' => $v['sku'], 'price' => $v['price'], 'cost' => $v['cost'],
+            'barcodes' => $v['barcodes'], 'initialStock' => null,
+        ], $dto['variants']);
+        $variants[0] = array_merge($variants[0], array_intersect_key($overrides, array_flip(self::VARIANT_KEYS)));
 
-        return array_merge(array_intersect_key($dto, array_flip($keys)), $overrides);
+        return array_merge(array_intersect_key($dto, array_flip($keys)), ['variants' => $variants], array_diff_key($overrides, array_flip(self::VARIANT_KEYS)));
     }
 
     protected function defaultWarehouse(ApiClient $client): string

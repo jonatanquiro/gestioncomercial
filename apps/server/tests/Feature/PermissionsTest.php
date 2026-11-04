@@ -33,7 +33,7 @@ class PermissionsTest extends TestCase
         sort($public);
         $this->assertSame([
             'GET /business-types', 'GET /health', 'POST /auth/forgot-password', 'POST /auth/login', 'POST /auth/register',
-            'POST /auth/reset-password', 'POST /platform/auth/login',
+            'POST /auth/reset-password', 'POST /mercadopago/webhook', 'POST /platform/auth/login',
         ], array_values($public));
     }
 

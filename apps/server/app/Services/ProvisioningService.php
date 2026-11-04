@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Auth\Client;
+use App\Http\Controllers\TenantController;
 use App\Models\Branch;
 use App\Models\BusinessType;
 use App\Models\Category;
@@ -62,6 +63,8 @@ class ProvisioningService
                 'allowNegativeStock' => (bool) $businessType->default_settings['allowNegativeStock'],
                 'priceRoundingStep' => (int) $businessType->default_settings['priceRoundingStep'],
                 'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
+                'referenceCatalog' => (bool) ($businessType->default_settings['referenceCatalog'] ?? true),
+                'exchangeDays' => TenantController::DEFAULT_EXCHANGE_DAYS,
             ],
         ]);
 

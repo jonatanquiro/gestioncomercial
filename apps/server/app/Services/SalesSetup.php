@@ -21,12 +21,12 @@ class SalesSetup
         ['QR o billetera', 'qr', true, 5],
     ];
 
-    public const DOC_TYPES = ['sale', 'return'];
+    public const DOC_TYPES = ['sale', 'return', 'purchase'];
 
     public function forTenant(): void
     {
         foreach (self::DEFAULT_PAYMENT_METHODS as [$name, $kind, $reference, $order]) {
-            PaymentMethod::create(['name' => $name, 'kind' => $kind, 'requires_reference' => $reference, 'sort_order' => $order]);
+            PaymentMethod::create(['name' => $name, 'kind' => $kind, 'requires_reference' => $reference, 'cash_price' => $kind === 'cash', 'sort_order' => $order]);
         }
     }
 

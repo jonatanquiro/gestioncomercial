@@ -51,10 +51,25 @@ class Input
         return $validator->validated();
     }
 
-    /** Email normalizado como en packages/contracts: recortado y en minúsculas. */
+    /** Email o nombre de usuario normalizado como en packages/contracts: recortado y en minúsculas. */
     public static function email(mixed $value): mixed
     {
         return is_string($value) ? mb_strtolower(trim($value)) : $value;
+    }
+
+    /** Reglas de nombre de usuario opcional (mismas que usernameSchema). */
+    public static function usernameRules(): array
+    {
+        return ['nullable', 'string', 'min:3', 'max:30', 'regex:/^[a-z0-9][a-z0-9._-]*$/'];
+    }
+
+    public static function usernameMessages(string $field): array
+    {
+        return [
+            "{$field}.min" => 'El usuario debe tener al menos 3 caracteres',
+            "{$field}.max" => 'El usuario no puede superar 30 caracteres',
+            "{$field}.regex" => 'Usá letras sin acentos, números, punto, guion o guion bajo, empezando por letra o número',
+        ];
     }
 
     /** Regla de contraseña nueva (mismos límites que passwordSchema). */

@@ -1,12 +1,13 @@
 import type { Paginated, ProductDto, ProductHistoryDto } from '@gc/contracts';
 import { dec, formatArs } from '@gc/domain';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Forbidden } from '@/features/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { ActionMenu } from '@/components/ui/menu';
 import { Input, Select } from '@/components/ui/field';
 import { Alert, Badge, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
@@ -14,7 +15,7 @@ import { errorMessage, http } from '@/lib/api';
 import { formatDateTime, formatQty } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { ProductForm } from './product-form';
-import { categoriesQuery } from './queries';
+import { categoriesQuery, tenantQuery } from './queries';
 
 const PAGE_SIZE = 25;
 
@@ -28,8 +29,16 @@ const CHANGE_LABELS: Record<string, string> = {
 const FIELD_LABELS: Record<string, string> = {
   name: 'Nombre', kind: 'Tipo', description: 'Descripción', categoryId: 'Categoría', brandId: 'Marca', saleMode: 'Forma de venta',
   vatRate: 'IVA', trackStock: 'Controla stock', minStock: 'Stock mínimo', blockNegativeStock: 'Bloquea negativo', sku: 'Código interno',
-  price: 'Precio', cost: 'Costo', barcodes: 'Códigos', status: 'Estado',
+  price: 'Precio', cost: 'Costo', barcodes: 'Códigos', status: 'Estado', optionNames: 'Propiedades', variants: 'Variantes',
 };
+
+/** «$ 15.000» o «$ 15.000 – $ 17.000» si las variantes tienen distinto precio. */
+function priceRange(values: string[]): string {
+  const sorted = values.filter(Boolean).sort((a, b) => dec(a).cmp(b));
+  if (sorted.length === 0) return '—';
+  const [min, max] = [sorted[0]!, sorted[sorted.length - 1]!];
+  return dec(min).eq(max) ? formatArs(min) : `${formatArs(min)} – ${formatArs(max)}`;
+}
 
 function describeChange(after: unknown): string {
   if (!after || typeof after !== 'object') return '';
@@ -44,15 +53,17 @@ function HistoryView({ product }: { product: ProductDto }) {
   if (history.isLoading) return <Spinner />;
   if (history.error) return <Alert>{errorMessage(history.error)}</Alert>;
   const h = history.data!;
+  const withVariants = h.prices.some((p) => p.variantLabel !== null);
   return (
     <div className="space-y-6">
       <section>
         <h3 className="mb-2 text-sm font-semibold">Precios</h3>
-        <Table head={<><Th>Desde</Th><Th>Hasta</Th><Th className="text-right">Precio</Th><Th>Quién</Th></>}>
+        <Table head={<><Th>Desde</Th><Th>Hasta</Th>{withVariants && <Th>Variante</Th>}<Th className="text-right">Precio</Th><Th>Quién</Th></>}>
           {h.prices.map((p, i) => (
             <tr key={i}>
               <Td className="whitespace-nowrap">{formatDateTime(p.validFrom)}</Td>
               <Td className="whitespace-nowrap">{p.validTo ? formatDateTime(p.validTo) : <Badge tone="green">Vigente</Badge>}</Td>
+              {withVariants && <Td>{p.variantLabel ?? '—'}</Td>}
               <Td className="text-right font-medium">{formatArs(p.price)}</Td>
               <Td>
                 {p.changedBy ?? '—'}
@@ -65,10 +76,11 @@ function HistoryView({ product }: { product: ProductDto }) {
       {can('costs.read') && h.costs.length > 0 && (
         <section>
           <h3 className="mb-2 text-sm font-semibold">Costos</h3>
-          <Table head={<><Th>Fecha</Th><Th className="text-right">Costo</Th><Th>Quién</Th></>}>
+          <Table head={<><Th>Fecha</Th>{withVariants && <Th>Variante</Th>}<Th className="text-right">Costo</Th><Th>Quién</Th></>}>
             {h.costs.map((c, i) => (
               <tr key={i}>
                 <Td className="whitespace-nowrap">{formatDateTime(c.at)}</Td>
+                {withVariants && <Td>{c.variantLabel ?? '—'}</Td>}
                 <Td className="text-right">{formatArs(c.cost)}</Td>
                 <Td>{c.changedBy ?? '—'}</Td>
               </tr>
@@ -98,11 +110,14 @@ export function ProductsPage() {
   const allowed = can('products.read');
   const toast = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const tenant = useQuery(tenantQuery);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active');
   const [dialog, setDialog] = useState<{ mode: 'new' } | { mode: 'edit' | 'history'; product: ProductDto } | null>(null);
+  const [deactivating, setDeactivating] = useState<ProductDto | null>(null);
   const categories = useQuery({ ...categoriesQuery, enabled: allowed });
   const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE), status });
   if (search.trim()) params.set('q', search.trim());
@@ -136,6 +151,16 @@ export function ProductsPage() {
             {can('prices.bulk_update') && (
               <Link to="/app/precios" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
                 Cambiar precios
+              </Link>
+            )}
+            {can('products.create') && (
+              <Link to="/app/productos/importar" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+                Importar planilla
+              </Link>
+            )}
+            {can('products.create') && tenant.data?.settings.referenceCatalog && (
+              <Link to="/app/productos/catalogo" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+                Agregar desde catálogo
               </Link>
             )}
             {can('products.create') && (
@@ -176,7 +201,13 @@ export function ProductsPage() {
         {products.isLoading && <Spinner />}
         {products.error && <div className="p-4"><Alert>{errorMessage(products.error)}</Alert></div>}
         {products.data && products.data.items.length === 0 && (
-          <EmptyState>{search || categoryId || status !== 'active' ? 'Ningún producto coincide con la búsqueda.' : 'Todavía no hay productos cargados.'}</EmptyState>
+          <EmptyState>
+            {search || categoryId || status !== 'active'
+              ? 'Ningún producto coincide con la búsqueda.'
+              : tenant.data?.settings.referenceCatalog
+                ? 'Todavía no hay productos cargados. Elegí varios con «Agregar desde catálogo» o cargalos de a uno con «Nuevo producto».'
+                : 'Todavía no hay productos cargados. Cargalos con «Nuevo producto»: para ropa o calzado, con sus talles y colores.'}
+          </EmptyState>
         )}
         {products.data && products.data.items.length > 0 && (
           <Table
@@ -193,20 +224,25 @@ export function ProductsPage() {
             }
           >
             {products.data.items.map((p) => {
-              const low = p.stock !== null && p.minStock !== null && dec(p.stock).lte(p.minStock);
+              // El stock mínimo se aplica a cada variante.
+              const low = p.minStock !== null && p.variants.some((v) => v.stock !== null && dec(v.stock).lte(p.minStock!));
+              const [only] = p.variants;
+              const labels = p.variants.map((v) => v.label).filter(Boolean);
+              const codes =
+                p.optionNames.length === 0 && only
+                  ? [only.sku, ...only.barcodes.map((b) => (b.quantityFactor === '1.000' ? b.code : `${b.code} (×${formatQty(b.quantityFactor)})`))]
+                  : [`${p.variants.length} variantes: ${labels.slice(0, 4).join(', ')}${labels.length > 4 ? '…' : ''}`];
               return (
                 <tr key={p.id}>
                   <Td>
                     <div className="font-medium">{p.name}</div>
                     <div className="text-xs text-slate-500">
-                      {[p.kind === 'service' ? 'Servicio' : null, p.brandName, p.sku, ...p.barcodes.map((b) => (b.quantityFactor === '1.000' ? b.code : `${b.code} (×${formatQty(b.quantityFactor)})`))]
-                        .filter(Boolean)
-                        .join(' · ')}
+                      {[p.kind === 'service' ? 'Servicio' : null, p.brandName, ...codes].filter(Boolean).join(' · ')}
                     </div>
                   </Td>
                   <Td>{p.categoryName ?? '—'}</Td>
-                  <Td className="text-right font-medium whitespace-nowrap">{formatArs(p.price)}</Td>
-                  {seeCost && <Td className="text-right whitespace-nowrap text-slate-600">{p.cost ? formatArs(p.cost) : '—'}</Td>}
+                  <Td className="text-right font-medium whitespace-nowrap">{priceRange(p.variants.map((v) => v.price))}</Td>
+                  {seeCost && <Td className="text-right whitespace-nowrap text-slate-600">{priceRange(p.variants.map((v) => v.cost ?? ''))}</Td>}
                   {seeStock && (
                     <Td className="text-right whitespace-nowrap">
                       {p.stock === null ? <span className="text-slate-400">—</span> : <span className={low ? 'font-semibold text-orange-700' : ''}>{formatQty(p.stock, p.saleMode)}</span>}
@@ -215,18 +251,18 @@ export function ProductsPage() {
                   <Td>{p.status === 'active' ? <Badge tone="green">Activo</Badge> : <Badge>Inactivo</Badge>}</Td>
                   <Td className="text-right whitespace-nowrap">
                     {can('products.update') && (
-                      <Button size="sm" variant="ghost" onClick={() => setDialog({ mode: 'edit', product: p })}>
+                      <Button size="sm" variant="subtle" onClick={() => setDialog({ mode: 'edit', product: p })}>
                         Editar
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost" onClick={() => setDialog({ mode: 'history', product: p })}>
-                      Historial
-                    </Button>
-                    {can('products.deactivate') && (
-                      <Button size="sm" variant="ghost" loading={toggle.isPending && toggle.variables?.id === p.id} onClick={() => toggle.mutate(p)}>
-                        {p.status === 'active' ? 'Desactivar' : 'Reactivar'}
-                      </Button>
-                    )}
+                    <ActionMenu
+                      label={`Más acciones de ${p.name}`}
+                      items={[
+                        { label: 'Historial de precios', onSelect: () => setDialog({ mode: 'history', product: p }) },
+                        { label: 'Imprimir etiquetas', onSelect: () => void navigate({ to: '/app/etiquetas', search: { productId: p.id } }) },
+                        { label: p.status === 'active' ? 'Desactivar' : 'Reactivar', danger: p.status === 'active', hidden: !can('products.deactivate'), onSelect: () => (p.status === 'active' ? setDeactivating(p) : toggle.mutate(p)) },
+                      ]}
+                    />
                   </Td>
                 </tr>
               );
@@ -235,6 +271,16 @@ export function ProductsPage() {
         )}
         {products.data && <Pager page={page} pageSize={PAGE_SIZE} total={products.data.total} onPage={setPage} />}
       </Card>
+      <Dialog open={deactivating !== null} onOpenChange={(o) => !o && setDeactivating(null)} title={`Desactivar ${deactivating?.name ?? ''}`} description="Deja de aparecer para vender. Se puede reactivar cuando quieras.">
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setDeactivating(null)}>
+            Volver
+          </Button>
+          <Button variant="danger" loading={toggle.isPending} onClick={() => deactivating && toggle.mutate(deactivating, { onSettled: () => setDeactivating(null) })}>
+            Desactivar
+          </Button>
+        </div>
+      </Dialog>
       <Dialog
         open={dialog !== null}
         onOpenChange={(o) => !o && setDialog(null)}
