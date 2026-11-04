@@ -55,6 +55,9 @@
             @endif
             <tr><td style="padding-top:4px;font-size:18px;font-weight:bold;">Total</td><td style="padding-top:4px;text-align:right;font-size:18px;font-weight:bold;">{{ $ars($invoice['total'] ?? $sale['total']) }}</td></tr>
             @unless ($invoice)
+                @if (($sale['priceList'] ?? 'list') === 'cash')
+                    <tr><td colspan="2" style="font-size:13px;color:#555;">Precios de contado</td></tr>
+                @endif
                 @foreach ($sale['payments'] as $p)
                     <tr><td style="font-size:13px;color:#555;">{{ $p['name'] }}</td><td style="text-align:right;font-size:13px;color:#555;">{{ $ars($p['amount']) }}</td></tr>
                 @endforeach

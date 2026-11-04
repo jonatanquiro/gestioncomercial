@@ -2,7 +2,7 @@ import { BUSINESS_TYPES, type TenantDto } from '@gc/contracts';
 import type { Cell, SheetRow, SheetSpec } from '@/lib/xlsx';
 
 /** Campos que entiende la importación (ADR 0022), en el orden de la planilla modelo. */
-export const IMPORT_FIELDS = ['name', 'barcode', 'sku', 'price', 'cost', 'initialStock', 'minStock', 'category', 'brand', 'vatRate', 'saleMode', 'description'] as const;
+export const IMPORT_FIELDS = ['name', 'barcode', 'sku', 'price', 'cashPrice', 'cost', 'initialStock', 'minStock', 'category', 'brand', 'vatRate', 'saleMode', 'description'] as const;
 export type ImportField = (typeof IMPORT_FIELDS)[number];
 
 const HEADERS: Record<ImportField, string> = {
@@ -10,6 +10,7 @@ const HEADERS: Record<ImportField, string> = {
   barcode: 'Código de barras',
   sku: 'Código interno',
   price: 'Precio *',
+  cashPrice: 'Precio contado',
   cost: 'Costo',
   initialStock: 'Stock inicial',
   minStock: 'Stock mínimo',
@@ -25,7 +26,8 @@ const SYNONYMS: Record<ImportField, string[]> = {
   name: ['nombre', 'producto', 'articulo', 'nombre del producto', 'nombre del articulo', 'descripcion del producto'],
   barcode: ['codigo de barras', 'codigo barras', 'cod barras', 'cod de barras', 'ean', 'ean13', 'codigo', 'barcode', 'codigo ean'],
   sku: ['codigo interno', 'cod interno', 'sku', 'codigo propio', 'referencia'],
-  price: ['precio', 'precio de venta', 'precio venta', 'pvp', 'precio final', 'precio al publico', 'venta'],
+  price: ['precio', 'precio de venta', 'precio venta', 'pvp', 'precio final', 'precio al publico', 'venta', 'precio de lista', 'precio lista', 'lista'],
+  cashPrice: ['precio contado', 'precio de contado', 'contado', 'precio efectivo', 'precio en efectivo', 'efectivo'],
   cost: ['costo', 'precio de costo', 'precio costo', 'costo unitario', 'compra', 'precio de compra'],
   initialStock: ['stock', 'stock inicial', 'cantidad', 'existencia', 'stock actual'],
   minStock: ['stock minimo', 'minimo'],
@@ -62,7 +64,7 @@ export const businessSaleModes = (tenant: TenantDto): string[] => BUSINESS_TYPES
 export function templateSheets(withVariants: boolean, saleModes: string[]): SheetSpec[] {
   const options = withVariants ? ['Talle', 'Color'] : [];
   const fields: ImportField[] = withVariants
-    ? ['name', 'barcode', 'sku', 'price', 'cost', 'initialStock', 'minStock', 'category', 'brand', 'vatRate', 'description']
+    ? ['name', 'barcode', 'sku', 'price', 'cashPrice', 'cost', 'initialStock', 'minStock', 'category', 'brand', 'vatRate', 'description']
     : saleModes.length > 1
       ? [...IMPORT_FIELDS]
       : IMPORT_FIELDS.filter((f) => f !== 'saleMode');
@@ -73,8 +75,8 @@ export function templateSheets(withVariants: boolean, saleModes: string[]): Shee
   const row = (values: Partial<Record<string, Cell>>) => header.map((h) => values[h] ?? null);
   const example = withVariants
     ? [
-        row({ name: 'Remera lisa algodón', Talle: 'S', Color: 'Blanco', barcode: '2900000000017', price: 12000, cost: 6500, initialStock: 4, minStock: 2, category: 'Remeras', vatRate: '21' }),
-        row({ name: 'Remera lisa algodón', Talle: 'M', Color: 'Blanco', barcode: '2900000000024', price: 12000, cost: 6500, initialStock: 6 }),
+        row({ name: 'Remera lisa algodón', Talle: 'S', Color: 'Blanco', barcode: '2900000000017', price: 12000, cashPrice: 10800, cost: 6500, initialStock: 4, minStock: 2, category: 'Remeras', vatRate: '21' }),
+        row({ name: 'Remera lisa algodón', Talle: 'M', Color: 'Blanco', barcode: '2900000000024', price: 12000, cashPrice: 10800, cost: 6500, initialStock: 6 }),
         row({ name: 'Remera lisa algodón', Talle: 'L', Color: 'Negro', price: 12500, cost: 6500, initialStock: 3 }),
         row({ name: 'Jean recto', Talle: '40', Color: 'Azul', sku: 'JR-40', price: 38000, cost: 21000, initialStock: 2, category: 'Pantalones', brand: 'Marca propia' }),
         row({ name: 'Jean recto', Talle: '42', Color: 'Azul', sku: 'JR-42', price: 38000, cost: 21000, initialStock: 2 }),
@@ -99,6 +101,7 @@ export function templateSheets(withVariants: boolean, saleModes: string[]): Shee
       : [['Cada nombre tiene que aparecer una sola vez.']]),
     ['Código de barras: el que trae el artículo. Si un código ya está cargado en el sistema, se puede actualizar su precio y costo en lugar de crear otro.'],
     ['Precio y Costo: con o sin $, con coma o punto para los decimales (1.250,50 o 1250.50).'],
+    ['Precio contado: opcional. Es el que se cobra cuando todo se paga en efectivo (o con los medios marcados como contado). Vacío: el mismo precio con cualquier medio.'],
     ['Stock inicial: lo que hay hoy en el depósito principal. En artículos que ya existen no se toca: para sumar mercadería usá Compras.'],
     ['Categoría y Marca: si no existen, se crean al importar.'],
     ['IVA: 21, 10,5, 27, 5, 2,5, 0, exento o no gravado. Vacío: 21.'],

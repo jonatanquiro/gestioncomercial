@@ -119,7 +119,7 @@ abstract class TestCase extends BaseTestCase
     }
 
     /** Campos de la variante que las pruebas de un producto simple pasan aplanados. */
-    private const VARIANT_KEYS = ['sku', 'price', 'cost', 'barcodes', 'initialStock'];
+    private const VARIANT_KEYS = ['sku', 'price', 'cashPrice', 'cost', 'barcodes', 'initialStock'];
 
     /**
      * Cuerpo válido de alta de producto simple, con un código de barras único. sku, price, cost,

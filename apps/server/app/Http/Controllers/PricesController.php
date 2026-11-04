@@ -13,6 +13,7 @@ use App\Support\Input;
 use App\Support\Money;
 use App\Support\Pricing;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -61,6 +62,9 @@ class PricesController extends Controller
             $variants = ProductVariant::whereIn('id', array_column($result['rows'], 'variantId'))->get()->keyBy('id');
             foreach ($result['rows'] as $row) {
                 $this->products->setPrice($variants[$row['variantId']], $row['newPrice'], $actor->userId, $batch->id);
+                if ($row['oldCashPrice'] !== null) {
+                    $variants[$row['variantId']]->forceFill(['cash_price' => $row['newCashPrice']])->save();
+                }
             }
             $this->audit->record([
                 'tenantId' => $actor->tenantId,
@@ -166,6 +170,14 @@ class PricesController extends Controller
 
                 continue;
             }
+            // El precio de contado (ADR 0023) mantiene la misma proporción con el de lista.
+            $oldCash = $v->cash_price === null ? null : Money::round($v->cash_price);
+            $newCash = null;
+            if ($oldCash !== null && ! BigDecimal::of($old)->isZero()) {
+                $scaled = BigDecimal::of($oldCash)->multipliedBy($new)->dividedBy($old, 2, RoundingMode::HALF_UP);
+                $newCash = Pricing::roundPriceUp((string) $scaled, $input['roundingStep']);
+                $newCash = BigDecimal::of($newCash)->isLessThan($new) ? $newCash : null;
+            }
             $rows[] = [
                 'productId' => $p->id,
                 'variantId' => $v->id,
@@ -173,13 +185,15 @@ class PricesController extends Controller
                 'variantLabel' => $v->label,
                 'oldPrice' => $old,
                 'newPrice' => $new,
+                'oldCashPrice' => $oldCash,
+                'newCashPrice' => $newCash,
                 'variation' => BigDecimal::of($old)->isZero() ? null : Pricing::variationPercent($old, $new),
                 'cost' => $seeCost ? $cost : null,
                 'markup' => $seeCost && $cost !== null && ! BigDecimal::of($cost)->isZero() ? Pricing::markupPercentOf($cost, $new) : null,
                 'margin' => $seeCost && $cost !== null && ! BigDecimal::of($new)->isZero() ? Pricing::marginPercentOf($cost, $new) : null,
             ];
         }
-        $fingerprint = hash('sha256', json_encode(array_map(fn ($r) => [$r['variantId'], $r['oldPrice'], $r['newPrice']], $rows)));
+        $fingerprint = hash('sha256', json_encode(array_map(fn ($r) => [$r['variantId'], $r['oldPrice'], $r['newPrice'], $r['oldCashPrice'], $r['newCashPrice']], $rows)));
 
         return ['rows' => $rows, 'skipped' => $skipped, 'fingerprint' => $fingerprint];
     }

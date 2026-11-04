@@ -336,7 +336,7 @@ class ProductsController extends Controller
                     'saleMode' => 'unit', 'vatRate' => '21', 'trackStock' => true, 'minStock' => null, 'blockNegativeStock' => false,
                     'optionNames' => [],
                     'variants' => [[
-                        'id' => null, 'options' => [], 'label' => null, 'sku' => null, 'price' => Money::round($item['price']), 'cost' => null,
+                        'id' => null, 'options' => [], 'label' => null, 'sku' => null, 'price' => Money::round($item['price']), 'cashPrice' => null, 'cost' => null,
                         'barcodes' => [['code' => ReferenceProduct::barcode($ref->code), 'quantityFactor' => '1.000']],
                         'initialStock' => isset($item['initialStock']) ? Money::quantity($item['initialStock']) : null,
                     ]],
@@ -390,7 +390,8 @@ class ProductsController extends Controller
                 if (! $seeCost) {
                     $input['variants'][$i]['cost'] = $v['cost'] = $current?->cost === null ? null : Money::roundUnit($current->cost);
                 }
-                $priceChanges = $current !== null && ! BigDecimal::of($current->price)->isEqualTo($v['price']);
+                $priceChanges = $current !== null && (! BigDecimal::of($current->price)->isEqualTo($v['price'])
+                    || ($current->cash_price === null ? $v['cashPrice'] !== null : ($v['cashPrice'] === null || ! BigDecimal::of($current->cash_price)->isEqualTo($v['cashPrice']))));
                 $costChanges = $current === null
                     ? $v['cost'] !== null
                     : ($current->cost === null ? $v['cost'] !== null : ($v['cost'] === null || ! BigDecimal::of($current->cost)->isEqualTo($v['cost'])));
@@ -432,7 +433,7 @@ class ProductsController extends Controller
                     $variant = $existing[$v['id']];
                     // Por consulta y no con save(): las columnas recién liberadas no figuran como modificadas en el modelo.
                     ProductVariant::whereKey($variant->id)->update([
-                        'options' => $v['options'] ? json_encode($v['options'], JSON_UNESCAPED_UNICODE) : null, 'label' => $v['label'], 'sku' => $v['sku'], 'status' => 'active',
+                        'options' => $v['options'] ? json_encode($v['options'], JSON_UNESCAPED_UNICODE) : null, 'label' => $v['label'], 'sku' => $v['sku'], 'status' => 'active', 'cash_price' => $v['cashPrice'],
                     ]);
                     $this->products->setPrice($variant, $v['price'], $actor->userId);
                     $this->products->setCost($variant, $v['cost'], 'manual', $actor->userId);
@@ -617,6 +618,7 @@ class ProductsController extends Controller
                     'label' => $v->label,
                     'sku' => $v->sku,
                     'price' => Money::round($v->price),
+                    'cashPrice' => $v->cash_price === null ? null : Money::round($v->cash_price),
                     'cost' => $seeCost && $v->cost !== null ? Money::roundUnit($v->cost) : null,
                     'barcodes' => $barcodes->get($v->id, []),
                     'stock' => $showStock ? Money::quantity($stock[$v->id] ?? '0') : null,
@@ -659,6 +661,7 @@ class ProductsController extends Controller
                 'minStock' => $p->min_stock === null ? null : Money::quantity($p->min_stock),
                 'sku' => $v->sku,
                 'price' => Money::round($v->price),
+                'cashPrice' => $v->cash_price === null ? null : Money::round($v->cash_price),
                 'cost' => $seeCost && $v->cost !== null ? Money::roundUnit($v->cost) : null,
                 'barcodes' => $barcodes->get($v->id, []),
                 'stock' => $p->track_stock && $seeStock ? Money::quantity($stock[$v->id] ?? '0') : null,
@@ -707,6 +710,7 @@ class ProductsController extends Controller
             'variants.*.options.*' => ['required', 'string', 'max:40'],
             'variants.*.sku' => ['nullable', 'string', 'max:60'],
             'variants.*.price' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'variants.*.cashPrice' => ['nullable', ...Input::decimal(Input::MONEY, 'Importe inválido')],
             'variants.*.cost' => ['present', 'nullable', ...Input::decimal(Input::COST, 'Costo inválido')],
             'variants.*.barcodes' => ['present', 'array', 'list', 'max:20'],
             'variants.*.barcodes.*' => ['array'],
@@ -745,6 +749,8 @@ class ProductsController extends Controller
                 'label' => $x['options'] === [] ? null : implode(' / ', $x['options']),
                 'sku' => $x['sku'] ?? null,
                 'price' => Money::round($x['price']),
+                // Igual al de lista no es un precio de contado distinto.
+                'cashPrice' => isset($x['cashPrice']) && ! BigDecimal::of($x['cashPrice'])->isEqualTo($x['price']) ? Money::round($x['cashPrice']) : null,
                 'cost' => isset($x['cost']) ? Money::roundUnit($x['cost']) : null,
                 'barcodes' => array_map(fn ($b) => ['code' => $b['code'], 'quantityFactor' => Money::quantity($b['quantityFactor'])], $x['barcodes']),
                 'initialStock' => isset($x['initialStock']) ? Money::quantity($x['initialStock']) : null,
@@ -803,6 +809,9 @@ class ProductsController extends Controller
                 } elseif ($unit && BigDecimal::of($b['quantityFactor'])->hasNonZeroFractionalPart()) {
                     $details[] = ['path' => "variants.{$i}.barcodes.{$j}.quantityFactor", 'message' => $whole];
                 }
+            }
+            if ($x['cashPrice'] !== null && BigDecimal::of($x['cashPrice'])->isGreaterThan($x['price'])) {
+                $details[] = ['path' => "variants.{$i}.cashPrice", 'message' => 'El precio de contado no puede ser mayor que el de lista'];
             }
             if ($unit && $x['initialStock'] !== null && BigDecimal::of($x['initialStock'])->hasNonZeroFractionalPart()) {
                 $details[] = ['path' => "variants.{$i}.initialStock", 'message' => $whole];
@@ -924,7 +933,7 @@ class ProductsController extends Controller
     {
         $variant = ProductVariant::create([
             'product_id' => $productId, 'options' => $v['options'] ?: null, 'label' => $v['label'],
-            'sku' => $v['sku'], 'price' => $v['price'], 'cost' => null,
+            'sku' => $v['sku'], 'price' => $v['price'], 'cash_price' => $v['cashPrice'] ?? null, 'cost' => null,
         ]);
         $this->products->setPrice($variant, $v['price'], $actor->userId, initial: true);
         if ($v['cost'] !== null) {
@@ -988,6 +997,7 @@ class ProductsController extends Controller
                 'label' => $v->label,
                 'sku' => $v->sku,
                 'price' => Money::round($v->price),
+                'cashPrice' => $v->cash_price === null ? null : Money::round($v->cash_price),
                 'cost' => $v->cost === null ? null : Money::roundUnit($v->cost),
                 'barcodes' => collect($barcodes->get($v->id, []))
                     ->map(fn ($b) => ['code' => $b->code, 'quantityFactor' => Money::quantity($b->quantity_factor)])->all(),
@@ -1010,11 +1020,11 @@ class ProductsController extends Controller
         if ($input['optionNames'] === []) {
             $v = $input['variants'][0];
 
-            return $view + ['sku' => $v['sku'], 'price' => $v['price'], 'cost' => $v['cost'], 'barcodes' => $codes($v['barcodes'])];
+            return $view + ['sku' => $v['sku'], 'price' => $v['price'], ...(($v['cashPrice'] ?? null) !== null ? ['cashPrice' => $v['cashPrice']] : []), 'cost' => $v['cost'], 'barcodes' => $codes($v['barcodes'])];
         }
         $variants = [];
         foreach ($input['variants'] as $v) {
-            $variants[$v['label']] = ['sku' => $v['sku'], 'price' => $v['price'], 'cost' => $v['cost'], 'barcodes' => $codes($v['barcodes'])];
+            $variants[$v['label']] = ['sku' => $v['sku'], 'price' => $v['price'], ...(($v['cashPrice'] ?? null) !== null ? ['cashPrice' => $v['cashPrice']] : []), 'cost' => $v['cost'], 'barcodes' => $codes($v['barcodes'])];
         }
         ksort($variants);
 

@@ -180,7 +180,10 @@ export function PricesPage() {
                   </Td>
                   {seeCost && <Td className="text-right text-slate-600">{r.cost ? formatArs(r.cost) : '—'}</Td>}
                   <Td className="text-right">{formatArs(r.oldPrice)}</Td>
-                  <Td className="text-right font-semibold">{formatArs(r.newPrice)}</Td>
+                  <Td className="text-right font-semibold">
+                    {formatArs(r.newPrice)}
+                    {r.newCashPrice && <span className="block text-xs font-normal text-emerald-700">Contado {formatArs(r.newCashPrice)}</span>}
+                  </Td>
                   <Td className={`text-right ${r.variation?.startsWith('-') ? 'text-red-700' : 'text-emerald-700'}`}>{formatPercent(r.variation)}</Td>
                   {seeCost && <Td className="text-right">{formatPercent(r.markup)}</Td>}
                   {seeCost && <Td className="text-right">{formatPercent(r.margin)}</Td>}

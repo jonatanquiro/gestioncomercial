@@ -30,11 +30,11 @@ trait ImportsProducts
 {
     public const MAX_IMPORT_ROWS = 2000;
 
-    private const IMPORT_TEXT = ['name' => 160, 'barcode' => 64, 'sku' => 60, 'price' => 30, 'cost' => 30, 'initialStock' => 30, 'minStock' => 30, 'category' => 80, 'brand' => 80, 'vatRate' => 20, 'saleMode' => 20, 'description' => 500];
+    private const IMPORT_TEXT = ['name' => 160, 'barcode' => 64, 'sku' => 60, 'price' => 30, 'cashPrice' => 30, 'cost' => 30, 'initialStock' => 30, 'minStock' => 30, 'category' => 80, 'brand' => 80, 'vatRate' => 20, 'saleMode' => 20, 'description' => 500];
 
     private const IMPORT_LABELS = [
         'name' => 'Nombre', 'description' => 'Descripción', 'saleMode' => 'Se vende por', 'vatRate' => 'IVA', 'minStock' => 'Stock mínimo',
-        'price' => 'Precio', 'cost' => 'Costo', 'initialStock' => 'Stock inicial', 'sku' => 'Código interno', 'barcodes' => 'Código de barras',
+        'price' => 'Precio', 'cashPrice' => 'Precio contado', 'cost' => 'Costo', 'initialStock' => 'Stock inicial', 'sku' => 'Código interno', 'barcodes' => 'Código de barras',
         'options' => 'Propiedades', 'optionNames' => 'Propiedades',
     ];
 
@@ -138,14 +138,26 @@ trait ImportsProducts
                 }
                 $price = $r['price'] === '' ? null : self::importDecimal($r['price'], 2);
                 $cost = $canCost && $r['cost'] !== '' ? self::importDecimal($r['cost'], 4) : null;
-                if (($r['price'] !== '' && ($price === null || ! preg_match(Input::MONEY, $price))) || ($canCost && $r['cost'] !== '' && ($cost === null || ! preg_match(Input::COST, $cost)))) {
-                    $errors[] = ['row' => $r['row'], 'message' => $price === null && $r['price'] !== '' ? "Precio inválido: {$r['price']}" : "Costo inválido: {$r['cost']}"];
+                $cashPrice = $r['cashPrice'] === '' ? null : self::importDecimal($r['cashPrice'], 2);
+                $invalid = match (true) {
+                    $r['price'] !== '' && ($price === null || ! preg_match(Input::MONEY, $price)) => "Precio inválido: {$r['price']}",
+                    $r['cashPrice'] !== '' && ($cashPrice === null || ! preg_match(Input::MONEY, $cashPrice)) => "Precio contado inválido: {$r['cashPrice']}",
+                    $canCost && $r['cost'] !== '' && ($cost === null || ! preg_match(Input::COST, $cost)) => "Costo inválido: {$r['cost']}",
+                    $cashPrice !== null && BigDecimal::of($cashPrice)->isGreaterThan($price ?? $variant->price) => 'Precio contado: no puede ser mayor que el de lista',
+                    default => null,
+                };
+                if ($invalid !== null) {
+                    $errors[] = ['row' => $r['row'], 'message' => $invalid];
                     $report[] = array_merge($line, ['action' => 'error', 'detail' => null]);
 
                     continue;
                 }
                 $priceChanges = $price !== null && ! BigDecimal::of($variant->price)->isEqualTo($price);
                 $costChanges = $cost !== null && ($variant->cost === null || ! BigDecimal::of($variant->cost)->isEqualTo($cost));
+                // El contado igual al de lista se guarda como «sin precio de contado».
+                $newCash = $cashPrice !== null && ! BigDecimal::of($cashPrice)->isEqualTo($price ?? $variant->price) ? $cashPrice : null;
+                $cashChanges = $r['cashPrice'] !== '' && ($variant->cash_price === null ? $newCash !== null : ($newCash === null || ! BigDecimal::of($variant->cash_price)->isEqualTo($newCash)));
+                $priceChanges = $priceChanges || $cashChanges;
                 if ($r['initialStock'] !== '') {
                     $stockIgnored++;
                 }
@@ -154,7 +166,7 @@ trait ImportsProducts
 
                     continue;
                 }
-                $updates[] = ['variantId' => $variantId, 'price' => $priceChanges ? $price : null, 'cost' => $costChanges ? $cost : null];
+                $updates[] = ['variantId' => $variantId, 'price' => $price !== null && ! BigDecimal::of($variant->price)->isEqualTo($price) ? $price : null, 'cost' => $costChanges ? $cost : null, 'cashChanges' => $cashChanges, 'cashPrice' => $newCash];
                 $report[] = array_merge($line, ['action' => 'update', 'price' => $price ?? $line['oldPrice'], 'detail' => $costChanges && ! $priceChanges ? 'Cambia el costo' : null]);
 
                 continue;
@@ -208,6 +220,7 @@ trait ImportsProducts
                     'options' => array_map(fn ($i) => $r['options'][$i] ?? '', $used),
                     'sku' => $r['sku'] ?: null,
                     'price' => $r['price'] === '' ? null : (self::importDecimal($r['price'], 2) ?? $r['price']),
+                    'cashPrice' => $r['cashPrice'] === '' ? null : (self::importDecimal($r['cashPrice'], 2) ?? $r['cashPrice']),
                     'cost' => $canCost && $r['cost'] !== '' ? (self::importDecimal($r['cost'], 4) ?? $r['cost']) : null,
                     'barcodes' => $r['barcode'] === '' ? [] : [['code' => $r['barcode'], 'quantityFactor' => '1']],
                     'initialStock' => $canStock && $r['initialStock'] !== '' ? (self::importDecimal($r['initialStock'], 3) ?? $r['initialStock']) : null,
@@ -309,7 +322,12 @@ trait ImportsProducts
             if ($u['cost'] !== null) {
                 $this->products->setCost($variant, $u['cost'], 'import', $actor->userId);
             }
-            $this->record($actor, 'product.updated', $variant->product_id, $before, array_filter(['variantId' => $variant->id, 'price' => $u['price'], 'cost' => $u['cost']], fn ($x) => $x !== null));
+            if ($u['cashChanges']) {
+                $before['cashPrice'] = $variant->cash_price === null ? null : Money::round($variant->cash_price);
+                $variant->forceFill(['cash_price' => $u['cashPrice']])->save();
+            }
+            $this->record($actor, 'product.updated', $variant->product_id, $before, array_filter(['variantId' => $variant->id, 'price' => $u['price'], 'cost' => $u['cost']], fn ($x) => $x !== null)
+                + ($u['cashChanges'] ? ['cashPrice' => $u['cashPrice']] : []));
         }
         $s = $plan['report']['summary'];
         $this->audit->record([

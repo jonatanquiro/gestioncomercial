@@ -197,7 +197,14 @@ function Counter({ register }: { register: RegisterDto }) {
     () =>
       cart.lines.map((l) => {
         const valid = isPositive(l.quantity) && DISCOUNT_RE.test(l.discountPercent) && dec(l.discountPercent).lte(100);
-        return { ...l, valid, amounts: valid ? saleLine(l.quantity, l.product.price, l.discountPercent) : { gross: '0.00', discount: '0.00', total: '0.00' } };
+        const zero = { gross: '0.00', discount: '0.00', total: '0.00' };
+        return {
+          ...l,
+          valid,
+          amounts: valid ? saleLine(l.quantity, l.product.price, l.discountPercent) : zero,
+          // Precio de contado (ADR 0023): sin uno propio, el de lista.
+          cashAmounts: valid ? saleLine(l.quantity, l.product.cashPrice ?? l.product.price, l.discountPercent) : zero,
+        };
       }),
     [cart.lines],
   );
@@ -207,16 +214,25 @@ function Counter({ register }: { register: RegisterDto }) {
   const hasPromotions = (promotions.data?.length ?? 0) > 0;
   const quoteLines = cart.lines.map((l) => ({ variantId: l.product.variantId, quantity: l.quantity, discountPercent: l.discountPercent }));
   const quote = useQuery({
-    queryKey: ['sale-quote', JSON.stringify(quoteLines)],
+    queryKey: ['sale-quote', 'list', JSON.stringify(quoteLines)],
     queryFn: () => http.post<SaleQuoteDto>('/sales/quote', { lines: quoteLines }),
     enabled: hasPromotions && allValid,
     staleTime: 30_000,
     retry: false,
   });
+  const hasCashPrices = cart.lines.some((l) => l.product.cashPrice !== null && l.product.cashPrice !== undefined);
+  const cashQuote = useQuery({
+    queryKey: ['sale-quote', 'cash', JSON.stringify(quoteLines)],
+    queryFn: () => http.post<SaleQuoteDto>('/sales/quote', { lines: quoteLines, priceList: 'cash' }),
+    enabled: hasPromotions && allValid && hasCashPrices,
+    staleTime: 30_000,
+    retry: false,
+  });
   const promoOf = (i: number) => (hasPromotions && quote.data ? quote.data.lines[i] : undefined);
   const total = hasPromotions && quote.data ? quote.data.total : sumMoney(computed.map((l) => l.amounts.total));
+  const cashTotal = !hasCashPrices ? total : hasPromotions && cashQuote.data ? cashQuote.data.total : sumMoney(computed.map((l) => l.cashAmounts.total));
   const discount = hasPromotions && quote.data ? quote.data.discountTotal : sumMoney(computed.map((l) => l.amounts.discount));
-  const quoting = hasPromotions && allValid && !quote.data;
+  const quoting = hasPromotions && allValid && (!quote.data || (hasCashPrices && !cashQuote.data));
 
   function addQuantity(product: ItemDto, quantity: string) {
     setCart((c) => {
@@ -265,12 +281,12 @@ function Counter({ register }: { register: RegisterDto }) {
 
   /** El servidor recalculó con los precios vigentes: se actualizan en la venta para revisarlos. */
   function pricesChanged(err: ApiRequestError) {
-    const prices = (err.details as { prices?: Array<{ variantId: string; unitPrice: string }> } | undefined)?.prices ?? [];
+    const prices = (err.details as { prices?: Array<{ variantId: string; unitPrice: string; cashPrice?: string | null }> } | undefined)?.prices ?? [];
     setCart((c) => ({
       ...c,
       lines: c.lines.map((l) => {
         const p = prices.find((x) => x.variantId === l.product.variantId);
-        return p ? { ...l, product: { ...l.product, price: p.unitPrice } } : l;
+        return p ? { ...l, product: { ...l.product, price: p.unitPrice, cashPrice: p.cashPrice ?? null } } : l;
       }),
     }));
     setCheckout(false);
@@ -351,6 +367,7 @@ function Counter({ register }: { register: RegisterDto }) {
                   <span className="line-clamp-2 font-medium leading-snug">{itemName(l.product)}</span>
                   <span className="block text-xs text-slate-500">
                     {formatArs(l.product.price)} {isMeasured(l.product) ? `/${UNIT[l.product.saleMode]}` : 'c/u'}
+                    {l.product.cashPrice && <span className="ml-1 text-emerald-700">· contado {formatArs(l.product.cashPrice)}</span>}
                     {dec(l.valid ? l.discountPercent : '0').gt(0) && <span className="ml-1 font-semibold text-emerald-700">−{toInputDecimal(l.discountPercent)} %</span>}
                   </span>
                 </button>
@@ -398,11 +415,19 @@ function Counter({ register }: { register: RegisterDto }) {
             </div>
           )}
           <div className="flex items-baseline justify-between">
-            <span className="text-lg font-semibold">Total</span>
+            <span className="text-lg font-semibold">{dec(cashTotal).lt(total) ? 'Total lista' : 'Total'}</span>
             <span className="text-4xl font-bold tracking-tight" aria-label="Total de la venta">
               {formatArs(total)}
             </span>
           </div>
+          {dec(cashTotal).lt(total) && (
+            <div className="flex items-baseline justify-between rounded-lg bg-emerald-50 px-3 py-2 text-emerald-900">
+              <span className="font-semibold">Contado</span>
+              <span className="text-2xl font-bold tabular-nums" aria-label="Total de contado">
+                {formatArs(cashTotal)}
+              </span>
+            </div>
+          )}
           <Button className="h-16 w-full text-xl" disabled={!allValid || quoting} loading={quoting && quote.isFetching} onClick={() => setCheckout(true)}>
             Cobrar (F2)
           </Button>
@@ -436,6 +461,7 @@ function Counter({ register }: { register: RegisterDto }) {
           <div className="min-w-0">
             <p className="text-xs text-slate-500">{cart.lines.length === 1 ? '1 artículo' : `${cart.lines.length} artículos`}</p>
             <p className="font-display text-2xl font-bold tabular-nums">{formatArs(total)}</p>
+            {dec(cashTotal).lt(total) && <p className="text-xs font-semibold text-emerald-700">Contado {formatArs(cashTotal)}</p>}
           </div>
           <Button className="h-14 flex-1 text-lg" disabled={!allValid || quoting} onClick={() => setCheckout(true)}>
             Cobrar
@@ -463,7 +489,8 @@ function Counter({ register }: { register: RegisterDto }) {
           registerId={register.id}
           cart={cart}
           customer={cart.customer ?? null}
-          total={total}
+          listTotal={total}
+          cashTotal={cashTotal}
           methods={methods.data.filter((m) => m.active)}
           onClose={() => (setCheckout(false), focusScanner())}
           onDone={done}
@@ -773,7 +800,8 @@ function CheckoutDialog({
   registerId,
   cart,
   customer,
-  total,
+  listTotal,
+  cashTotal,
   methods,
   onClose,
   onDone,
@@ -782,7 +810,8 @@ function CheckoutDialog({
   registerId: string;
   cart: Cart;
   customer: CustomerDto | null;
-  total: string;
+  listTotal: string;
+  cashTotal: string;
   methods: PaymentMethodDto[];
   onClose: () => void;
   onDone: (sale: SaleDto) => void;
@@ -801,6 +830,11 @@ function CheckoutDialog({
   // Lo que se carga a la cuenta corriente del cliente: hasta lo que tiene disponible.
   const can = useCan();
   const [account, setAccount] = useState<string | null>(null);
+  // Lista de precios (ADR 0023): contado solo si todo se paga con medios de contado; si no, toda la venta a precio de lista.
+  const usedRows = rows.filter((r, i) => r.amount.trim() !== '' || (i === 0 && rows.length === 1));
+  const allCash = account === null && usedRows.every((r) => byId.get(r.paymentMethodId)?.cashPrice);
+  const differs = dec(cashTotal).lt(listTotal);
+  const total = allCash ? cashTotal : listTotal;
   const available = customer ? dec(customer.creditLimit ?? '0').minus(customer.balance) : dec(0);
   const canAccount = !!customer && can('accounts.grant_credit') && available.gt(0);
   const cardsTotal = sumMoney([...cards.map((c) => c.amount), account ?? '0']);
@@ -883,6 +917,19 @@ function CheckoutDialog({
       <Dialog open onOpenChange={(o) => !o && !confirm.isPending && onClose()} title="Cobrar" description={`Total ${formatArs(total)}`} wide>
         <form onSubmit={submit} className="space-y-4" noValidate>
           {error && <Alert>{error}</Alert>}
+          {differs && (
+            <div className={`rounded-xl px-4 py-2 text-sm ${allCash ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`} role="status">
+              {allCash ? (
+                <>
+                  <span className="font-semibold">Precio de contado.</span> A precio de lista sería {formatArs(listTotal)}.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">Precio de lista.</span> Pagando todo en efectivo sería {formatArs(cashTotal)}.
+                </>
+              )}
+            </div>
+          )}
           {rows.length > 1 && (
             <div className="flex flex-wrap gap-2" aria-label="Pagos">
               {rows.map((r, i) => (

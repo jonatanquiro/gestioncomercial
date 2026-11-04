@@ -104,13 +104,16 @@ class SalesController extends Controller
      */
     public function quote(Request $request): JsonResponse
     {
-        $input = Input::validate($this->body($request), array_intersect_key(self::saleRules(), array_flip(['lines', 'lines.*', 'lines.*.variantId', 'lines.*.quantity', 'lines.*.discountPercent'])), self::saleMessages());
+        $input = Input::validate($this->body($request), [
+            ...array_intersect_key(self::saleRules(), array_flip(['lines', 'lines.*', 'lines.*.variantId', 'lines.*.quantity', 'lines.*.discountPercent'])),
+            'priceList' => ['nullable', 'string', 'in:list,cash'],
+        ], self::saleMessages());
         self::assertSaleAmounts(['lines' => $input['lines'], 'payments' => []]);
-        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discount, 'total' => $total] = $this->sales->price($input['lines']);
+        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discount, 'total' => $total] = $this->sales->price($input['lines'], true, $input['priceList'] ?? 'list');
 
         return $this->json([
             'lines' => array_map(fn ($l) => [
-                'variantId' => $l['variant']->id, 'unitPrice' => Money::round($l['variant']->price), 'promotionId' => $l['promotion']?->id,
+                'variantId' => $l['variant']->id, 'unitPrice' => $l['unitPrice'], 'promotionId' => $l['promotion']?->id,
                 'promotionName' => $l['promotion']?->name, 'promotionDiscount' => $l['promotionDiscount'], 'total' => $l['lineTotal'],
             ], $lines),
             'subtotal' => Money::round($subtotal), 'discountTotal' => Money::round($discount), 'total' => Money::round($total),
@@ -438,6 +441,7 @@ class SalesController extends Controller
             'changeGiven' => Money::round($sale->change_given),
             'discountAuthorizedBy' => $users[$sale->discount_authorized_by] ?? null,
             'kind' => $sale->kind,
+            'priceList' => $sale->price_list,
             'customer' => $sale->customer_id ? (fn (?Customer $c) => $c ? CustomersController::dto($c) : null)(Customer::find($sale->customer_id)) : null,
             'giftCard' => $giftCard ? GiftCardsController::dto($giftCard) : null,
             'exchangeOf' => $origin ? ['saleId' => $origin->sale_id, 'saleNumber' => (int) Sale::whereKey($origin->sale_id)->value('number'), 'credit' => Money::round($origin->total)] : null,

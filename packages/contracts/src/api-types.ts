@@ -230,6 +230,8 @@ export interface ProductVariantDto {
   label: string | null;
   sku: string | null;
   price: string;
+  /** Precio de contado; null si se cobra el de lista con cualquier medio. */
+  cashPrice: string | null;
   /** null si no hay costo cargado o si el usuario no tiene permiso para ver costos. */
   cost: string | null;
   barcodes: BarcodeDto[];
@@ -276,6 +278,8 @@ export interface ItemDto {
   minStock: string | null;
   sku: string | null;
   price: string;
+  /** Precio de contado; null si se cobra el de lista con cualquier medio. */
+  cashPrice: string | null;
   /** Costo vigente; null si no tiene o el usuario no puede ver costos. */
   cost: string | null;
   barcodes: BarcodeDto[];
@@ -401,6 +405,9 @@ export interface BulkPriceRowDto {
   variantLabel: string | null;
   oldPrice: string;
   newPrice: string;
+  /** Precio de contado antes y después: mantiene la proporción con el de lista (ADR 0023). */
+  oldCashPrice: string | null;
+  newCashPrice: string | null;
   /** Variación porcentual del precio. */
   variation: string | null;
   /** Solo con permiso para ver costos. */
@@ -432,6 +439,8 @@ export interface PaymentMethodDto {
   name: string;
   kind: PaymentKind;
   requiresReference: boolean;
+  /** Cobra a precio de contado (ADR 0023). */
+  cashPrice: boolean;
   active: boolean;
   sortOrder: number;
 }
@@ -464,6 +473,8 @@ export interface SaleDto {
   registerName: string;
   shiftId: string;
   cashierName: string;
+  /** Lista con la que se cobró: «cash» si todo se pagó con medios de contado. */
+  priceList: 'list' | 'cash';
   subtotal: string;
   discountTotal: string;
   total: string;

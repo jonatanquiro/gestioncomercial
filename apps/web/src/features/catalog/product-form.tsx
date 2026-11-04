@@ -182,6 +182,7 @@ export function ProductForm({ product, initialCode, onDone }: { product?: Produc
         options: form.hasVariants ? r.options : [],
         sku: r.sku,
         price: parseDecimalInput(r.price),
+        cashPrice: orNull(r.cashPrice),
         // Quien no ve costos no los manda: el servidor conserva los vigentes.
         cost: seeCost ? orNull(r.cost) : null,
         barcodes: r.barcodes
@@ -287,6 +288,11 @@ export function ProductForm({ product, initialCode, onDone }: { product?: Produc
               {(p) => <Input {...p} inputMode="decimal" value={single.price} onChange={(e) => setSingle({ price: e.target.value })} disabled={!editPrice} />}
             </Field>
           )}
+          {!form.hasVariants && (
+            <Field label="Precio de contado" error={errors['variants.0.cashPrice']} hint="Opcional: efectivo y los medios marcados como contado.">
+              {(p) => <Input {...p} inputMode="decimal" placeholder="Igual al de venta" value={single.cashPrice} onChange={(e) => setSingle({ cashPrice: e.target.value })} disabled={!editPrice} />}
+            </Field>
+          )}
           {!form.hasVariants && seeCost && (
             <Field label="Costo" error={errors['variants.0.cost']} hint={!editCost ? 'Tu rol no puede cambiar costos.' : 'Opcional.'}>
               {(p) => <Input {...p} inputMode="decimal" value={single.cost} onChange={(e) => setSingle({ cost: e.target.value })} disabled={!editCost} />}
@@ -304,7 +310,7 @@ export function ProductForm({ product, initialCode, onDone }: { product?: Produc
             )}
           </Field>
         </div>
-        {form.hasVariants && <p className="mt-2 text-xs text-slate-600">El precio y el costo se cargan en cada variante.</p>}
+        {form.hasVariants && <p className="mt-2 text-xs text-slate-600">El precio, el de contado y el costo se cargan en cada variante.</p>}
         {!form.hasVariants && seeCost && (
           <div className="mt-2">
             <MarginHint cost={single.cost} price={single.price} />

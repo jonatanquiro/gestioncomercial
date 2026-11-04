@@ -90,6 +90,30 @@ class SalesService
         return $this->pins->require($actor, 'sales.discount_unlimited', $input['authorization'] ?? null);
     }
 
+    /**
+     * Lista de precios de la venta (ADR 0023): de contado solo si todo se paga con medios de
+     * contado (o gift card, que ya se pagó). Si algo va con otro medio o a cuenta corriente, toda
+     * la venta va a precio de lista.
+     */
+    private function priceList(array $input): string
+    {
+        if (BigDecimal::of(Money::round($input['accountAmount'] ?? '0'))->isPositive()) {
+            return 'list';
+        }
+        $ids = array_column($input['payments'] ?? [], 'paymentMethodId');
+        if ($ids === [] && ($input['giftCards'] ?? []) === []) {
+            return 'list';
+        }
+        $cash = PaymentMethod::whereIn('id', $ids)->pluck('cash_price', 'id');
+        foreach ($ids as $id) {
+            if (! ($cash[$id] ?? false)) {
+                return 'list';
+            }
+        }
+
+        return 'cash';
+    }
+
     /** $credit: lo devuelto en un cambio, que paga primero la venta nueva con el medio interno «exchange». */
     private function confirm(Actor $actor, Register $register, array $input, ?string $discountAuthorizedBy, ?array $credit = null): Sale
     {
@@ -98,11 +122,13 @@ class SalesService
             ?? throw AppError::notFound('Depósito');
 
         // Precios y promociones vigentes: lo que diga el pedido no cuenta. Un cambio no aplica promociones.
-        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discountTotal, 'total' => $total] = $this->price($input['lines'], $credit === null);
+        $priceList = $credit === null ? $this->priceList($input) : 'list';
+        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discountTotal, 'total' => $total] = $this->price($input['lines'], $credit === null, $priceList);
         if (! $total->isEqualTo($input['expectedTotal'])) {
             throw new AppError(409, 'PRICE_CHANGED', 'Cambió el precio de algún artículo o una promoción: revisá el total antes de cobrar', [
                 'total' => Money::round($total),
-                'prices' => array_map(fn ($l) => ['variantId' => $l['variant']->id, 'unitPrice' => Money::round($l['variant']->price)], $lines),
+                'priceList' => $priceList,
+                'prices' => array_map(fn ($l) => ['variantId' => $l['variant']->id, 'unitPrice' => Money::round($l['variant']->price), 'cashPrice' => $l['variant']->cash_price === null ? null : Money::round($l['variant']->cash_price)], $lines),
             ]);
         }
 
@@ -140,6 +166,7 @@ class SalesService
             'client_uuid' => $input['clientUuid'],
             'status' => 'confirmed',
             'kind' => 'sale',
+            'price_list' => $priceList,
             'customer_id' => $customer?->id,
             'cashier_id' => $actor->userId,
             'subtotal' => Money::round($subtotal),
@@ -159,7 +186,7 @@ class SalesService
                 'description' => ProductVariant::displayName($l['product']->name, $l['variant']->label),
                 'sale_mode' => $l['product']->sale_mode,
                 'quantity' => $l['quantity'],
-                'unit_price' => Money::round($l['variant']->price),
+                'unit_price' => $l['unitPrice'],
                 'unit_cost' => $l['variant']->cost,
                 'discount_percent' => $l['discountPercent'],
                 'discount_amount' => $l['amounts']['discount'],
@@ -222,7 +249,8 @@ class SalesService
      *
      * @return array{lines: list<array>, subtotal: BigDecimal, discountTotal: BigDecimal, total: BigDecimal}
      */
-    public function price(array $input, bool $withPromotions = true): array
+    /** $priceList: «cash» usa el precio de contado de cada variante (si tiene); «list», el de lista. */
+    public function price(array $input, bool $withPromotions = true, string $priceList = 'list'): array
     {
         $variants = ProductVariant::whereIn('id', array_column($input, 'variantId'))->get()->keyBy('id');
         $products = Product::whereIn('id', $variants->pluck('product_id'))->get()->keyBy('id');
@@ -238,13 +266,14 @@ class SalesService
             }
             $quantity = Money::quantity($line['quantity']);
             $discountPercent = Money::round($line['discountPercent'] ?? '0');
-            $amounts = Pricing::saleLine($quantity, $variant->price, $discountPercent);
-            $lines[] = compact('variant', 'product', 'quantity', 'discountPercent', 'amounts') + ['promotion' => null, 'promotionDiscount' => '0.00', 'lineTotal' => $amounts['total']];
+            $unitPrice = Money::round($priceList === 'cash' && $variant->cash_price !== null ? $variant->cash_price : $variant->price);
+            $amounts = Pricing::saleLine($quantity, $unitPrice, $discountPercent);
+            $lines[] = compact('variant', 'product', 'quantity', 'discountPercent', 'amounts', 'unitPrice') + ['promotion' => null, 'promotionDiscount' => '0.00', 'lineTotal' => $amounts['total']];
         }
         if ($withPromotions && $lines !== []) {
             $applied = $this->promotions->apply(array_map(fn ($l) => [
                 'productId' => $l['product']->id, 'categoryId' => $l['product']->category_id, 'saleMode' => $l['product']->sale_mode,
-                'quantity' => $l['quantity'], 'unitPrice' => Money::round($l['variant']->price), 'discountPercent' => $l['discountPercent'], 'total' => BigDecimal::of($l['amounts']['total']),
+                'quantity' => $l['quantity'], 'unitPrice' => $l['unitPrice'], 'discountPercent' => $l['discountPercent'], 'total' => BigDecimal::of($l['amounts']['total']),
             ], $lines));
             foreach ($applied as $i => $a) {
                 if ($a !== null) {

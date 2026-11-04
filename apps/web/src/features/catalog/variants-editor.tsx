@@ -13,6 +13,7 @@ export interface VariantRow {
   options: string[];
   sku: string;
   price: string;
+  cashPrice: string;
   cost: string;
   barcodes: Array<{ code: string; quantityFactor: string }>;
   initialStock: string;
@@ -24,7 +25,7 @@ let keys = 0;
 const nextKey = () => `v${++keys}`;
 
 export function emptyRow(options: string[] = [], price = '', cost = ''): VariantRow {
-  return { key: nextKey(), id: null, options, sku: '', price, cost, barcodes: [], initialStock: '', stock: null };
+  return { key: nextKey(), id: null, options, sku: '', price, cashPrice: '', cost, barcodes: [], initialStock: '', stock: null };
 }
 
 export function rowsFrom(p: ProductDto): VariantRow[] {
@@ -34,6 +35,7 @@ export function rowsFrom(p: ProductDto): VariantRow[] {
     options: v.options,
     sku: v.sku ?? '',
     price: toInputDecimal(v.price),
+    cashPrice: toInputDecimal(v.cashPrice),
     cost: toInputDecimal(v.cost),
     barcodes: v.barcodes.map((b) => ({ code: b.code, quantityFactor: toInputDecimal(b.quantityFactor) })),
     initialStock: '',
@@ -200,11 +202,12 @@ export function VariantsEditor({
       {errors.variants && <Alert>{errors.variants}</Alert>}
       {rows.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[46rem] text-sm">
+          <table className="w-full min-w-[54rem] text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold text-slate-600">
               <tr>
                 <th className="px-3 py-2">Variante</th>
                 <th className="px-3 py-2">Precio</th>
+                <th className="px-3 py-2">Contado</th>
                 {seeCost && <th className="px-3 py-2">Costo</th>}
                 <th className="px-3 py-2">Código de barras</th>
                 <th className="px-3 py-2">Código interno</th>
@@ -235,6 +238,19 @@ export function VariantsEditor({
                         onChange={(ev) => setRow(r.key, { price: ev.target.value })}
                       />
                       {e('price') && <p className="mt-1 text-xs text-red-600">{e('price')}</p>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        aria-label={`Precio de contado de ${label}`}
+                        className="w-28"
+                        inputMode="decimal"
+                        placeholder="Igual"
+                        value={r.cashPrice}
+                        disabled={!editPrice && r.id !== null}
+                        aria-invalid={e('cashPrice') ? true : undefined}
+                        onChange={(ev) => setRow(r.key, { cashPrice: ev.target.value })}
+                      />
+                      {e('cashPrice') && <p className="mt-1 text-xs text-red-600">{e('cashPrice')}</p>}
                     </td>
                     {seeCost && (
                       <td className="px-3 py-2">

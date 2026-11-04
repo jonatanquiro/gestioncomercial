@@ -252,6 +252,8 @@ const variantSchema = z.object({
   options: z.array(z.string().trim().min(1, 'Obligatorio').max(40)).max(MAX_PRODUCT_OPTIONS),
   sku: optionalText(60),
   price: moneySchema,
+  /** Precio de contado (ADR 0023): opcional; sin él, se cobra el de lista con cualquier medio. */
+  cashPrice: moneySchema.nullable().optional(),
   cost: costSchema.nullable(),
   barcodes: z.array(barcodeSchema).max(20),
   /** Stock inicial en el depósito principal, solo para variantes nuevas (necesita el permiso de ajustar stock). */
@@ -294,6 +296,7 @@ function refineProduct(p: z.infer<typeof productShape>, ctx: z.RefinementCtx) {
   const skus = new Set<string>();
   const codes = new Set<string>();
   p.variants.forEach((v, i) => {
+    if (v.cashPrice && Number(v.cashPrice) > Number(v.price)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'cashPrice'], message: 'El precio de contado no puede ser mayor que el de lista' });
     if (v.options.length !== p.optionNames.length) {
       ctx.addIssue({ code: 'custom', path: ['variants', i, 'options'], message: 'Completá todas las propiedades' });
     } else if (p.optionNames.length > 0) {
@@ -562,6 +565,8 @@ export const paymentMethodSchema = z.object({
   name: trimmed(60),
   kind: z.enum(PAYMENT_KINDS),
   requiresReference: z.boolean(),
+  /** Cobra a precio de contado (ADR 0023). */
+  cashPrice: z.boolean(),
   active: z.boolean(),
   sortOrder: z.number().int().min(0).max(999),
 });
@@ -673,7 +678,7 @@ export const productImportSchema = z.object({
       z.object({
         row: z.number().int().min(1),
         options: z.array(z.string().max(40)).max(3),
-        name: importCell(160), barcode: importCell(64), sku: importCell(60), price: importCell(30), cost: importCell(30),
+        name: importCell(160), barcode: importCell(64), sku: importCell(60), price: importCell(30), cashPrice: importCell(30), cost: importCell(30),
         initialStock: importCell(30), minStock: importCell(30), category: importCell(80), brand: importCell(80),
         vatRate: importCell(20), saleMode: importCell(20), description: importCell(500),
       }),

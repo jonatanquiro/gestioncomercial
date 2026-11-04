@@ -185,6 +185,7 @@ function Label({ item, format, showPrice, store }: { item: ItemDto; format: Form
         <span className="truncate text-[8pt] font-bold">{item.variantLabel ?? ''}</span>
         {showPrice && <span className="shrink-0 text-[10pt] font-bold">{formatArs(item.price)}</span>}
       </div>
+      {showPrice && item.cashPrice && <div className="text-right text-[7pt] font-semibold leading-tight">Contado {formatArs(item.cashPrice)}</div>}
       <BarcodeSvg code={code} className="mt-auto min-h-0 w-full flex-1" />
       <div className="text-center font-mono text-[6.5pt] leading-none tracking-[0.15em]">{code}</div>
     </div>

@@ -15,7 +15,7 @@ import { buildRows, businessSaleModes, chunkRows, type ColumnMap, IMPORT_FIELDS,
 import { tenantQuery } from './queries';
 
 const FIELD_LABELS: Record<ImportField, string> = {
-  name: 'Nombre', barcode: 'Código de barras', sku: 'Código interno', price: 'Precio', cost: 'Costo', initialStock: 'Stock inicial',
+  name: 'Nombre', barcode: 'Código de barras', sku: 'Código interno', price: 'Precio', cashPrice: 'Precio contado', cost: 'Costo', initialStock: 'Stock inicial',
   minStock: 'Stock mínimo', category: 'Categoría', brand: 'Marca', vatRate: 'IVA', saleMode: 'Se vende por', description: 'Descripción',
 };
 

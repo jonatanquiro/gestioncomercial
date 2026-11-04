@@ -68,6 +68,7 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
         <span>TOTAL</span>
         <span>{formatArs(sale.total)}</span>
       </div>
+      {sale.priceList === 'cash' && <div>Precios de contado</div>}
       {sale.payments.map((p, i) => (
         <Row key={i} label={p.name} value={formatArs(p.kind === 'cash' && i === lastCash(sale) ? addChange(p.amount, sale.changeGiven) : p.amount)} />
       ))}
