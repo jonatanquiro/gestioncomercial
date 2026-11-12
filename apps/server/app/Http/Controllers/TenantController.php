@@ -10,6 +10,7 @@ use App\Models\Tenant;
 use App\Services\AuditService;
 use App\Services\EntitlementsService;
 use App\Services\SalesService;
+use App\Services\TenantCuitGuard;
 use App\Support\Appearance;
 use App\Support\AppError;
 use App\Support\Catalog;
@@ -85,6 +86,10 @@ class TenantController extends Controller
 
         return $this->json(DB::transaction(function () use ($actor, $after) {
             $tenant = Tenant::whereKey($actor->tenantId)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($after['cuit'] !== $tenant->cuit) {
+                $guard = app(TenantCuitGuard::class);
+                $guard->assertAvailable($after['cuit'], $guard->ownersOfCurrent(), $tenant->id);
+            }
             $before = [
                 'tradeName' => $tenant->trade_name,
                 'legalName' => $tenant->legal_name,

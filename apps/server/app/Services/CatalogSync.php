@@ -19,10 +19,10 @@ class CatalogSync
     private const PLAN_SEEDS = [
         ['code' => 'inicial', 'name' => 'Inicial', 'sort' => 1,
             'limits' => ['max_branches' => 1, 'max_users' => 3, 'max_products' => 2000, 'max_registers' => 1],
-            'features' => ['fiscal_arca']],
+            'features' => ['fiscal_arca', 'variants']],
         ['code' => 'profesional', 'name' => 'Profesional', 'sort' => 2,
             'limits' => ['max_branches' => 1, 'max_users' => 10, 'max_products' => 20000, 'max_registers' => 3],
-            'features' => ['fiscal_arca', 'advanced_reports', 'promotions']],
+            'features' => ['fiscal_arca', 'advanced_reports', 'promotions', 'variants']],
         ['code' => 'multisucursal', 'name' => 'Multi-sucursal', 'sort' => 3,
             'limits' => ['max_branches' => 5, 'max_users' => 30, 'max_products' => 50000, 'max_registers' => 15],
             'features' => ['fiscal_arca', 'advanced_reports', 'promotions', 'multi_branch', 'offline_pos', 'variants']],

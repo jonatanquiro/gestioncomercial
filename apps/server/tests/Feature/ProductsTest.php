@@ -292,6 +292,8 @@ class ProductsTest extends TestCase
         $v = fn (array $options) => ['id' => null, 'options' => $options, 'sku' => null, 'price' => '100', 'cost' => null, 'barcodes' => [], 'initialStock' => null];
         $input = self::productInput(['optionNames' => ['Talle'], 'variants' => [$v(['M']), $v(['L'])]]);
 
+        // Todos los planes iniciales traen variantes (ADR 0025); uno sin la función no las deja crear.
+        $this->usePlan($tenantId, []);
         $plan = $owner->post('/products', $input);
         $this->assertSame(400, $plan->status);
         $this->assertSame('VARIANTS_PLAN', $plan->body['code']);
@@ -311,7 +313,7 @@ class ProductsTest extends TestCase
         $this->assertSame(201, $created->status);
 
         // Al bajar de plan se siguen editando las variantes existentes, pero no se agregan nuevas.
-        $this->withPlan($tenantId, 'inicial');
+        $this->usePlan($tenantId, []);
         $dto = $created->body;
         $this->assertSame(200, $owner->put("/products/{$dto['id']}", self::productUpdate($dto, ['price' => '120']))->status);
         $dto = $owner->get("/products/{$dto['id']}")->body;

@@ -343,6 +343,28 @@ class AuthService
         return array_values(array_diff($userIds, $elsewhere));
     }
 
+    /**
+     * ¿La persona es dueña (rol del sistema «owner», activa) de todos esos comercios? Sirve para
+     * dejar que un mismo dueño use su CUIT en varios comercios (ADR 0025). Consulta por user_id.
+     *
+     * @param  list<string>  $tenantIds
+     */
+    public function ownsAll(string $userId, array $tenantIds): bool
+    {
+        if ($tenantIds === []) {
+            return true;
+        }
+        $owned = $this->userMemberships($userId)
+            ->join('roles', fn ($j) => $j->on('roles.id', '=', 'memberships.role_id')->on('roles.tenant_id', '=', 'memberships.tenant_id'))
+            ->where('memberships.status', 'active')
+            ->where('roles.template_code', 'owner')
+            ->whereIn('memberships.tenant_id', $tenantIds)
+            ->distinct()
+            ->count('memberships.tenant_id');
+
+        return $owned === count(array_unique($tenantIds));
+    }
+
     private function defaultTenant(string $userId): ?string
     {
         return $this->userMemberships($userId)

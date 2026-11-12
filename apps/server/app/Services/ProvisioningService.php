@@ -51,6 +51,7 @@ class ProvisioningService
         $plan = Plan::where('code', $planCode)->first()
             ?? throw new RuntimeException("No existe el plan {$planCode}; corré las migraciones");
         $by ??= ['actorType' => 'user', 'actorId' => $ownerUserId, 'actorName' => $ownerName];
+        app(TenantCuitGuard::class)->assertAvailable($input['cuit'] ?? null, [$ownerUserId]);
 
         $tenant = Tenant::create([
             'trade_name' => $input['tradeName'],
