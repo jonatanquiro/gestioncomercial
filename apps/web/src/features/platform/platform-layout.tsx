@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, Outlet, useNavigate } from '@tanstack/react-router';
-import { Layers, LogOut, Store } from 'lucide-react';
+import { Database, Layers, LogOut, Store } from 'lucide-react';
 import { http } from '@/lib/api';
 import { publicFile } from '@/lib/base-path';
 import { platformMeQuery } from './platform-session';
@@ -38,6 +38,10 @@ export function PlatformLayout() {
             <Link to="/plataforma/planes" className={linkClass} activeProps={activeClass}>
               <Layers className="size-4" aria-hidden />
               Planes
+            </Link>
+            <Link to="/plataforma/base" className={linkClass} activeProps={activeClass}>
+              <Database className="size-4" aria-hidden />
+              Base de datos
             </Link>
           </nav>
         </div>

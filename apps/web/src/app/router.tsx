@@ -23,6 +23,7 @@ import { PlatformLayout } from '@/features/platform/platform-layout';
 import { PlatformLoginPage } from '@/features/platform/platform-login-page';
 import { platformMeQuery } from '@/features/platform/platform-session';
 import { PlatformPlansPage } from '@/features/platform/plans-page';
+import { PlatformDatabasePage } from '@/features/platform/database-page';
 import { PlatformTenantsPage } from '@/features/platform/tenants-page';
 import { RolesPage } from '@/features/roles/roles-page';
 import { PosPage } from '@/features/sales/pos-page';
@@ -184,6 +185,7 @@ const platformRoute = createRoute({
 
 const platformIndexRoute = createRoute({ getParentRoute: () => platformRoute, path: '/', component: PlatformTenantsPage });
 const platformPlansRoute = createRoute({ getParentRoute: () => platformRoute, path: 'planes', component: PlatformPlansPage });
+const platformDatabaseRoute = createRoute({ getParentRoute: () => platformRoute, path: 'base', component: PlatformDatabasePage });
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
@@ -231,7 +233,7 @@ const routeTree = rootRoute.addChildren([
     subscriptionRoute,
   ]),
   platformLoginRoute,
-  platformRoute.addChildren([platformIndexRoute, platformPlansRoute]),
+  platformRoute.addChildren([platformIndexRoute, platformPlansRoute, platformDatabaseRoute]),
 ]);
 
 export function createAppRouter(queryClient: QueryClient) {

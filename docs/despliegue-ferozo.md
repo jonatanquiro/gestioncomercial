@@ -164,4 +164,14 @@ node scripts/subir-ferozo.mjs                  # muestra qué subiría, sin toca
 node scripts/subir-ferozo.mjs --confirmar      # sube
 ```
 
-El registro de lo subido queda en `dist/ferozo-subidos.json`. Si se sube algo a mano por el administrador de archivos, borrar ese registro para que la próxima subida mande todo. Las migraciones no viajan por FTP: si el script avisa que hay migraciones nuevas, la base se actualiza aparte.
+El registro de lo subido queda en `dist/ferozo-subidos.json`. Si se sube algo a mano por el administrador de archivos, borrar ese registro para que la próxima subida mande todo. Las migraciones viajan como archivos, pero no se aplican solas.
+
+### Aplicar los cambios de la base (sin SSH)
+
+Después de subir los archivos, entrar al panel de plataforma (`/gestion-comercial/plataforma/login`) → **Base de datos** ([ADR 0026](adr/0026-actualizar-base-desde-la-plataforma.md)). La pantalla muestra la versión de la base, si es compatible y los cambios pendientes.
+
+1. Hacer un respaldo: phpMyAdmin de Ferozo → base del sistema → **Exportar** → Rápido → SQL. Guardar el archivo en la PC, no en el hosting.
+2. Marcar «Hice un respaldo» y tocar **Actualizar base de datos**.
+3. Si sale «Listo» y no quedan pendientes, terminó. Si falla, no reintentar: copiar el detalle que muestra y restaurar el respaldo (phpMyAdmin → Importar) antes de volver a probar.
+
+Hacerlo con el negocio cerrado: entre la subida de los archivos y este paso, algunas pantallas pueden fallar.

@@ -222,4 +222,6 @@ Route::prefix('platform')->middleware(['csrf.double', 'auth.platform'])->group(f
     Route::get('plans', [PlatformController::class, 'plans']);
     Route::put('plans/{id}', [PlatformController::class, 'updatePlan']);
     Route::get('audit', [PlatformController::class, 'audit']);
+    Route::get('database', [PlatformController::class, 'database']);
+    Route::post('database/migrate', [PlatformController::class, 'migrate']);
 });

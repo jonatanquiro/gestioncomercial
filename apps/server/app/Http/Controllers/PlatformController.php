@@ -33,6 +33,8 @@ use App\Tenancy\TenantContext;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -402,6 +404,79 @@ class PlatformController extends Controller
     }
 
     /** Auditoría propia de la plataforma: acciones de operadores y eventos sin comercio. */
+    /**
+     * Estado de la base para actualizarla sin consola (ADR 0026): versión del servidor y
+     * migraciones pendientes. En hostings sin SSH, como Ferozo, es la forma de correr `migrate`.
+     */
+    public function database(Request $request): JsonResponse
+    {
+        $this->platformActor($request);
+
+        return $this->json($this->databaseState());
+    }
+
+    /** Corre las migraciones pendientes. Solo si el servidor de base es compatible, y de a una vez. */
+    public function migrate(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['confirm' => ['required', 'accepted']], ['confirm.accepted' => 'Confirmá que hiciste un respaldo de la base']);
+        $state = $this->databaseState();
+        if (! $state['supported']) {
+            throw AppError::conflict('DATABASE_UNSUPPORTED', "La base es {$state['server']}: hace falta MariaDB 10.2 o MySQL 8.0.19 en adelante. No se aplicó nada.");
+        }
+        if ($state['pending'] === []) {
+            return $this->json(['ran' => [], 'output' => 'No había migraciones pendientes.'] + $this->databaseState());
+        }
+        $lock = Cache::lock('gc:platform-migrate', 600);
+        if (! $lock->get()) {
+            throw AppError::conflict('MIGRATION_RUNNING', 'Ya se está actualizando la base. Esperá a que termine.');
+        }
+        @set_time_limit(300);
+        try {
+            $code = Artisan::call('migrate', ['--force' => true]);
+            $output = trim(Artisan::output());
+        } catch (Throwable $e) {
+            $code = 1;
+            $output = trim(Artisan::output()."\n".$e->getMessage());
+        } finally {
+            $lock->release();
+        }
+        $after = $this->databaseState();
+        $ran = array_values(array_diff($state['pending'], $after['pending']));
+        $this->audit->record([
+            'tenantId' => null, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}",
+            'action' => $code === 0 ? 'platform.database_migrated' : 'platform.database_migration_failed', 'entityType' => 'database', 'entityId' => null,
+            'before' => ['pending' => $state['pending']], 'after' => ['ran' => $ran, 'pending' => $after['pending']], 'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
+        if ($code !== 0) {
+            Log::error('Falló la actualización de la base desde la plataforma: '.$output);
+            throw new AppError(500, 'MIGRATION_FAILED', 'La actualización se cortó. No la vuelvas a intentar sin revisar: restaurá el respaldo o consultá el detalle.', ['ran' => $ran, 'output' => mb_substr($output, -4000)]);
+        }
+
+        return $this->json(['ran' => $ran, 'output' => mb_substr($output, -4000)] + $after);
+    }
+
+    /** @return array{server: string, supported: bool, pending: list<string>, applied: int} */
+    private function databaseState(): array
+    {
+        $version = (string) DB::selectOne('SELECT VERSION() AS v')->v;
+        $maria = stripos($version, 'mariadb') !== false;
+        preg_match('/^(\d+)\.(\d+)\.(\d+)/', $version, $m);
+        $n = isset($m[1]) ? [(int) $m[1], (int) $m[2], (int) $m[3]] : [0, 0, 0];
+        // DROP CONSTRAINT para los CHECK: MariaDB 10.2 o MySQL 8.0.19.
+        $supported = $maria ? $n >= [10, 2, 0] : $n >= [8, 0, 19];
+        $migrator = app('migrator');
+        $files = array_keys($migrator->getMigrationFiles(database_path('migrations')));
+        $ran = $migrator->getRepository()->repositoryExists() ? $migrator->getRepository()->getRan() : [];
+
+        return [
+            'server' => ($maria ? 'MariaDB ' : 'MySQL ').($m[0] ?? $version),
+            'supported' => $supported,
+            'pending' => array_values(array_diff($files, $ran)),
+            'applied' => count(array_intersect($files, $ran)),
+        ];
+    }
+
     public function audit(Request $request): JsonResponse
     {
         ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
