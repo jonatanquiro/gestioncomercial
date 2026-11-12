@@ -754,3 +754,16 @@ export interface ProductImportReportDto {
   errors: Array<{ row: number | null; message: string }>;
   rows: Array<{ row: number; action: 'create' | 'update' | 'unchanged' | 'skip' | 'error'; name: string; variant: string | null; price: string | null; oldPrice: string | null; detail: string | null }>;
 }
+
+/** Operador del panel de plataforma (ADR 0027). */
+export interface PlatformOperatorDto {
+  id: string;
+  email: string;
+  name: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  /** Última actividad en el panel; null si nunca entró. */
+  lastSeenAt: string | null;
+  /** Es quien está mirando: no se puede desactivar a sí mismo. */
+  isMe: boolean;
+}

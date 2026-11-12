@@ -13,6 +13,7 @@ use App\Models\PasswordResetToken;
 use App\Models\Plan;
 use App\Models\PlanFeature;
 use App\Models\PlanLimit;
+use App\Models\PlatformSession;
 use App\Models\PlatformUser;
 use App\Models\Subscription;
 use App\Models\Tenant;
@@ -404,6 +405,106 @@ class PlatformController extends Controller
     }
 
     /** Auditoría propia de la plataforma: acciones de operadores y eventos sin comercio. */
+    /** Operadores del panel de plataforma (ADR 0027). */
+    public function operators(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+
+        return $this->json(PlatformUser::orderBy('name')->get()->map(fn (PlatformUser $u) => $this->operatorDto($u, $actor))->all());
+    }
+
+    public function createOperator(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $data = $this->body($request);
+        $data['email'] = Input::email($data['email'] ?? null);
+        $v = Input::validate($data, [
+            'name' => ['required', 'string', 'max:120'],
+            'email' => ['required', 'string', 'email', 'max:254'],
+            'password' => ['required', 'string', 'min:10', 'max:128'],
+        ], Input::passwordMessages('password'));
+        if (PlatformUser::where('email', $v['email'])->exists()) {
+            throw AppError::conflict('EMAIL_IN_USE', 'Ya hay un operador con ese email');
+        }
+        $hash = $this->operatorHash($v['password']);
+        $user = DB::transaction(function () use ($actor, $v, $hash) {
+            $user = PlatformUser::create(['email' => $v['email'], 'name' => trim($v['name']), 'password_hash' => $hash]);
+            $this->operatorAudit($actor, 'platform.operator_created', $user->id, null, ['email' => $v['email'], 'name' => trim($v['name'])]);
+
+            return $user;
+        });
+
+        return $this->json($this->operatorDto($user->fresh(), $actor), 201);
+    }
+
+    /** Activar o desactivar: al desactivar se cierran sus sesiones. Nadie se desactiva a sí mismo. */
+    public function setOperatorStatus(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['status' => ['required', 'string', 'in:active,inactive']]);
+        if ($id === $actor->platformUserId && $v['status'] === 'inactive') {
+            throw AppError::conflict('SELF_DEACTIVATE', 'No podés desactivar tu propio usuario');
+        }
+        $user = DB::transaction(function () use ($actor, $id, $v) {
+            $user = PlatformUser::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Operador');
+            $before = $user->status;
+            $user->forceFill(['status' => $v['status']])->save();
+            if ($v['status'] === 'inactive') {
+                PlatformSession::where('platform_user_id', $id)->whereNull('revoked_at')->update(['revoked_at' => Carbon::now()]);
+            }
+            $this->operatorAudit($actor, $v['status'] === 'active' ? 'platform.operator_activated' : 'platform.operator_deactivated', $id, ['status' => $before], ['status' => $v['status']]);
+
+            return $user;
+        });
+
+        return $this->json($this->operatorDto($user, $actor));
+    }
+
+    /** Clave nueva para un operador: se cierran sus otras sesiones abiertas. */
+    public function setOperatorPassword(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['password' => ['required', 'string', 'min:10', 'max:128']], Input::passwordMessages('password'));
+        $hash = $this->operatorHash($v['password']);
+        DB::transaction(function () use ($actor, $id, $hash) {
+            $user = PlatformUser::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Operador');
+            $user->forceFill(['password_hash' => $hash])->save();
+            PlatformSession::where('platform_user_id', $id)->whereNull('revoked_at')
+                ->when($id === $actor->platformUserId, fn ($q) => $q->whereKeyNot($actor->sessionId))
+                ->update(['revoked_at' => Carbon::now()]);
+            $this->operatorAudit($actor, 'platform.operator_password_changed', $id, null, ['email' => $user->email]);
+        });
+
+        return $this->json(['ok' => true]);
+    }
+
+    private function operatorHash(string $password): string
+    {
+        try {
+            return $this->passwords->hash($password);
+        } catch (AppError $e) {
+            throw $e->errorCode === 'VALIDATION_ERROR' ? AppError::validation([['path' => 'password', 'message' => $e->details[0]['message']]]) : $e;
+        }
+    }
+
+    private function operatorDto(PlatformUser $u, PlatformActor $actor): array
+    {
+        $seen = PlatformSession::where('platform_user_id', $u->id)->max('last_seen_at');
+
+        return [
+            'id' => $u->id, 'email' => $u->email, 'name' => $u->name, 'status' => $u->status, 'createdAt' => Dates::iso($u->created_at),
+            'lastSeenAt' => $seen ? Dates::iso(Carbon::parse($seen, 'UTC')) : null, 'isMe' => $u->id === $actor->platformUserId,
+        ];
+    }
+
+    private function operatorAudit(PlatformActor $actor, string $action, string $id, ?array $before, ?array $after): void
+    {
+        $this->audit->record([
+            'tenantId' => null, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}",
+            'action' => $action, 'entityType' => 'platform_user', 'entityId' => $id, 'before' => $before, 'after' => $after, 'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
+    }
+
     /**
      * Estado de la base para actualizarla sin consola (ADR 0026): versión del servidor y
      * migraciones pendientes. En hostings sin SSH, como Ferozo, es la forma de correr `migrate`.

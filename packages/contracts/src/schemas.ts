@@ -695,3 +695,14 @@ export const productImportSchema = z.object({
   dryRun: z.boolean(),
 });
 export type ProductImportInput = z.infer<typeof productImportSchema>;
+
+// ---------------------------------------------------------------- Operadores de plataforma (ADR 0027)
+
+export const createPlatformOperatorSchema = z.object({
+  name: trimmed(120),
+  email: emailSchema,
+  password: passwordSchema,
+});
+export type CreatePlatformOperatorInput = z.infer<typeof createPlatformOperatorSchema>;
+
+export const platformOperatorPasswordSchema = z.object({ password: passwordSchema });
