@@ -216,6 +216,10 @@ class ProductsTest extends TestCase
         $this->assertSame(['M / Rojo'], array_column($found, 'variantLabel'));
         $this->assertSame('5.000', $found[0]['stock']);
         $this->assertCount(3, $owner->get('/products/items?q=remera')->body['items']);
+        // Variantes puntuales por id (etiquetas de un ingreso de mercadería).
+        $ids = [$p['variants'][2]['id'], $p['variants'][0]['id']];
+        $this->assertSame(['S / Rojo', 'XL / Negro'], array_column($owner->get('/products/items?variantIds='.implode(',', $ids))->body['items'], 'variantLabel'));
+        $this->assertSame('VALIDATION_ERROR', $owner->get('/products/items?variantIds=no-es-un-id')->body['code']);
         $this->assertSame([$p['id']], array_column($owner->get('/products?q=negro')->body['items'], 'id'));
         $this->assertSame('M / Rojo', $owner->get('/products/lookup?code=REM-M-R')->body['item']['variantLabel']);
 

@@ -100,8 +100,17 @@ class ProductsController extends Controller
     {
         $actor = $this->actor($request);
         ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
-        $q = Input::validate($request->query(), ['q' => ['nullable', 'string', 'max:100']]);
-        $query = self::searchVariants(self::activeVariants(), $q['q'] ?? null)->where('products.status', 'active');
+        $q = Input::validate($request->query(), [
+            'q' => ['nullable', 'string', 'max:100'],
+            // Variantes puntuales separadas por coma (las etiquetas de un ingreso de mercadería).
+            'variantIds' => ['nullable', 'string', 'max:3800'],
+        ]);
+        $ids = array_values(array_filter(explode(',', $q['variantIds'] ?? '')));
+        if (count($ids) > 100 || array_filter($ids, fn ($id) => ! Str::isUuid($id))) {
+            throw AppError::validation([['path' => 'variantIds', 'message' => 'Hasta 100 artículos válidos por pedido']]);
+        }
+        $query = self::searchVariants(self::activeVariants(), $q['q'] ?? null)->where('products.status', 'active')
+            ->when($ids, fn ($w) => $w->whereIn('product_variants.id', $ids));
         $total = (clone $query)->count();
         $rows = $query->orderBy('products.name')->orderBy('product_variants.label')->orderBy('product_variants.id')
             ->forPage($page, $pageSize)->get(['product_variants.*']);

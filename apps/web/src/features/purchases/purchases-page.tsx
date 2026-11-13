@@ -469,9 +469,16 @@ export function PurchaseDetailPage() {
         title={`Ingreso N° ${p.number}`}
         description={[formatDateTime(p.createdAt), p.supplierName, p.document, p.warehouseName, p.createdByName && `Registró ${p.createdByName}`].filter(Boolean).join(' · ')}
         actions={
-          <Link to="/app/compras" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
-            Volver a compras
-          </Link>
+          <>
+            {can('products.read') && (
+              <Link to="/app/etiquetas" search={{ purchaseId: p.id }} className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+                Imprimir etiquetas
+              </Link>
+            )}
+            <Link to="/app/compras" className="inline-flex h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold hover:bg-slate-50">
+              Volver a compras
+            </Link>
+          </>
         }
       />
       {p.updatedCosts && seeCost && can('prices.bulk_update') && (

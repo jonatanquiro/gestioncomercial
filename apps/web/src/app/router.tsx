@@ -142,7 +142,7 @@ const pricesRoute = createRoute({ getParentRoute: () => appRoute, path: 'precios
 const labelsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: 'etiquetas',
-  validateSearch: z.object({ productId: z.string().uuid().optional().catch(undefined) }),
+  validateSearch: z.object({ productId: z.string().uuid().optional().catch(undefined), purchaseId: z.string().uuid().optional().catch(undefined) }),
   component: LabelsPage,
 });
 const stockRoute = createRoute({ getParentRoute: () => appRoute, path: 'stock', component: StockPage });
