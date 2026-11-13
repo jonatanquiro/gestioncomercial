@@ -1,7 +1,5 @@
 packages:
-  - "apps/*"
+  - "apps/web"
   - "packages/*"
 onlyBuiltDependencies:
-  - "@swc/core"
-  - "argon2"
   - "esbuild"

@@ -1,19 +1,40 @@
 import type { ReactNode } from 'react';
+import { InstallAppButton } from '@/features/layout/install-button';
+import { publicFile } from '@/lib/base-path';
 
 export function AuthLayout({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
-    <main className="flex min-h-full items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="mb-8 flex items-center gap-3">
-          <img src="/icon.svg" alt="" className="size-10" />
-          <span className="text-lg font-semibold text-slate-900">Gestión Comercial</span>
+    <div className="flex min-h-full">
+      <aside className="relative hidden w-[44%] max-w-2xl flex-col justify-between overflow-hidden bg-linear-to-br from-slate-950 via-slate-900 to-brand-900 p-12 text-slate-300 lg:flex">
+        <div aria-hidden className="pointer-events-none absolute -right-40 top-1/4 size-[32rem] rounded-full border border-white/10" />
+        <div aria-hidden className="pointer-events-none absolute -right-24 top-1/3 size-96 rounded-full border border-white/10" />
+        <div className="flex items-center gap-3">
+          <img src={publicFile('icon.svg')} alt="" className="size-10" />
+          <span className="font-display text-lg font-semibold tracking-tight text-white">Gestión Comercial.</span>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <h1 className="text-xl font-semibold">{title}</h1>
-          {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
-          <div className="mt-6">{children}</div>
+        <div className="relative py-16">
+          <p className="mb-6 text-xs font-semibold uppercase tracking-[0.2em] text-brand-300">Gestión para tu día a día</p>
+          <p className="font-display text-5xl leading-tight font-semibold tracking-tight text-white">
+            Tu comercio,
+            <br />
+            <span className="text-brand-400">en orden.</span>
+          </p>
+          <p className="mt-6 max-w-sm text-base leading-relaxed text-slate-300">Ventas, caja y stock en un mismo lugar. Más claridad para vos, más tiempo para tu negocio.</p>
         </div>
-      </div>
-    </main>
+        <div className="relative flex gap-3 text-xs text-slate-300"><span className="mt-1 size-2 rounded-full bg-brand-400" aria-hidden />Hecho para comercios de Argentina</div>
+      </aside>
+      <main className="flex flex-1 items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <img src={publicFile('icon.svg')} alt="" className="size-10" />
+            <span className="text-lg font-semibold tracking-tight text-slate-900">Gestión Comercial</span>
+          </div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">{title}</h1>
+          {subtitle && <p className="mt-1 text-slate-600">{subtitle}</p>}
+          <div className="mt-8">{children}</div>
+          <InstallAppButton className="mx-auto mt-6 rounded-lg px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50" />
+        </div>
+      </main>
+    </div>
   );
 }

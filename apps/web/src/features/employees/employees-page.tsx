@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { type BranchDto, createEmployeeSchema, type EmployeeDto, type RoleDto, updateMembershipSchema } from '@gc/contracts';
+import { type BranchDto, createEmployeeSchema, type EmployeeDto, type RoleDto, setEmployeePasswordSchema, updateMembershipSchema } from '@gc/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
@@ -17,6 +17,11 @@ import { useCan, useMe } from '@/lib/session';
 function friendly(err: unknown) {
   if (err instanceof ApiRequestError && err.code === 'PLAN_LIMIT_REACHED') return 'Tu plan no permite más usuarios activos.';
   return errorMessage(err);
+}
+
+/** Con qué ingresa la persona: nombre de usuario, email o ambos. */
+function identity(e: EmployeeDto) {
+  return [e.username, e.email].filter(Boolean).join(' · ');
 }
 
 function BranchChecks({ branches, register, error }: { branches: BranchDto[]; register: UseFormRegister<any>; error?: FieldError | { message?: string } }) {
@@ -61,7 +66,10 @@ function CreateEmployee({ roles, branches, onDone }: { roles: RoleDto[]; branche
       <Field label="Nombre y apellido" error={e.name?.message}>
         {(p) => <Input {...p} autoFocus {...register('name')} />}
       </Field>
-      <Field label="Email" error={e.email?.message}>
+      <Field label="Nombre de usuario" error={e.username?.message} hint="Con esto ingresa, sin necesidad de email. Por ejemplo: caja1 o juan.perez.">
+        {(p) => <Input {...p} autoComplete="off" autoCapitalize="none" spellCheck={false} {...register('username')} />}
+      </Field>
+      <Field label="Email (opcional)" error={e.email?.message} hint="Sirve para ingresar y para recuperar la contraseña por correo.">
         {(p) => <Input {...p} type="email" autoComplete="off" {...register('email')} />}
       </Field>
       <Field label="Contraseña inicial" error={e.password?.message} hint="Compartila en persona. La persona puede cambiarla desde Mi cuenta.">
@@ -91,6 +99,36 @@ function CreateEmployee({ roles, branches, onDone }: { roles: RoleDto[]; branche
   );
 }
 
+/** Para quien trabaja solo en este comercio: por ejemplo, un cajero sin email que olvidó su contraseña. */
+function SetEmployeePassword({ employee }: { employee: EmployeeDto }) {
+  const toast = useToast();
+  const [error, setError] = useState<string | null>(null);
+  const { register, handleSubmit, formState, reset } = useForm<z.input<typeof setEmployeePasswordSchema>>({ resolver: zodResolver(setEmployeePasswordSchema) });
+  const save = useMutation({
+    mutationFn: (v: z.input<typeof setEmployeePasswordSchema>) => http.put(`/employees/${employee.membershipId}/password`, v),
+    onSuccess: () => {
+      reset();
+      setError(null);
+      toast('Contraseña cambiada. Se cerraron sus sesiones abiertas.');
+    },
+    onError: (err) => setError(friendly(err)),
+  });
+  return (
+    <form onSubmit={handleSubmit((v) => save.mutate(v))} className="space-y-3 border-t border-slate-200 pt-4" noValidate>
+      <h3 className="text-sm font-semibold">Cambiar su contraseña</h3>
+      {error && <Alert>{error}</Alert>}
+      <Field label="Contraseña nueva" error={formState.errors.password?.message} hint="Al menos 10 caracteres. Compartila en persona.">
+        {(p) => <Input {...p} type="password" autoComplete="new-password" {...register('password')} />}
+      </Field>
+      <div className="flex justify-end">
+        <Button type="submit" variant="secondary" loading={save.isPending}>
+          Cambiar contraseña
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function EditEmployee({ employee, roles, branches, onDone }: { employee: EmployeeDto; roles: RoleDto[]; branches: BranchDto[]; onDone: () => void }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -112,7 +150,7 @@ function EditEmployee({ employee, roles, branches, onDone }: { employee: Employe
     <form onSubmit={handleSubmit((v) => save.mutate(v))} className="space-y-4" noValidate>
       {error && <Alert>{error}</Alert>}
       <p className="text-sm text-slate-600">
-        {employee.name} · {employee.email}
+        {employee.name} · {identity(employee)}
       </p>
       <Field label="Rol" error={formState.errors.roleId?.message}>
         {(p) => (
@@ -146,6 +184,15 @@ function EditEmployee({ employee, roles, branches, onDone }: { employee: Employe
   );
 }
 
+function EditEmployeeDialog(props: { employee: EmployeeDto; roles: RoleDto[]; branches: BranchDto[]; onDone: () => void }) {
+  return (
+    <div className="space-y-6">
+      <EditEmployee {...props} />
+      {props.employee.canSetPassword && <SetEmployeePassword employee={props.employee} />}
+    </div>
+  );
+}
+
 export function EmployeesPage() {
   const can = useCan();
   const me = useMe();
@@ -162,7 +209,7 @@ export function EmployeesPage() {
   // La lista está acotada por el límite de usuarios del plan, así que se filtra en el navegador.
   const term = search.trim().toLocaleLowerCase('es-AR');
   const visible = (employees.data ?? []).filter(
-    (e) => !term || [e.name, e.email, e.roleName].some((v) => v.toLocaleLowerCase('es-AR').includes(term)),
+    (e) => !term || [e.name, e.username, e.email, e.roleName].some((v) => v?.toLocaleLowerCase('es-AR').includes(term)),
   );
 
   return (
@@ -180,8 +227,8 @@ export function EmployeesPage() {
         <div className="mb-4">
           <Input
             type="search"
-            aria-label="Buscar por nombre, email o rol"
-            placeholder="Buscar por nombre, email o rol"
+            aria-label="Buscar por nombre, usuario, email o rol"
+            placeholder="Buscar por nombre, usuario, email o rol"
             className="sm:w-80"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -199,7 +246,7 @@ export function EmployeesPage() {
               <tr key={e.membershipId}>
                 <Td>
                   <div className="font-medium">{e.name}</div>
-                  <div className="text-xs text-slate-500">{e.email}</div>
+                  <div className="text-xs text-slate-500">{identity(e)}</div>
                 </Td>
                 <Td>{e.roleName}</Td>
                 <Td>{e.branchIds.map(branchName).join(', ')}</Td>
@@ -219,7 +266,7 @@ export function EmployeesPage() {
       <Dialog open={dialog !== null} onOpenChange={(o) => !o && setDialog(null)} title={dialog === 'new' ? 'Nuevo empleado' : 'Editar empleado'}>
         {ready && dialog === 'new' && <CreateEmployee roles={roles.data} branches={branches.data} onDone={() => setDialog(null)} />}
         {ready && dialog && dialog !== 'new' && (
-          <EditEmployee employee={dialog} roles={roles.data} branches={branches.data} onDone={() => setDialog(null)} />
+          <EditEmployeeDialog employee={dialog} roles={roles.data} branches={branches.data} onDone={() => setDialog(null)} />
         )}
       </Dialog>
     </>

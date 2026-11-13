@@ -59,7 +59,7 @@ function PlanForm({ plan, onDone }: { plan: PlanDto; onDone: () => void }) {
         <Field label="Nombre" error={formState.errors.name?.message}>
           {(p) => <Input {...p} {...register('name')} />}
         </Field>
-        <Field label="Precio mensual (ARS)" error={formState.errors.price?.message}>
+        <Field label="Precio mensual (ARS)" error={formState.errors.price?.message} hint="Con precio 0 no se cobra. Con precio, los comercios del plan pagan al terminar la prueba o el período pagado y se pausan 7 días después de vencer; los que tengan licencia sin vencimiento no pagan.">
           {(p) => <Input {...p} inputMode="decimal" {...register('price')} />}
         </Field>
         <Field label="Días de prueba" error={formState.errors.trialDays?.message}>

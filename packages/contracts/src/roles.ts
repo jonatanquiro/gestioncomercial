@@ -29,7 +29,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     permissions: [
       'products.read', 'products.create', 'products.update', 'products.deactivate', 'products.export',
       'prices.update', 'stock.read', 'stock.adjust', 'stock.count', 'stock.transfer', 'stock.waste',
-      'sales.create', 'sales.discount', 'sales.read_all', 'sales.void', 'sales.return', 'sales.offline',
+      'sales.create', 'sales.discount', 'sales.read_all', 'sales.void', 'sales.return', 'sales.offline', 'fiscal.issue',
       'cash.open', 'cash.close', 'cash.withdraw', 'cash.deposit', 'cash.count', 'cash.read_all',
       'purchases.create', 'purchases.receive', 'suppliers.manage', 'customers.manage', 'accounts.collect',
       'expenses.create', 'expenses.read', 'reports.sales', 'reports.cash',
@@ -39,7 +39,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     code: 'cashier',
     name: 'Cajero',
     permissions: [
-      'products.read', 'stock.read', 'sales.create', 'sales.discount', 'sales.read_own', 'sales.offline',
+      'products.read', 'stock.read', 'sales.create', 'sales.discount', 'sales.read_own', 'sales.offline', 'fiscal.issue',
       'cash.open', 'cash.close', 'cash.count', 'customers.manage', 'accounts.collect',
     ],
   },

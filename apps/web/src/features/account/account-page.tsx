@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { passwordSchema, type SessionDto } from '@gc/contracts';
+import { passwordSchema, posPinSchema, type SessionDto, updateUsernameSchema } from '@gc/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -45,7 +45,7 @@ export function AccountPage() {
 
   return (
     <>
-      <PageHeader title="Mi cuenta" description={`${me.user.name} · ${me.user.email}`} />
+      <PageHeader title="Mi cuenta" description={[me.user.name, me.user.username, me.user.email].filter(Boolean).join(' · ')} />
       <div className="grid gap-6 xl:grid-cols-2">
         <Card className="p-6">
           <h2 className="mb-4 font-semibold">Cambiar contraseña</h2>
@@ -65,6 +65,8 @@ export function AccountPage() {
             </Button>
           </form>
         </Card>
+        <UsernameCard />
+        {me.tenant && <PinCard />}
         <Card>
           <h2 className="p-6 pb-2 font-semibold">Sesiones abiertas</h2>
           {sessions.isLoading && <Spinner />}
@@ -95,5 +97,77 @@ export function AccountPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+/** Nombre de usuario para ingresar sin escribir el email (ADR 0010). */
+function UsernameCard() {
+  const me = useMe();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const { register, handleSubmit, formState } = useForm<z.input<typeof updateUsernameSchema>, unknown, z.output<typeof updateUsernameSchema>>({
+    resolver: zodResolver(updateUsernameSchema),
+    defaultValues: { username: me.user.username ?? '' },
+  });
+  const save = useMutation({
+    mutationFn: (v: z.output<typeof updateUsernameSchema>) => http.put('/auth/username', v),
+    onSuccess: async () => {
+      setError(null);
+      toast('Nombre de usuario guardado');
+      await queryClient.invalidateQueries({ queryKey: ['me'] });
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+  return (
+    <Card className="p-6">
+      <h2 className="font-semibold">Nombre de usuario</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        {me.user.email ? 'Podés ingresar con tu email o con este nombre de usuario.' : 'Es lo que usás para ingresar.'}
+      </p>
+      <form onSubmit={handleSubmit((v) => save.mutate(v))} className="mt-4 space-y-4" noValidate>
+        {error && <Alert>{error}</Alert>}
+        <Field label="Nombre de usuario" error={formState.errors.username?.message} hint="Letras sin acentos, números, punto, guion o guion bajo.">
+          {(p) => <Input {...p} autoComplete="username" autoCapitalize="none" spellCheck={false} {...register('username')} />}
+        </Field>
+        <Button type="submit" loading={save.isPending}>
+          Guardar usuario
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+/** PIN para autorizar en la caja (anulaciones, devoluciones y descuentos) sin dar la contraseña. */
+function PinCard() {
+  const toast = useToast();
+  const [error, setError] = useState<string | null>(null);
+  const { register, handleSubmit, formState, reset } = useForm<z.input<typeof posPinSchema>>({ resolver: zodResolver(posPinSchema) });
+  const save = useMutation({
+    mutationFn: (v: z.input<typeof posPinSchema>) => http.post('/auth/pos-pin', v),
+    onSuccess: () => {
+      reset();
+      setError(null);
+      toast('PIN guardado');
+    },
+    onError: (err) => setError(errorMessage(err)),
+  });
+  return (
+    <Card className="p-6">
+      <h2 className="font-semibold">PIN para autorizar en la caja</h2>
+      <p className="mt-1 text-sm text-slate-600">Con el PIN autorizás anulaciones, devoluciones o descuentos desde la caja de otra persona, si tu rol lo permite.</p>
+      <form onSubmit={handleSubmit((v) => save.mutate(v))} className="mt-4 space-y-4" noValidate>
+        {error && <Alert>{error}</Alert>}
+        <Field label="PIN nuevo" error={formState.errors.pin?.message} hint="De 4 a 6 números.">
+          {(p) => <Input {...p} type="password" inputMode="numeric" autoComplete="off" maxLength={6} {...register('pin')} />}
+        </Field>
+        <Field label="Tu contraseña" error={formState.errors.password?.message}>
+          {(p) => <Input {...p} type="password" autoComplete="current-password" {...register('password')} />}
+        </Field>
+        <Button type="submit" loading={save.isPending}>
+          Guardar PIN
+        </Button>
+      </form>
+    </Card>
   );
 }

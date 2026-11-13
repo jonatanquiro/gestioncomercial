@@ -1,0 +1,639 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Auth\Client;
+use App\Auth\Cookies;
+use App\Auth\PlatformActor;
+use App\Mail\OwnerInvitationMail;
+use App\Models\AuditEntry;
+use App\Models\Branch;
+use App\Models\Membership;
+use App\Models\PasswordResetToken;
+use App\Models\Plan;
+use App\Models\PlanFeature;
+use App\Models\PlanLimit;
+use App\Models\PlatformSession;
+use App\Models\PlatformUser;
+use App\Models\Subscription;
+use App\Models\Tenant;
+use App\Models\User;
+use App\Services\AuditService;
+use App\Services\BillingService;
+use App\Services\EntitlementsService;
+use App\Services\PasswordService;
+use App\Services\PlatformSessionService;
+use App\Services\ProvisioningService;
+use App\Support\AppError;
+use App\Support\Catalog;
+use App\Support\Dates;
+use App\Support\Input;
+use App\Support\Throttle;
+use App\Support\Tokens;
+use App\Tenancy\TenantContext;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rule;
+use Throwable;
+
+/**
+ * Panel de plataforma (operadores del SaaS). Es el único lugar que consulta datos de varios
+ * comercios a la vez, siempre dentro de TenantContext::withoutTenant.
+ */
+class PlatformController extends Controller
+{
+    /** Días para que el dueño invitado elija su contraseña. */
+    private const INVITATION_DAYS = 7;
+
+    public function __construct(
+        private readonly PasswordService $passwords,
+        private readonly PlatformSessionService $sessions,
+        private readonly AuditService $audit,
+        private readonly TenantContext $context,
+        private readonly ProvisioningService $provisioning,
+        private readonly EntitlementsService $entitlements,
+        private readonly BillingService $billing,
+    ) {}
+
+    /** Login con email y contraseña, con límite de intentos por IP. */
+    public function login(Request $request): JsonResponse
+    {
+        $data = $this->body($request);
+        $data['email'] = Input::email($data['email'] ?? null);
+        $input = Input::validate($data, [
+            'email' => ['required', 'string', 'email', 'max:254'],
+            'password' => ['required', 'string', 'max:128'],
+        ]);
+        $client = Client::from($request);
+        Throttle::consume("platform-login:{$client->ip}", 10, 15 * 60);
+
+        $user = PlatformUser::where('email', $input['email'])->where('status', 'active')->first();
+        $passwordOk = $this->passwords->verify($user?->password_hash, $input['password']);
+        if (! $user || ! $passwordOk) {
+            $this->audit->record([
+                'tenantId' => null,
+                'actorType' => 'platform',
+                'actorId' => $user?->id,
+                'actorName' => null,
+                'action' => 'platform.login_failed',
+                'entityType' => 'platform_user',
+                'entityId' => $user?->id,
+                'after' => ['email' => $input['email']],
+                'ip' => $client->ip,
+                'requestId' => $client->requestId,
+            ]);
+            throw AppError::invalidCredentials();
+        }
+        $token = DB::transaction(function () use ($user, $client) {
+            $token = $this->sessions->create($user->id, $client);
+            $this->audit->record([
+                'tenantId' => null,
+                'actorType' => 'platform',
+                'actorId' => $user->id,
+                'actorName' => $user->name,
+                'action' => 'platform.login',
+                'entityType' => 'platform_user',
+                'entityId' => $user->id,
+                'ip' => $client->ip,
+                'requestId' => $client->requestId,
+            ]);
+
+            return $token;
+        });
+
+        return $this->json(['ok' => true])
+            ->withCookie(Cookies::session(Cookies::PLATFORM_SESSION, $token, Cookies::PLATFORM_MAX_SECONDS))
+            ->withCookie(Cookies::csrf(Tokens::random()));
+    }
+
+    public function logout(Request $request): JsonResponse
+    {
+        $this->sessions->revoke($this->platformActor($request)->sessionId);
+
+        return $this->json(['ok' => true])->withCookie(Cookies::forget(Cookies::PLATFORM_SESSION));
+    }
+
+    public function me(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        [$csrf, $cookie] = Cookies::ensureCsrf($request);
+        $response = $this->json(['id' => $actor->platformUserId, 'name' => $actor->name, 'csrfToken' => $csrf]);
+
+        return $cookie ? $response->withCookie($cookie) : $response;
+    }
+
+    public function tenants(Request $request): JsonResponse
+    {
+        ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
+        $q = Input::validate($request->query(), [
+            'q' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', 'string', 'in:trial,active,past_due,suspended,cancelled'],
+        ]);
+
+        return $this->json($this->context->withoutTenant(function () use ($q, $page, $pageSize) {
+            $query = Tenant::query()
+                ->when($q['q'] ?? null, function ($w, $term) {
+                    $like = '%'.addcslashes($term, '%_\\').'%';
+                    $w->where(fn ($o) => $o->where('trade_name', 'like', $like)->orWhere('cuit', 'like', $like));
+                })
+                ->when($q['status'] ?? null, fn ($w, $status) => $w->where('status', $status));
+            $total = (clone $query)->count();
+            $rows = $query->orderByDesc('created_at')->orderByDesc('id')->forPage($page, $pageSize)->get();
+            $ids = $rows->pluck('id')->all();
+
+            $subs = Subscription::whereIn('tenant_id', $ids)->where('status', '<>', 'cancelled')->get()->keyBy('tenant_id');
+            $plans = Plan::whereIn('id', $subs->pluck('plan_id')->unique()->all())->get()->keyBy('id');
+            $users = Membership::whereIn('tenant_id', $ids)->where('status', 'active')
+                ->groupBy('tenant_id')->selectRaw('tenant_id, count(*) as n')->pluck('n', 'tenant_id');
+            $branches = Branch::whereIn('tenant_id', $ids)->where('status', 'active')
+                ->groupBy('tenant_id')->selectRaw('tenant_id, count(*) as n')->pluck('n', 'tenant_id');
+
+            return [
+                'items' => $rows->map(function (Tenant $t) use ($subs, $plans, $users, $branches) {
+                    $sub = $subs->get($t->id);
+                    $plan = $sub ? $plans->get($sub->plan_id) : null;
+                    $billing = $sub && $plan ? BillingService::evaluate($sub, $plan) : null;
+
+                    return [
+                        'id' => $t->id,
+                        'tradeName' => $t->trade_name,
+                        'cuit' => $t->cuit,
+                        'businessTypeCode' => $t->business_type_code,
+                        'status' => $t->status,
+                        'planCode' => $plan?->code,
+                        'subscriptionStatus' => $sub?->status,
+                        'trialEndsAt' => Dates::iso($sub?->trial_ends_at),
+                        'billingState' => $billing['state'] ?? null,
+                        'dueAt' => Dates::iso($billing['dueAt'] ?? null),
+                        'freeForever' => (bool) $sub?->free_forever,
+                        'createdAt' => Dates::iso($t->created_at),
+                        'userCount' => (int) ($users[$t->id] ?? 0),
+                        'branchCount' => (int) ($branches[$t->id] ?? 0),
+                    ];
+                })->all(),
+                'total' => $total,
+                'page' => $page,
+                'pageSize' => $pageSize,
+            ];
+        }));
+    }
+
+    /**
+     * Alta manual de un comercio (mismas reglas que platformCreateTenantSchema). Si el email del
+     * dueño no tiene cuenta, se usa la contraseña indicada o se lo invita por correo.
+     * Si ya tiene cuenta, el comercio se suma a los suyos sin cambiar su contraseña.
+     */
+    public function createTenant(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $data = $this->body($request);
+        $data['ownerEmail'] = Input::email($data['ownerEmail'] ?? null);
+        $input = Input::validate($data, [
+            'tradeName' => ['required', 'string', 'max:120'],
+            'legalName' => ['nullable', 'string', 'max:160'],
+            'cuit' => ['nullable', 'string', Input::cuitRule()],
+            'taxCondition' => ['required', 'string', Rule::in(Catalog::taxConditions())],
+            'businessTypeCode' => ['required', 'string', 'max:40'],
+            'planCode' => ['required', 'string', 'max:40', Rule::exists('plans', 'code')->where('active', true)],
+            'ownerName' => ['required', 'string', 'max:120'],
+            'ownerEmail' => ['required', 'string', 'email', 'max:254'],
+            'ownerPassword' => ['nullable', 'string', 'min:10', 'max:128'],
+        ], ['planCode.exists' => 'Plan inexistente o inactivo', ...Input::passwordMessages('ownerPassword')]);
+        $password = $input['ownerPassword'] ?? null;
+        unset($input['ownerPassword']);
+        $input['legalName'] = $input['legalName'] ?? null;
+        $input['cuit'] = Input::optionalCuit($input['cuit'] ?? null);
+        $client = Client::from($request);
+        $token = Tokens::random();
+
+        [$tenantId, $owner, $invited] = DB::transaction(function () use ($actor, $input, $client, $token, $password) {
+            $owner = User::where('email', $input['ownerEmail'])->lockForUpdate()->first();
+            if ($owner && $owner->status !== 'active') {
+                throw AppError::conflict('USER_INACTIVE', 'Ese email pertenece a un usuario desactivado');
+            }
+            if ($owner && $password !== null) {
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => 'Ese email ya tiene cuenta. Dejá la contraseña vacía para conservar su acceso actual.']]);
+            }
+            $invited = $owner === null && $password === null;
+            try {
+                $hash = $owner ? null : $this->passwords->hash($password ?? Tokens::random());
+            } catch (AppError $e) {
+                if ($e->errorCode !== 'VALIDATION_ERROR') {
+                    throw $e;
+                }
+                throw AppError::validation([['path' => 'ownerPassword', 'message' => $e->details[0]['message']]]);
+            }
+            $owner ??= User::create([
+                'email' => $input['ownerEmail'],
+                'name' => $input['ownerName'],
+                'password_hash' => $hash,
+                'password_changed_at' => Carbon::now(),
+            ]);
+            $tenantId = $this->provisioning->create($owner->id, $owner->name, $input, $client, [
+                'actorType' => 'platform',
+                'actorId' => $actor->platformUserId,
+                'actorName' => "Plataforma: {$actor->name}",
+            ]);
+            if ($invited) {
+                PasswordResetToken::create([
+                    'user_id' => $owner->id,
+                    'token_hash' => Tokens::hash($token),
+                    'expires_at' => Carbon::now()->addDays(self::INVITATION_DAYS),
+                ]);
+            }
+
+            return [$tenantId, $owner, $invited];
+        });
+
+        // El comercio ya quedó creado: si el correo falla, se avisa y el dueño puede usar "¿Olvidaste tu contraseña?".
+        $sent = false;
+        if ($invited) {
+            $link = rtrim((string) config('app.url'), '/').'/restablecer?token='.rawurlencode($token);
+            try {
+                Mail::to($owner->email)->send(new OwnerInvitationMail($owner->name, $input['tradeName'], $link, self::INVITATION_DAYS));
+                $sent = true;
+            } catch (Throwable $e) {
+                Log::error("No se pudo enviar la invitación del comercio {$tenantId}: ".$e->getMessage());
+            }
+        }
+
+        return $this->json(['id' => $tenantId, 'ownerInvited' => $invited, 'invitationSent' => $sent, 'ownerPasswordSet' => $password !== null], 201);
+    }
+
+    public function setTenantStatus(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'status' => ['required', 'string', 'in:active,suspended'],
+            'reason' => ['required', 'string', 'max:300'],
+        ]);
+        DB::transaction(function () use ($actor, $id, $input) {
+            $tenant = Tenant::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($tenant->status === 'cancelled') {
+                throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+            }
+            $before = $tenant->status;
+            $tenant->forceFill(['status' => $input['status']])->save();
+            $this->audit->record([
+                'tenantId' => $id,
+                'actorType' => 'platform',
+                'actorId' => $actor->platformUserId,
+                'actorName' => "Plataforma: {$actor->name}",
+                'action' => $input['status'] === 'suspended' ? 'platform.tenant_suspended' : 'platform.tenant_activated',
+                'entityType' => 'tenant',
+                'entityId' => $id,
+                'before' => ['status' => $before],
+                'after' => ['status' => $input['status'], 'reason' => $input['reason']],
+                'ip' => $actor->ip,
+                'requestId' => $actor->requestId,
+            ]);
+        });
+
+        return $this->json(['ok' => true]);
+    }
+
+    /** Licencia sin vencimiento: el comercio no paga ni se pausa (mismas reglas que setTenantLicenseSchema). */
+    public function setTenantLicense(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'freeForever' => ['required', Input::strictBoolean()],
+            'reason' => ['required', 'string', 'max:300'],
+        ]);
+        $this->assertTenantOpen($id);
+        $this->billing->setFreeForever($id, $input['freeForever'], $input['reason'], $this->platformBy($actor));
+
+        return $this->json(['ok' => true]);
+    }
+
+    /** Pago recibido por otro medio, por ejemplo transferencia (mismas reglas que recordTenantPaymentSchema). */
+    public function recordTenantPayment(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $input = Input::validate($this->body($request), [
+            'months' => ['required', 'integer', 'min:1', 'max:36'],
+            'amount' => ['required', ...Input::decimal(Input::MONEY, 'Importe inválido')],
+            'notes' => ['required', 'string', 'max:300'],
+        ], ['months.integer' => 'Entre 1 y 36 meses', 'months.min' => 'Entre 1 y 36 meses', 'months.max' => 'Entre 1 y 36 meses']);
+        $this->assertTenantOpen($id);
+        $payment = $this->billing->recordManual($id, (int) $input['months'], $input['amount'], $input['notes'], $this->platformBy($actor));
+
+        return $this->json(BillingService::paymentDto($payment, null), 201);
+    }
+
+    public function plans(): JsonResponse
+    {
+        return $this->json(Plan::with(['limits', 'features'])->orderBy('sort_order')->get()->map(fn (Plan $p) => $this->planDto($p))->all());
+    }
+
+    public function changeTenantPlan(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['planCode' => ['required', 'string', 'max:40'], 'expectedPlanCode' => ['present', 'nullable', 'string', 'max:40'], 'reason' => ['required', 'string', 'max:300']]);
+        $this->context->withoutTenant(fn () => DB::transaction(function () use ($actor, $v, $id) {
+            $tenant = Tenant::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($tenant->status === 'cancelled') {
+                throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+            }
+            $subscription = Subscription::where('tenant_id', $id)->where('status', '<>', 'cancelled')->lockForUpdate()->first() ?? throw AppError::notFound('Suscripción vigente');
+            $previous = Plan::find($subscription->plan_id);
+            if ($previous?->code !== ($v['expectedPlanCode'] ?? null)) {
+                throw AppError::conflict('PLAN_CHANGED', 'Otra persona cambió el plan. Actualizá la lista y volvé a intentarlo.');
+            }
+            $plan = Plan::where('code', $v['planCode'])->where('active', true)->lockForUpdate()->first() ?? throw AppError::notFound('Plan activo');
+            if ($plan->id === $subscription->plan_id) {
+                throw AppError::badRequest('PLAN_UNCHANGED', 'Elegí un plan diferente');
+            }
+            $usage = $this->context->run($id, fn () => $this->entitlements->assertPlanFits($plan));
+            $subscription->forceFill(['plan_id' => $plan->id])->save();
+            $this->audit->record(['tenantId' => $id, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => 'Plataforma: '.$actor->name, 'action' => 'platform.tenant_plan_changed', 'entityType' => 'tenant', 'entityId' => $id, 'before' => ['planCode' => $previous?->code], 'after' => ['planCode' => $plan->code, 'reason' => $v['reason'], 'usage' => $usage], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        }));
+
+        return $this->json(['ok' => true]);
+    }
+
+    public function updatePlan(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $limitKeys = Catalog::planLimitKeys();
+        $input = Input::validate($this->body($request), [
+            'name' => ['required', 'string', 'max:60'],
+            'price' => ['required', 'string', 'regex:/^\d{1,10}(\.\d{1,2})?$/'],
+            'trialDays' => ['present', 'integer', 'min:0', 'max:365'],
+            'active' => ['present', Input::strictBoolean()],
+            'limits' => ['present', 'array'],
+            'limits.*' => ['integer', 'min:0', 'max:100000'],
+            'features' => ['present', 'array', 'list', 'max:20'],
+            'features.*' => ['string', Rule::in(Catalog::planFeatures())],
+        ], ['price.regex' => 'Importe inválido']);
+        $unknown = array_diff(array_keys($input['limits']), $limitKeys);
+        if ($unknown !== []) {
+            throw AppError::validation(array_map(fn ($k) => ['path' => "limits.{$k}", 'message' => 'Límite inexistente'], array_values($unknown)));
+        }
+
+        return $this->json(DB::transaction(function () use ($actor, $id, $input) {
+            $plan = Plan::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Plan');
+            $before = $this->planDto($plan->load(['limits', 'features']));
+            $plan->fill(['name' => $input['name'], 'price' => $input['price'], 'trial_days' => $input['trialDays'], 'active' => $input['active']])->save();
+            PlanLimit::where('plan_id', $id)->delete();
+            PlanLimit::insert(array_map(fn ($k, $v) => ['plan_id' => $id, 'key' => $k, 'value' => (int) $v], array_keys($input['limits']), $input['limits']));
+            PlanFeature::where('plan_id', $id)->delete();
+            PlanFeature::insert(array_map(fn ($f) => ['plan_id' => $id, 'feature' => $f], array_values(array_unique($input['features']))));
+            $after = $this->planDto($plan->refresh()->load(['limits', 'features']));
+            $this->audit->record([
+                'tenantId' => null,
+                'actorType' => 'platform',
+                'actorId' => $actor->platformUserId,
+                'actorName' => $actor->name,
+                'action' => 'platform.plan_updated',
+                'entityType' => 'plan',
+                'entityId' => $id,
+                'before' => $before,
+                'after' => $after,
+                'ip' => $actor->ip,
+                'requestId' => $actor->requestId,
+            ]);
+
+            return $after;
+        }));
+    }
+
+    /** Auditoría propia de la plataforma: acciones de operadores y eventos sin comercio. */
+    /** Operadores del panel de plataforma (ADR 0027). */
+    public function operators(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+
+        return $this->json(PlatformUser::orderBy('name')->get()->map(fn (PlatformUser $u) => $this->operatorDto($u, $actor))->all());
+    }
+
+    public function createOperator(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $data = $this->body($request);
+        $data['email'] = Input::email($data['email'] ?? null);
+        $v = Input::validate($data, [
+            'name' => ['required', 'string', 'max:120'],
+            'email' => ['required', 'string', 'email', 'max:254'],
+            'password' => ['required', 'string', 'min:10', 'max:128'],
+        ], Input::passwordMessages('password'));
+        if (PlatformUser::where('email', $v['email'])->exists()) {
+            throw AppError::conflict('EMAIL_IN_USE', 'Ya hay un operador con ese email');
+        }
+        $hash = $this->operatorHash($v['password']);
+        $user = DB::transaction(function () use ($actor, $v, $hash) {
+            $user = PlatformUser::create(['email' => $v['email'], 'name' => trim($v['name']), 'password_hash' => $hash]);
+            $this->operatorAudit($actor, 'platform.operator_created', $user->id, null, ['email' => $v['email'], 'name' => trim($v['name'])]);
+
+            return $user;
+        });
+
+        return $this->json($this->operatorDto($user->fresh(), $actor), 201);
+    }
+
+    /** Activar o desactivar: al desactivar se cierran sus sesiones. Nadie se desactiva a sí mismo. */
+    public function setOperatorStatus(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['status' => ['required', 'string', 'in:active,inactive']]);
+        if ($id === $actor->platformUserId && $v['status'] === 'inactive') {
+            throw AppError::conflict('SELF_DEACTIVATE', 'No podés desactivar tu propio usuario');
+        }
+        $user = DB::transaction(function () use ($actor, $id, $v) {
+            $user = PlatformUser::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Operador');
+            $before = $user->status;
+            $user->forceFill(['status' => $v['status']])->save();
+            if ($v['status'] === 'inactive') {
+                PlatformSession::where('platform_user_id', $id)->whereNull('revoked_at')->update(['revoked_at' => Carbon::now()]);
+            }
+            $this->operatorAudit($actor, $v['status'] === 'active' ? 'platform.operator_activated' : 'platform.operator_deactivated', $id, ['status' => $before], ['status' => $v['status']]);
+
+            return $user;
+        });
+
+        return $this->json($this->operatorDto($user, $actor));
+    }
+
+    /** Clave nueva para un operador: se cierran sus otras sesiones abiertas. */
+    public function setOperatorPassword(Request $request, string $id): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['password' => ['required', 'string', 'min:10', 'max:128']], Input::passwordMessages('password'));
+        $hash = $this->operatorHash($v['password']);
+        DB::transaction(function () use ($actor, $id, $hash) {
+            $user = PlatformUser::whereKey($id)->lockForUpdate()->first() ?? throw AppError::notFound('Operador');
+            $user->forceFill(['password_hash' => $hash])->save();
+            PlatformSession::where('platform_user_id', $id)->whereNull('revoked_at')
+                ->when($id === $actor->platformUserId, fn ($q) => $q->whereKeyNot($actor->sessionId))
+                ->update(['revoked_at' => Carbon::now()]);
+            $this->operatorAudit($actor, 'platform.operator_password_changed', $id, null, ['email' => $user->email]);
+        });
+
+        return $this->json(['ok' => true]);
+    }
+
+    private function operatorHash(string $password): string
+    {
+        try {
+            return $this->passwords->hash($password);
+        } catch (AppError $e) {
+            throw $e->errorCode === 'VALIDATION_ERROR' ? AppError::validation([['path' => 'password', 'message' => $e->details[0]['message']]]) : $e;
+        }
+    }
+
+    private function operatorDto(PlatformUser $u, PlatformActor $actor): array
+    {
+        $seen = PlatformSession::where('platform_user_id', $u->id)->max('last_seen_at');
+
+        return [
+            'id' => $u->id, 'email' => $u->email, 'name' => $u->name, 'status' => $u->status, 'createdAt' => Dates::iso($u->created_at),
+            'lastSeenAt' => $seen ? Dates::iso(Carbon::parse($seen, 'UTC')) : null, 'isMe' => $u->id === $actor->platformUserId,
+        ];
+    }
+
+    private function operatorAudit(PlatformActor $actor, string $action, string $id, ?array $before, ?array $after): void
+    {
+        $this->audit->record([
+            'tenantId' => null, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}",
+            'action' => $action, 'entityType' => 'platform_user', 'entityId' => $id, 'before' => $before, 'after' => $after, 'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
+    }
+
+    /**
+     * Estado de la base para actualizarla sin consola (ADR 0026): versión del servidor y
+     * migraciones pendientes. En hostings sin SSH, como Ferozo, es la forma de correr `migrate`.
+     */
+    public function database(Request $request): JsonResponse
+    {
+        $this->platformActor($request);
+
+        return $this->json($this->databaseState());
+    }
+
+    /** Corre las migraciones pendientes. Solo si el servidor de base es compatible, y de a una vez. */
+    public function migrate(Request $request): JsonResponse
+    {
+        $actor = $this->platformActor($request);
+        $v = Input::validate($this->body($request), ['confirm' => ['required', 'accepted']], ['confirm.accepted' => 'Confirmá que hiciste un respaldo de la base']);
+        $state = $this->databaseState();
+        if (! $state['supported']) {
+            throw AppError::conflict('DATABASE_UNSUPPORTED', "La base es {$state['server']}: hace falta MariaDB 10.2 o MySQL 8.0.19 en adelante. No se aplicó nada.");
+        }
+        if ($state['pending'] === []) {
+            return $this->json(['ran' => [], 'output' => 'No había migraciones pendientes.'] + $this->databaseState());
+        }
+        $lock = Cache::lock('gc:platform-migrate', 600);
+        if (! $lock->get()) {
+            throw AppError::conflict('MIGRATION_RUNNING', 'Ya se está actualizando la base. Esperá a que termine.');
+        }
+        @set_time_limit(300);
+        try {
+            $code = Artisan::call('migrate', ['--force' => true]);
+            $output = trim(Artisan::output());
+        } catch (Throwable $e) {
+            $code = 1;
+            $output = trim(Artisan::output()."\n".$e->getMessage());
+        } finally {
+            $lock->release();
+        }
+        $after = $this->databaseState();
+        $ran = array_values(array_diff($state['pending'], $after['pending']));
+        $this->audit->record([
+            'tenantId' => null, 'actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}",
+            'action' => $code === 0 ? 'platform.database_migrated' : 'platform.database_migration_failed', 'entityType' => 'database', 'entityId' => null,
+            'before' => ['pending' => $state['pending']], 'after' => ['ran' => $ran, 'pending' => $after['pending']], 'ip' => $actor->ip, 'requestId' => $actor->requestId,
+        ]);
+        if ($code !== 0) {
+            Log::error('Falló la actualización de la base desde la plataforma: '.$output);
+            throw new AppError(500, 'MIGRATION_FAILED', 'La actualización se cortó. No la vuelvas a intentar sin revisar: restaurá el respaldo o consultá el detalle.', ['ran' => $ran, 'output' => mb_substr($output, -4000)]);
+        }
+
+        return $this->json(['ran' => $ran, 'output' => mb_substr($output, -4000)] + $after);
+    }
+
+    /** @return array{server: string, supported: bool, pending: list<string>, applied: int} */
+    private function databaseState(): array
+    {
+        $version = (string) DB::selectOne('SELECT VERSION() AS v')->v;
+        $maria = stripos($version, 'mariadb') !== false;
+        preg_match('/^(\d+)\.(\d+)\.(\d+)/', $version, $m);
+        $n = isset($m[1]) ? [(int) $m[1], (int) $m[2], (int) $m[3]] : [0, 0, 0];
+        // DROP CONSTRAINT para los CHECK: MariaDB 10.2 o MySQL 8.0.19.
+        $supported = $maria ? $n >= [10, 2, 0] : $n >= [8, 0, 19];
+        $migrator = app('migrator');
+        $files = array_keys($migrator->getMigrationFiles(database_path('migrations')));
+        $ran = $migrator->getRepository()->repositoryExists() ? $migrator->getRepository()->getRan() : [];
+
+        return [
+            'server' => ($maria ? 'MariaDB ' : 'MySQL ').($m[0] ?? $version),
+            'supported' => $supported,
+            'pending' => array_values(array_diff($files, $ran)),
+            'applied' => count(array_intersect($files, $ran)),
+        ];
+    }
+
+    public function audit(Request $request): JsonResponse
+    {
+        ['page' => $page, 'pageSize' => $pageSize] = $this->pagination($request);
+        $query = AuditEntry::where(fn ($w) => $w->where('actor_type', 'platform')->orWhereNull('tenant_id'));
+        $total = (clone $query)->count();
+        $rows = $query->orderByDesc('at')->orderByDesc('id')->forPage($page, $pageSize)->get();
+
+        return $this->json([
+            'items' => $rows->map(fn (AuditEntry $r) => [
+                'id' => $r->id,
+                'tenantId' => $r->tenant_id,
+                'actorType' => $r->actor_type,
+                'actorId' => $r->actor_id,
+                'actorName' => $r->actor_name,
+                'action' => $r->action,
+                'entityType' => $r->entity_type,
+                'entityId' => $r->entity_id,
+                'before' => $r->before,
+                'after' => $r->after,
+                'ip' => $r->ip,
+                'requestId' => $r->request_id,
+                'at' => Dates::iso($r->at),
+            ])->all(),
+            'total' => $total,
+            'page' => $page,
+            'pageSize' => $pageSize,
+        ]);
+    }
+
+    private function assertTenantOpen(string $id): void
+    {
+        $tenant = Tenant::find($id) ?? throw AppError::notFound('Comercio');
+        if ($tenant->status === 'cancelled') {
+            throw AppError::conflict('TENANT_CANCELLED', 'El comercio está dado de baja');
+        }
+    }
+
+    /** @return array{actorType: string, actorId: string, actorName: string, ip: string, requestId: string} */
+    private function platformBy(PlatformActor $actor): array
+    {
+        return ['actorType' => 'platform', 'actorId' => $actor->platformUserId, 'actorName' => "Plataforma: {$actor->name}", 'ip' => $actor->ip, 'requestId' => $actor->requestId];
+    }
+
+    /** Forma de PlanDto. */
+    private function planDto(Plan $p): array
+    {
+        return [
+            'id' => $p->id,
+            'code' => $p->code,
+            'name' => $p->name,
+            'price' => (string) $p->price,
+            'currency' => $p->currency,
+            'trialDays' => $p->trial_days,
+            'active' => $p->active,
+            'limits' => (object) $p->limitMap(),
+            'features' => $p->featureList(),
+        ];
+    }
+}

@@ -32,6 +32,7 @@ export const PERMISSIONS = {
   'sales.void': { module: 'Ventas', label: 'Anular ventas' },
   'sales.return': { module: 'Ventas', label: 'Autorizar devoluciones' },
   'sales.offline': { module: 'Ventas', label: 'Vender sin conexión' },
+  'fiscal.issue': { module: 'Ventas', label: 'Emitir facturas electrónicas' },
   // Caja
   'cash.open': { module: 'Caja', label: 'Abrir caja' },
   'cash.close': { module: 'Caja', label: 'Cerrar caja' },

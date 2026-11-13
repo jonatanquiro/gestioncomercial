@@ -1,0 +1,186 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Branch;
+use App\Models\Membership;
+use App\Models\Product;
+use App\Models\Sale;
+use App\Models\Tenant;
+use App\Services\AuditService;
+use App\Services\CustomerAccountService;
+use App\Services\EntitlementsService;
+use App\Services\SalesService;
+use App\Services\TenantCuitGuard;
+use App\Support\Appearance;
+use App\Support\AppError;
+use App\Support\Catalog;
+use App\Support\Input;
+use App\Support\Money;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+
+/** Datos del comercio activo. El id sale siempre de la sesión, nunca del pedido. */
+class TenantController extends Controller
+{
+    /** Plazo de cambio impreso en el ticket de cambio si el comercio no lo configuró. */
+    public const DEFAULT_EXCHANGE_DAYS = 30;
+
+    public function __construct(
+        private readonly EntitlementsService $entitlements,
+        private readonly AuditService $audit,
+    ) {}
+
+    public function show(Request $request): JsonResponse
+    {
+        return $this->json($this->load($this->actor($request)->tenantId));
+    }
+
+    public function update(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $data = $this->body($request);
+        if (isset($data['email'])) {
+            $data['email'] = Input::email($data['email']);
+        }
+        $input = Input::validate($data, [
+            'tradeName' => ['required', 'string', 'max:120'],
+            'legalName' => ['nullable', 'string', 'max:160'],
+            'cuit' => ['nullable', 'string', Input::cuitRule()],
+            'taxCondition' => ['required', 'string', Rule::in(Catalog::taxConditions())],
+            'address' => ['nullable', 'string', 'max:200'],
+            'phone' => ['nullable', 'string', 'max:40'],
+            'email' => ['nullable', 'string', 'email', 'max:254'],
+            'settings' => ['required', 'array'],
+            'settings.allowNegativeStock' => ['present', Input::strictBoolean()],
+            'settings.priceRoundingStep' => ['present', Input::oneOfIntegers([0, 1, 5, 10, 50, 100])],
+            'settings.discountLimitPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Porcentaje inválido')],
+            'settings.referenceCatalog' => ['present', Input::strictBoolean()],
+            'settings.exchangeDays' => ['present', 'integer', 'min:0', 'max:365'],
+            'settings.accountTermDays' => ['present', 'integer', 'min:0', 'max:365'],
+        ], [
+            'settings.exchangeDays.integer' => 'Ingresá un número entero de días',
+            'settings.exchangeDays.min' => 'No puede ser negativo',
+            'settings.exchangeDays.max' => 'Como máximo 365 días',
+            'settings.accountTermDays.integer' => 'Ingresá un número entero de días',
+            'settings.accountTermDays.min' => 'No puede ser negativo',
+            'settings.accountTermDays.max' => 'Como máximo 365 días',
+        ]);
+        $discountLimit = Money::round($input['settings']['discountLimitPercent'] ?? SalesService::DEFAULT_DISCOUNT_LIMIT);
+        if (Money::of($discountLimit)->isGreaterThan(100)) {
+            throw AppError::validation([['path' => 'settings.discountLimitPercent', 'message' => 'El tope no puede superar el 100%']]);
+        }
+        $after = [
+            'tradeName' => $input['tradeName'],
+            'legalName' => $input['legalName'] ?? null,
+            'cuit' => Input::optionalCuit($input['cuit'] ?? null),
+            'taxCondition' => $input['taxCondition'],
+            'address' => $input['address'] ?? null,
+            'phone' => $input['phone'] ?? null,
+            'email' => $input['email'] ?? null,
+            'settings' => [
+                'allowNegativeStock' => (bool) $input['settings']['allowNegativeStock'],
+                'priceRoundingStep' => (int) $input['settings']['priceRoundingStep'],
+                'discountLimitPercent' => $discountLimit,
+                'referenceCatalog' => (bool) $input['settings']['referenceCatalog'],
+                'exchangeDays' => (int) $input['settings']['exchangeDays'],
+                'accountTermDays' => (int) $input['settings']['accountTermDays'],
+            ],
+        ];
+
+        return $this->json(DB::transaction(function () use ($actor, $after) {
+            $tenant = Tenant::whereKey($actor->tenantId)->lockForUpdate()->first() ?? throw AppError::notFound('Comercio');
+            if ($after['cuit'] !== $tenant->cuit) {
+                $guard = app(TenantCuitGuard::class);
+                $guard->assertAvailable($after['cuit'], $guard->ownersOfCurrent(), $tenant->id);
+            }
+            $before = [
+                'tradeName' => $tenant->trade_name,
+                'legalName' => $tenant->legal_name,
+                'cuit' => $tenant->cuit,
+                'taxCondition' => $tenant->tax_condition,
+                'address' => $tenant->address,
+                'phone' => $tenant->phone,
+                'email' => $tenant->email,
+                'settings' => $tenant->settings,
+            ];
+            $tenant->forceFill([
+                'trade_name' => $after['tradeName'],
+                'legal_name' => $after['legalName'],
+                'cuit' => $after['cuit'],
+                'tax_condition' => $after['taxCondition'],
+                'address' => $after['address'],
+                'phone' => $after['phone'],
+                'email' => $after['email'],
+                'settings' => $after['settings'],
+                'version' => $tenant->version + 1,
+            ])->save();
+            $this->audit->record([
+                'tenantId' => $actor->tenantId,
+                'actorType' => 'user',
+                'actorId' => $actor->userId,
+                'actorName' => $actor->userName,
+                'action' => 'tenant.updated',
+                'entityType' => 'tenant',
+                'entityId' => $actor->tenantId,
+                'before' => $before,
+                'after' => $after,
+                'ip' => $actor->ip,
+                'requestId' => $actor->requestId,
+            ]);
+
+            return $this->load($actor->tenantId);
+        }));
+    }
+
+    /** Forma de TenantDto. */
+    public function appearance(Request $request): JsonResponse
+    {
+        $actor = $this->actor($request);
+        $v = Appearance::validate($this->body($request));
+        DB::transaction(function () use ($actor, $v) {
+            $tenant = Tenant::whereKey($actor->tenantId)->lockForUpdate()->firstOrFail();
+            $before = $tenant->appearance ?? Appearance::DEFAULTS;
+            $tenant->forceFill(['appearance' => $v, 'version' => $tenant->version + 1])->save();
+            $this->audit->record(['tenantId' => $actor->tenantId, 'actorType' => 'user', 'actorId' => $actor->userId, 'actorName' => $actor->userName, 'action' => 'tenant.appearance_updated', 'entityType' => 'tenant', 'entityId' => $actor->tenantId, 'before' => [...$before, 'logoData' => ! empty($before['logoData'])], 'after' => [...$v, 'logoData' => ! empty($v['logoData'])], 'ip' => $actor->ip, 'requestId' => $actor->requestId]);
+        });
+
+        return $this->json($this->load($actor->tenantId));
+    }
+
+    private function load(string $tenantId): array
+    {
+        $t = Tenant::find($tenantId) ?? throw AppError::notFound('Comercio');
+
+        return [
+            'id' => $t->id,
+            'tradeName' => $t->trade_name,
+            'legalName' => $t->legal_name,
+            'cuit' => $t->cuit,
+            'taxCondition' => $t->tax_condition,
+            'address' => $t->address,
+            'phone' => $t->phone,
+            'email' => $t->email,
+            'businessTypeCode' => $t->business_type_code,
+            'status' => $t->status,
+            // Los comercios anteriores al ajuste toman el valor de su rubro.
+            'settings' => $t->settings + [
+                'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
+                'referenceCatalog' => (bool) (collect(Catalog::businessTypes())->firstWhere('code', $t->business_type_code)['defaultSettings']['referenceCatalog'] ?? true),
+                'exchangeDays' => self::DEFAULT_EXCHANGE_DAYS,
+                'accountTermDays' => CustomerAccountService::DEFAULT_TERM_DAYS,
+            ],
+            'appearance' => ($t->appearance ?? []) + Appearance::DEFAULTS,
+            'plan' => $this->entitlements->plan(),
+            'usage' => [
+                'branches' => Branch::where('status', 'active')->count(),
+                'users' => Membership::where('status', 'active')->count(),
+                'products' => Product::where('status', 'active')->count(),
+                // Para la guía de primeros pasos del inicio.
+                'hasSales' => Sale::exists(),
+            ],
+        ];
+    }
+}

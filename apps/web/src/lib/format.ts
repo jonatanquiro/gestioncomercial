@@ -1,8 +1,15 @@
 const dateTime = new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short' });
 const date = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium' });
 
-export const formatDateTime = (iso: string) => dateTime.format(new Date(iso));
-export const formatDate = (iso: string) => date.format(new Date(iso));
+/** Una fecha inválida muestra «—» en lugar de romper la pantalla (Intl lanza RangeError). */
+const safe = (f: Intl.DateTimeFormat, iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : f.format(d);
+};
+export const formatDateTime = (iso: string) => safe(dateTime, iso);
+export const formatDate = (iso: string) => safe(date, iso);
+/** Fecha sin hora («2026-11-20» → «20/11/2026»): no pasa por zonas horarias, así no se corre un día. */
+export const formatDay = (ymd: string) => (/^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd.split('-').reverse().join('/') : '—');
 
 export function formatCuit(cuit: string | null | undefined) {
   if (!cuit || cuit.length !== 11) return cuit ?? '';
@@ -10,9 +17,44 @@ export function formatCuit(cuit: string | null | undefined) {
 }
 
 export const TENANT_STATUS_LABELS: Record<string, string> = {
-  trial: 'Prueba',
+  trial: 'Período de prueba',
   active: 'Activo',
   past_due: 'Pago vencido',
   suspended: 'Suspendido',
   cancelled: 'Dado de baja',
 };
+
+const UNIT_SUFFIX: Record<string, string> = { unit: '', weight: ' kg', length: ' m', volume: ' l' };
+
+/** Cantidad para mostrar: "12" para unidades, "1,250 kg" para peso. */
+export function formatQty(value: string | null | undefined, saleMode = 'unit') {
+  if (value === null || value === undefined) return '—';
+  const [int = '0', frac = ''] = value.split('.');
+  const trimmed = frac.replace(/0+$/, '');
+  const negative = int.startsWith('-');
+  const digits = negative ? int.slice(1) : int;
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${negative ? '-' : ''}${grouped}${trimmed ? `,${trimmed}` : ''}${UNIT_SUFFIX[saleMode] ?? ''}`;
+}
+
+/** Porcentaje "23.08" → "23,08 %". */
+export const formatPercent = (value: string | null | undefined) => (value === null || value === undefined ? '—' : `${value.replace('.', ',')} %`);
+
+/**
+ * Convierte lo que se tipea al texto decimal que espera la API: "1.250,50" → "1250.50",
+ * "1250,5" → "1250.5", "1.250" → "1250" (punto de miles) y "1.25" → "1.25".
+ */
+export function parseDecimalInput(value: string) {
+  const v = value.trim().replace(/\s/g, '').replace(/^\$/, '');
+  if (v.includes(',')) return v.replace(/\./g, '').replace(',', '.');
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(v)) return v.replace(/\./g, '');
+  return v;
+}
+
+/** Texto de la API para un campo editable: "1250.50" → "1250,50", "12.000" → "12". */
+export function toInputDecimal(value: string | null | undefined) {
+  if (value === null || value === undefined) return '';
+  const [int = '0', frac = ''] = value.split('.');
+  const trimmed = frac.replace(/0+$/, '');
+  return trimmed ? `${int},${trimmed}` : int;
+}

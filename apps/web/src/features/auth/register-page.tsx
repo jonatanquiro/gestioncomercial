@@ -58,6 +58,10 @@ export function RegisterPage() {
             </Select>
           )}
         </Field>
+        {types.isError && <Alert>No se pudieron cargar los rubros: {errorMessage(types.error)}</Alert>}
+        {types.data?.length === 0 && (
+          <Alert>No hay rubros cargados en la base. En el servidor, corré «php artisan migrate» para cargarlos.</Alert>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Condición frente al IVA" error={e.taxCondition?.message}>
             {(p) => (

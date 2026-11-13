@@ -31,11 +31,11 @@ export function LoginPage() {
   });
 
   return (
-    <AuthLayout title="Iniciar sesión" subtitle="Ingresá con el email y la contraseña de tu cuenta.">
+    <AuthLayout title="Iniciar sesión" subtitle="Ingresá con tu email o nombre de usuario y tu contraseña.">
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         {error && <Alert>{error}</Alert>}
-        <Field label="Email" error={formState.errors.email?.message}>
-          {(p) => <Input {...p} type="email" autoComplete="email" autoFocus {...register('email')} />}
+        <Field label="Email o usuario" error={formState.errors.login?.message}>
+          {(p) => <Input {...p} autoComplete="username" autoCapitalize="none" spellCheck={false} autoFocus {...register('login')} />}
         </Field>
         <Field label="Contraseña" error={formState.errors.password?.message}>
           {(p) => <Input {...p} type="password" autoComplete="current-password" {...register('password')} />}

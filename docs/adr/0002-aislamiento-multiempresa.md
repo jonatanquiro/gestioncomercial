@@ -1,6 +1,6 @@
 # ADR 0002 · Aislamiento entre comercios con RLS y roles de base
 
-**Estado:** aceptada (Fase 2).
+**Estado:** reemplazada por [0006](0006-aislamiento-sin-rls.md) el 2026-10-25. MySQL no tiene RLS ni roles por transacción equivalentes.
 
 ## Decisión
 
