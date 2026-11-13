@@ -175,7 +175,7 @@ class RulesTest extends TestCase
             'cuit' => substr($cuit, 0, 2).'-'.substr($cuit, 2, 8).'-'.substr($cuit, 10),
             'taxCondition' => 'responsable_inscripto', 'address' => 'Av. Siempre Viva 742', 'phone' => '+54 11 5555-5555',
             'email' => 'Contacto@Test.local',
-            'settings' => ['allowNegativeStock' => ! $tenant['settings']['allowNegativeStock'], 'priceRoundingStep' => 50, 'referenceCatalog' => false, 'exchangeDays' => 15],
+            'settings' => ['allowNegativeStock' => ! $tenant['settings']['allowNegativeStock'], 'priceRoundingStep' => 50, 'referenceCatalog' => false, 'exchangeDays' => 15, 'accountTermDays' => 10],
         ]);
         $this->assertSame(200, $res->status, json_encode($res->body));
         $this->assertSame($cuit, $res->body['cuit']);
@@ -183,10 +183,11 @@ class RulesTest extends TestCase
         $this->assertSame(50, $res->body['settings']['priceRoundingStep']);
         $this->assertFalse($res->body['settings']['referenceCatalog']);
         $this->assertSame(15, $res->body['settings']['exchangeDays']);
+        $this->assertSame(10, $res->body['settings']['accountTermDays']);
 
-        $bad = $owner->put('/tenant', [...$res->body, 'settings' => ['allowNegativeStock' => 'si', 'priceRoundingStep' => 7, 'referenceCatalog' => true, 'exchangeDays' => 400]]);
+        $bad = $owner->put('/tenant', [...$res->body, 'settings' => ['allowNegativeStock' => 'si', 'priceRoundingStep' => 7, 'referenceCatalog' => true, 'exchangeDays' => 400, 'accountTermDays' => -1]]);
         $this->assertSame(400, $bad->status);
-        $this->assertEqualsCanonicalizing(['settings.allowNegativeStock', 'settings.priceRoundingStep', 'settings.exchangeDays'], array_column($bad->body['details'], 'path'));
+        $this->assertEqualsCanonicalizing(['settings.allowNegativeStock', 'settings.priceRoundingStep', 'settings.exchangeDays', 'settings.accountTermDays'], array_column($bad->body['details'], 'path'));
 
         $entry = collect($owner->get('/audit?entityType=tenant')->body['items'])->firstWhere('action', 'tenant.updated');
         $this->assertSame($tenant['tradeName'], $entry['before']['tradeName']);

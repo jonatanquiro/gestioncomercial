@@ -103,6 +103,8 @@ export const tenantSettingsSchema = z.object({
   referenceCatalog: z.boolean(),
   /** Días para cambiar lo comprado, impresos en el ticket de cambio. 0: sin plazo. */
   exchangeDays: z.number({ message: 'Ingresá un número de días' }).int('Ingresá un número entero de días').min(0, 'No puede ser negativo').max(365, 'Como máximo 365 días'),
+  /** Días para pagar a precio de contado lo que queda a cuenta corriente (ADR 0029). 0: va a precio de lista. */
+  accountTermDays: z.number({ message: 'Ingresá un número de días' }).int('Ingresá un número entero de días').min(0, 'No puede ser negativo').max(365, 'Como máximo 365 días'),
 });
 export type TenantSettings = z.infer<typeof tenantSettingsSchema>;
 

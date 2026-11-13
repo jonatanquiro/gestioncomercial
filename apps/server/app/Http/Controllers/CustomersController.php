@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Auth\Actor;
+use App\Models\AccountTerm;
 use App\Models\Customer;
 use App\Models\CustomerMovement;
 use App\Models\Sale;
@@ -35,6 +36,8 @@ class CustomersController extends Controller
             'withDebt' => ['nullable', 'in:true,false'],
             'status' => ['nullable', 'in:active,inactive,all'],
         ]);
+        // Lo que venció sin pagarse pasa a precio de lista antes de mostrar saldos (ADR 0029).
+        $this->accounts->applyOverdue($this->actor($request));
         $term = trim((string) ($q['q'] ?? ''));
         $digits = preg_replace('/\D/', '', $term);
         $query = Customer::query()
@@ -58,12 +61,17 @@ class CustomersController extends Controller
     /** Ficha con los últimos movimientos de la cuenta. */
     public function show(Request $request, string $id): JsonResponse
     {
-        $customer = Customer::find($id) ?? throw AppError::notFound('Cliente');
+        Customer::find($id) ?? throw AppError::notFound('Cliente');
+        $this->accounts->applyOverdue($this->actor($request), $id);
+        $customer = Customer::find($id);
+        $terms = CustomerAccountService::openTerms($id);
+        $termSales = Sale::whereIn('id', $terms->pluck('sale_id'))->pluck('number', 'id');
         $moves = CustomerMovement::where('customer_id', $id)->orderByDesc('created_at')->orderByDesc('id')->limit(200)->get();
         $sales = Sale::whereIn('id', $moves->pluck('sale_id')->filter())->get(['id', 'number', 'kind'])->keyBy('id');
         $users = User::whereIn('id', $moves->pluck('user_id')->unique())->pluck('name', 'id');
 
         return $this->json(self::dto($customer) + [
+            'terms' => $terms->map(fn (AccountTerm $t) => SalesController::termDto($t) + ['sale' => ['id' => $t->sale_id, 'number' => (int) ($termSales[$t->sale_id] ?? 0)]])->all(),
             'movements' => $moves->map(fn (CustomerMovement $m) => [
                 'id' => $m->id,
                 'kind' => $m->kind,

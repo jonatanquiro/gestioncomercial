@@ -159,7 +159,7 @@ export function SaleDetailPage() {
     <>
       <PageHeader
         title={`Venta N° ${s.number}`}
-        description={`${formatDateTime(s.confirmedAt)} · ${s.branchName} · ${s.registerName} · Atendió ${s.cashierName}${s.customer ? ` · Cliente: ${s.customer.name}` : ''}${s.priceList === 'cash' ? ' · Precios de contado' : ''}`}
+        description={`${formatDateTime(s.confirmedAt)} · ${s.branchName} · ${s.registerName} · Atendió ${s.cashierName}${s.customer ? ` · Cliente: ${s.customer.name}` : ''}${s.priceList === 'cash' ? ' · Precios de contado' : s.priceList === 'mixed' ? ' · Contado con recargo de lista' : ''}`}
         actions={
           <>
             <Button variant="secondary" disabled={!tenant.data} onClick={() => setPrinting('sale')}>

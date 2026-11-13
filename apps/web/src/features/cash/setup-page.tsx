@@ -218,7 +218,7 @@ function MethodDialog({ method, nextOrder, onClose }: { method: PaymentMethodDto
           <input type="checkbox" className="mt-0.5 size-4" checked={cashPrice} onChange={(e) => setCashPrice(e.target.checked)} />
           <span>
             Cobra a precio de contado
-            <span className="block text-xs text-slate-500">Si toda la venta se paga con medios de contado, se usa el precio de contado de cada artículo. Si se usa otro medio, toda la venta va a precio de lista.</span>
+            <span className="block text-xs text-slate-500">Lo que se paga con este medio va a precio de contado. Si una parte se paga con un medio sin esta marca, solo esa parte lleva el recargo de lista.</span>
           </span>
         </label>
         <label className="flex items-center gap-2 text-sm">

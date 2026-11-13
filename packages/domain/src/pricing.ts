@@ -68,3 +68,24 @@ export const lineTotal = (quantity: DecimalInput, unitPrice: DecimalInput, disco
 export function proportionalAmount(amount: DecimalInput, part: DecimalInput, whole: DecimalInput): string {
   return roundMoney(dec(amount).times(dec(part)).div(dec(whole)));
 }
+
+/**
+ * Pago mixto (ADR 0029): recargo de lista sobre lo que se paga con medios que no son de
+ * contado. Lo pagado así cubre mercadería por N × contado / lista; el resto es recargo.
+ */
+export function mixedSurcharge(nonCash: DecimalInput, cashTotal: DecimalInput, listTotal: DecimalInput): string {
+  if (!dec(listTotal).gt(cashTotal) || !dec(nonCash).gt(0)) return '0.00';
+  const covered = roundMoney(dec(nonCash).times(cashTotal).div(listTotal));
+  return roundMoney(dec(nonCash).minus(covered));
+}
+
+/** Lo que hay que cobrar con un medio que no es de contado para cubrir `cashAmount` de mercadería a precio de contado. */
+export function listAmountFor(cashAmount: DecimalInput, cashTotal: DecimalInput, listTotal: DecimalInput): string {
+  const r = dec(roundMoney(cashAmount));
+  if (!dec(listTotal).gt(cashTotal) || !r.gt(0)) return roundMoney(cashAmount);
+  const covered = (n: ReturnType<typeof dec>) => dec(roundMoney(n.times(cashTotal).div(listTotal)));
+  let n = dec(roundMoney(r.times(listTotal).div(cashTotal)));
+  while (covered(n).lt(r)) n = n.plus('0.01');
+  while (n.gt('0.01') && covered(n.minus('0.01')).gte(r)) n = n.minus('0.01');
+  return roundMoney(n);
+}

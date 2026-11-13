@@ -20,6 +20,7 @@ use App\Support\AppError;
 use App\Support\Money;
 use App\Support\Pricing;
 use Brick\Math\BigDecimal;
+use Brick\Math\RoundingMode;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -90,28 +91,103 @@ class SalesService
         return $this->pins->require($actor, 'sales.discount_unlimited', $input['authorization'] ?? null);
     }
 
-    /**
-     * Lista de precios de la venta (ADR 0023): de contado solo si todo se paga con medios de
-     * contado (o gift card, que ya se pagó). Si algo va con otro medio o a cuenta corriente, toda
-     * la venta va a precio de lista.
-     */
-    private function priceList(array $input): string
+    /** Días para pagar a precio de contado lo que queda a cuenta (ADR 0029). 0: va a precio de lista. */
+    public static function accountTermDays(string $tenantId): int
     {
-        if (BigDecimal::of(Money::round($input['accountAmount'] ?? '0'))->isPositive()) {
-            return 'list';
+        return (int) (Tenant::find($tenantId)->settings['accountTermDays'] ?? CustomerAccountService::DEFAULT_TERM_DAYS);
+    }
+
+    /**
+     * Cómo se paga la venta (ADR 0023 y 0029). A precio de contado va lo que se paga con medios de
+     * contado, gift card y, si hay plazo, lo que queda a cuenta. Lo que se paga con otros medios
+     * ($nonCash) va a precio de lista sobre la parte que cubre.
+     *
+     * @return array{mode: 'cash'|'list'|'mixed', nonCash: BigDecimal}
+     */
+    private function paymentMix(array $input, int $termDays): array
+    {
+        $account = BigDecimal::of(Money::round($input['accountAmount'] ?? '0'));
+        $cashLike = $termDays > 0 ? $account : BigDecimal::zero();
+        $nonCash = $termDays > 0 ? BigDecimal::zero() : $account;
+        foreach ($input['giftCards'] ?? [] as $card) {
+            $cashLike = $cashLike->plus(Money::round($card['amount'] ?? '0'));
         }
-        $ids = array_column($input['payments'] ?? [], 'paymentMethodId');
-        if ($ids === [] && ($input['giftCards'] ?? []) === []) {
-            return 'list';
-        }
-        $cash = PaymentMethod::whereIn('id', $ids)->pluck('cash_price', 'id');
-        foreach ($ids as $id) {
-            if (! ($cash[$id] ?? false)) {
-                return 'list';
+        $methods = PaymentMethod::whereIn('id', array_column($input['payments'] ?? [], 'paymentMethodId'))->pluck('cash_price', 'id');
+        foreach ($input['payments'] ?? [] as $p) {
+            $amount = BigDecimal::of(Money::round($p['amount']));
+            if ($methods[$p['paymentMethodId']] ?? false) {
+                $cashLike = $cashLike->plus($amount);
+            } else {
+                $nonCash = $nonCash->plus($amount);
             }
         }
+        $mode = ! $cashLike->isPositive() ? 'list' : ($nonCash->isPositive() ? 'mixed' : 'cash');
 
-        return 'cash';
+        return ['mode' => $mode, 'nonCash' => $nonCash];
+    }
+
+    /**
+     * Precio de la venta según cómo se paga: toda a contado, toda a lista, o mixta (las líneas a
+     * contado más el recargo de lo pagado con otros medios, repartido entre las líneas según su
+     * diferencia de lista). Devuelve también los totales a contado y a lista.
+     */
+    private function priceForPayments(array $input, bool $withPromotions, array $mix): array
+    {
+        $list = $this->price($input['lines'], $withPromotions, 'list');
+        if ($mix['mode'] === 'list') {
+            return $list + ['mode' => 'list', 'surcharge' => BigDecimal::zero(), 'cashTotal' => $list['total'], 'listTotal' => $list['total']];
+        }
+        $cash = $this->price($input['lines'], $withPromotions, 'cash');
+        $surcharge = BigDecimal::zero();
+        $mode = $mix['mode'];
+        if (! $list['total']->isGreaterThan($cash['total'])) {
+            // Sin diferencia de lista no hay recargo: lo que sea con otros medios va «a lista».
+            $mode = $mode === 'mixed' ? 'list' : 'cash';
+        } elseif ($mode === 'mixed') {
+            $surcharge = BigDecimal::of(Pricing::mixedSurcharge((string) $mix['nonCash'], Money::round($cash['total']), Money::round($list['total'])));
+            $cash['lines'] = self::spreadSurcharge($cash['lines'], $list['lines'], $surcharge);
+        }
+
+        return array_merge($cash, ['mode' => $mode, 'surcharge' => $surcharge, 'total' => $cash['total']->plus($surcharge), 'cashTotal' => $cash['total'], 'listTotal' => $list['total']]);
+    }
+
+    /** Reparte el recargo en centavos entre las líneas, según cuánto más vale cada una a lista. */
+    private static function spreadSurcharge(array $lines, array $listLines, BigDecimal $surcharge): array
+    {
+        $weights = [];
+        foreach ($lines as $i => $l) {
+            $weights[$i] = BigDecimal::max(BigDecimal::zero(), BigDecimal::of($listLines[$i]['lineTotal'])->minus($l['lineTotal']));
+        }
+        $sum = array_reduce($weights, fn ($a, $w) => $a->plus($w), BigDecimal::zero());
+        if ($sum->isZero()) {
+            $weights = array_map(fn ($l) => BigDecimal::of($l['lineTotal']), $lines);
+            $sum = array_reduce($weights, fn ($a, $w) => $a->plus($w), BigDecimal::zero());
+        }
+        $cents = $surcharge->multipliedBy(100)->toBigInteger()->toInt();
+        $shares = [];
+        $given = 0;
+        $rest = [];
+        foreach ($weights as $i => $w) {
+            $exact = $sum->isZero() ? BigDecimal::zero() : BigDecimal::of($cents)->multipliedBy($w)->dividedBy($sum, 6, RoundingMode::Down);
+            $shares[$i] = $exact->toScale(0, RoundingMode::Down)->toBigInteger()->toInt();
+            $rest[$i] = $exact->minus($shares[$i]);
+            $given += $shares[$i];
+        }
+        uasort($rest, fn ($a, $b) => $b->compareTo($a));
+        foreach (array_keys($rest) as $i) {
+            if ($given >= $cents) {
+                break;
+            }
+            $shares[$i]++;
+            $given++;
+        }
+        foreach ($lines as $i => $l) {
+            $amount = BigDecimal::of($shares[$i] ?? 0)->dividedBy(100, 2);
+            $lines[$i]['surcharge'] = Money::round($amount);
+            $lines[$i]['lineTotal'] = Money::round(BigDecimal::of($l['lineTotal'])->plus($amount));
+        }
+
+        return $lines;
     }
 
     /** $credit: lo devuelto en un cambio, que paga primero la venta nueva con el medio interno «exchange». */
@@ -121,9 +197,12 @@ class SalesService
         $warehouse = Warehouse::where('branch_id', $register->branch_id)->where('is_default', true)->first()
             ?? throw AppError::notFound('Depósito');
 
-        // Precios y promociones vigentes: lo que diga el pedido no cuenta. Un cambio no aplica promociones.
-        $priceList = $credit === null ? $this->priceList($input) : 'list';
-        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discountTotal, 'total' => $total] = $this->price($input['lines'], $credit === null, $priceList);
+        // Precios y promociones vigentes: lo que diga el pedido no cuenta. Un cambio no aplica promociones
+        // ni precio de contado.
+        $termDays = $credit === null ? self::accountTermDays($actor->tenantId) : 0;
+        $mix = $credit === null ? $this->paymentMix($input, $termDays) : ['mode' => 'list', 'nonCash' => BigDecimal::zero()];
+        $priced = $this->priceForPayments($input, $credit === null, $mix);
+        ['lines' => $lines, 'subtotal' => $subtotal, 'discountTotal' => $discountTotal, 'total' => $total, 'mode' => $priceList, 'surcharge' => $surcharge] = $priced;
         if (! $total->isEqualTo($input['expectedTotal'])) {
             throw new AppError(409, 'PRICE_CHANGED', 'Cambió el precio de algún artículo o una promoción: revisá el total antes de cobrar', [
                 'total' => Money::round($total),
@@ -135,6 +214,10 @@ class SalesService
         // Las gift cards y la cuenta del cliente se bloquean antes de tocar nada: dos cajas no pueden gastar el mismo saldo.
         $cards = $this->giftCards->lockForPayment($input['giftCards'] ?? []);
         $onAccount = BigDecimal::of(Money::round($input['accountAmount'] ?? '0'));
+        if ($onAccount->isPositive() && ($input['customerId'] ?? null)) {
+            // Primero lo que ya venció de este cliente, así el límite se controla con la deuda real.
+            $this->accounts->applyOverdue($actor, $input['customerId']);
+        }
         $customer = ($input['customerId'] ?? null) ? $this->accounts->customer($input['customerId'], $onAccount->isPositive()) : null;
         if ($onAccount->isPositive()) {
             if (! $customer) {
@@ -171,7 +254,9 @@ class SalesService
             'cashier_id' => $actor->userId,
             'subtotal' => Money::round($subtotal),
             'discount_total' => Money::round($discountTotal),
+            'surcharge_total' => Money::round($surcharge),
             'total' => Money::round($total),
+            'list_total' => Money::round($priced['listTotal']),
             'change_given' => Money::round($change),
             'discount_authorized_by' => $discountAuthorizedBy,
             'confirmed_at' => Carbon::now(),
@@ -192,6 +277,7 @@ class SalesService
                 'discount_amount' => $l['amounts']['discount'],
                 'promotion_id' => $l['promotion']?->id,
                 'promotion_discount' => $l['promotionDiscount'],
+                'surcharge_amount' => $l['surcharge'] ?? '0.00',
                 'vat_rate' => $l['product']->vat_rate,
                 'line_total' => $l['lineTotal'],
             ]);
@@ -207,12 +293,18 @@ class SalesService
         $this->recordPayments($actor, $shift, $sale, $payments);
         $this->giftCards->redeem($actor, $cards, $sale);
         if ($onAccount->isPositive()) {
-            $this->accounts->charge($actor, $customer, $sale, $onAccount);
+            // A precio de contado con plazo: si vence con saldo, toda la venta pasa a lista (ADR 0029).
+            $late = $priced['listTotal']->minus($priced['cashTotal'])->minus($surcharge);
+            $term = $termDays > 0 && $priceList !== 'list' && $late->isPositive()
+                ? ['dueOn' => now('America/Buenos_Aires')->addDays($termDays)->toDateString(), 'cashTotal' => Money::round($priced['cashTotal']), 'lateSurcharge' => Money::round($late)]
+                : null;
+            $this->accounts->charge($actor, $customer, $sale, $onAccount, $term);
         }
 
         $this->record($actor, 'sale.created', $sale->id, [
             'number' => $sale->number, 'total' => $sale->total, 'discountTotal' => $sale->discount_total,
             'discountAuthorizedBy' => $discountAuthorizedBy, 'lines' => count($lines), 'customerId' => $customer?->id, 'onAccount' => Money::round($onAccount),
+            'priceList' => $priceList, 'surcharge' => Money::round($surcharge),
         ]);
 
         return $sale;
@@ -470,6 +562,7 @@ class SalesService
         try {
             $sale = DB::transaction(function () use ($actor, $customerId, $register, $input) {
                 $shift = $this->cash->lockOpenShift($register->id);
+                $this->accounts->applyOverdue($actor, $customerId);
                 $customer = $this->accounts->customer($customerId, true);
                 $amount = BigDecimal::of(Money::round($input['amount']));
                 if ($amount->isGreaterThan($customer->balance)) {

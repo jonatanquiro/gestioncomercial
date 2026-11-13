@@ -13,14 +13,14 @@ import { Field, Input, Select } from '@/components/ui/field';
 import { Alert, Card, EmptyState, PageHeader, Pager, Spinner, Table, Td, Th } from '@/components/ui/misc';
 import { useToast } from '@/components/ui/toast';
 import { ApiRequestError, errorMessage, http } from '@/lib/api';
-import { formatCuit, formatDateTime, parseDecimalInput } from '@/lib/format';
+import { formatCuit, formatDateTime, formatDay, parseDecimalInput } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { CustomerForm } from './customer-form';
 
 const PAGE_SIZE = 25;
 const MONEY = /^\d+(\.\d{1,2})?$/;
 
-const MOVEMENT_LABELS = { sale: 'Compra a cuenta', payment: 'Pago', return: 'Devolución', void: 'Anulación', adjustment: 'Ajuste' } as const;
+const MOVEMENT_LABELS = { sale: 'Compra a cuenta', payment: 'Pago', return: 'Devolución', void: 'Anulación', adjustment: 'Ajuste', surcharge: 'Pasó a precio de lista' } as const;
 
 export const documentLabel = (type: number | null, number: string | null) =>
   type && number ? `${CUSTOMER_DOCUMENT_TYPES[type as keyof typeof CUSTOMER_DOCUMENT_TYPES]} ${type === 96 ? Number(number).toLocaleString('es-AR') : formatCuit(number)}` : null;
@@ -168,6 +168,24 @@ export function CustomerDetailPage() {
           {c.creditLimit !== null && <p className="text-xs text-slate-500">Disponible: {formatArs(roundMoney(dec(c.creditLimit).minus(c.balance).gt(0) ? dec(c.creditLimit).minus(c.balance) : dec(0)))}</p>}
         </Card>
       </div>
+      {c.terms.length > 0 && (
+        <Card className="mb-4">
+          <h2 className="border-b border-slate-200 px-4 py-3 font-semibold">A precio de contado hasta el vencimiento</h2>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {c.terms.map((t) => (
+              <li key={t.sale.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3">
+                <span>
+                  <Link to="/app/ventas/$id" params={{ id: t.sale.id }} className="font-semibold text-brand-700 hover:underline">
+                    Venta N° {t.sale.number}
+                  </Link>
+                  : debe {formatArs(t.pending)} a contado hasta el {formatDay(t.dueOn)}
+                </span>
+                <span className="text-slate-600">Si no paga para esa fecha, pasa a precio de lista: {formatArs(roundMoney(dec(t.pending).plus(t.lateSurcharge)))}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <Card>
         <h2 className="border-b border-slate-200 px-4 py-3 font-semibold">Movimientos</h2>
         {c.movements.length === 0 ? (

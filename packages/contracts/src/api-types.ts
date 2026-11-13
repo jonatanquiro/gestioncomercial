@@ -458,9 +458,24 @@ export interface SaleLineDto {
   /** Promoción aplicada a la línea y cuánto descontó (ADR 0020). */
   promotionName: string | null;
   promotionDiscount: string;
+  /** Parte del recargo por pagar con medios que no son de contado (ADR 0029); ya está en total. */
+  surchargeAmount: string;
   vatRate: VatRate;
   total: string;
   returnedQuantity: string;
+}
+
+/** Plazo para pagar a precio de contado lo que una venta dejó a cuenta corriente (ADR 0029). */
+export interface AccountTermDto {
+  /** Último día para pagar a precio de contado. */
+  dueOn: string;
+  amount: string;
+  /** Lo que falta pagar a precio de contado. */
+  pending: string;
+  /** Lo que se suma si vence con saldo: la venta entera pasa a precio de lista. */
+  lateSurcharge: string;
+  status: 'open' | 'paid' | 'surcharged' | 'voided';
+  surchargeApplied: string | null;
 }
 
 export interface SaleDto {
@@ -473,11 +488,17 @@ export interface SaleDto {
   registerName: string;
   shiftId: string;
   cashierName: string;
-  /** Lista con la que se cobró: «cash» si todo se pagó con medios de contado. */
-  priceList: 'list' | 'cash';
+  /** cash: todo a precio de contado · list: todo a lista · mixed: contado más el recargo de lo pagado con otros medios. */
+  priceList: 'list' | 'cash' | 'mixed';
   subtotal: string;
   discountTotal: string;
+  /** Recargo de lista por lo pagado con medios que no son de contado (ADR 0029). */
+  surchargeTotal: string;
   total: string;
+  /** La venta entera a precio de lista; null en ventas viejas. */
+  listTotal: string | null;
+  /** Si dejó saldo a cuenta con plazo a precio de contado. */
+  accountTerm: AccountTermDto | null;
   changeGiven: string;
   discountAuthorizedBy: string | null;
   /** sale: venta de mercadería · gift_card: venta de una tarjeta · account_payment: cobro de cuenta corriente. */
@@ -548,9 +569,11 @@ export interface CustomerListDto extends Paginated<CustomerDto> {
 }
 
 export interface CustomerDetailDto extends CustomerDto {
+  /** Compras a cuenta que todavía están a precio de contado. */
+  terms: Array<AccountTermDto & { sale: { id: string; number: number } }>;
   movements: Array<{
     id: string;
-    kind: 'sale' | 'payment' | 'return' | 'void' | 'adjustment';
+    kind: 'sale' | 'payment' | 'return' | 'void' | 'adjustment' | 'surcharge';
     amount: string;
     balanceAfter: string;
     createdAt: string;

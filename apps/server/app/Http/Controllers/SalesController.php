@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Auth\Actor;
 use App\Mail\SaleReceiptMail;
+use App\Models\AccountTerm;
 use App\Models\Branch;
 use App\Models\Customer;
 use App\Models\FiscalInvoice;
@@ -406,6 +407,19 @@ class SalesController extends Controller
         return Sale::query()->when(! $actor->can('sales.read_all'), fn ($w) => $w->where('cashier_id', $actor->userId));
     }
 
+    /** Plazo a precio de contado de lo que la venta dejó a cuenta (ADR 0029). */
+    public static function termDto(AccountTerm $t): array
+    {
+        return [
+            'dueOn' => $t->due_on->toDateString(),
+            'amount' => Money::round($t->amount),
+            'pending' => Money::round($t->pending_amount),
+            'lateSurcharge' => Money::round($t->late_surcharge),
+            'status' => $t->status,
+            'surchargeApplied' => $t->surcharge_amount === null ? null : Money::round($t->surcharge_amount),
+        ];
+    }
+
     /** Forma de SaleDto: lo necesario para el detalle y para imprimir el ticket. */
     private function dto(Sale $sale, Actor $actor): array
     {
@@ -424,6 +438,7 @@ class SalesController extends Controller
         $origin = $sale->exchange_return_id ? SaleReturn::find($sale->exchange_return_id) : null;
         $exchangedFor = Sale::whereIn('exchange_return_id', $returns->pluck('id'))->get(['id', 'number', 'exchange_return_id'])->keyBy('exchange_return_id');
         $giftCard = GiftCard::where('sale_id', $sale->id)->first();
+        $term = AccountTerm::where('sale_id', $sale->id)->first();
 
         return [
             'id' => $sale->id,
@@ -437,7 +452,10 @@ class SalesController extends Controller
             'cashierName' => $users[$sale->cashier_id] ?? '',
             'subtotal' => Money::round($sale->subtotal),
             'discountTotal' => Money::round($sale->discount_total),
+            'surchargeTotal' => Money::round($sale->surcharge_total ?? '0'),
             'total' => Money::round($sale->total),
+            'listTotal' => $sale->list_total === null ? null : Money::round($sale->list_total),
+            'accountTerm' => $term ? self::termDto($term) : null,
             'changeGiven' => Money::round($sale->change_given),
             'discountAuthorizedBy' => $users[$sale->discount_authorized_by] ?? null,
             'kind' => $sale->kind,
@@ -457,6 +475,7 @@ class SalesController extends Controller
                 'discountAmount' => Money::round($l->discount_amount),
                 'promotionName' => $promotionNames[$l->promotion_id] ?? null,
                 'promotionDiscount' => Money::round($l->promotion_discount),
+                'surchargeAmount' => Money::round($l->surcharge_amount ?? '0'),
                 'vatRate' => $l->vat_rate,
                 'total' => Money::round($l->line_total),
                 'returnedQuantity' => Money::quantity($l->returned_quantity),

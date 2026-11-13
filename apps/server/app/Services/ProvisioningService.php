@@ -66,6 +66,7 @@ class ProvisioningService
                 'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
                 'referenceCatalog' => (bool) ($businessType->default_settings['referenceCatalog'] ?? true),
                 'exchangeDays' => TenantController::DEFAULT_EXCHANGE_DAYS,
+                'accountTermDays' => CustomerAccountService::DEFAULT_TERM_DAYS,
             ],
         ]);
 

@@ -8,6 +8,8 @@ const safe = (f: Intl.DateTimeFormat, iso: string) => {
 };
 export const formatDateTime = (iso: string) => safe(dateTime, iso);
 export const formatDate = (iso: string) => safe(date, iso);
+/** Fecha sin hora («2026-11-20» → «20/11/2026»): no pasa por zonas horarias, así no se corre un día. */
+export const formatDay = (ymd: string) => (/^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd.split('-').reverse().join('/') : '—');
 
 export function formatCuit(cuit: string | null | undefined) {
   if (!cuit || cuit.length !== 11) return cuit ?? '';

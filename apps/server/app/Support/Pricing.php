@@ -121,6 +121,40 @@ final class Pricing
         return Money::round(Money::divide(Money::of($amount)->multipliedBy($part), $whole));
     }
 
+    /**
+     * Pago mixto (ADR 0029): recargo de lista sobre lo que se paga con medios que no son de
+     * contado. Lo pagado así cubre mercadería por N × contado / lista; el resto es recargo.
+     */
+    public static function mixedSurcharge(string $nonCash, string $cashTotal, string $listTotal): string
+    {
+        if (! Money::of($listTotal)->isGreaterThan($cashTotal) || ! Money::of($nonCash)->isPositive()) {
+            return '0.00';
+        }
+        $covered = Money::round(Money::divide(Money::of($nonCash)->multipliedBy($cashTotal), $listTotal));
+
+        return Money::round(Money::of($nonCash)->minus($covered));
+    }
+
+    /** Lo que hay que cobrar con un medio que no es de contado para cubrir $cashAmount de mercadería a precio de contado. */
+    public static function listAmountFor(string $cashAmount, string $cashTotal, string $listTotal): string
+    {
+        $r = Money::of(Money::round($cashAmount));
+        if (! Money::of($listTotal)->isGreaterThan($cashTotal) || ! $r->isPositive()) {
+            return Money::round($cashAmount);
+        }
+        $covered = fn (BigDecimal $n) => Money::of(Money::round(Money::divide($n->multipliedBy($cashTotal), $listTotal)));
+        $cent = BigDecimal::of('0.01');
+        $n = Money::of(Money::round(Money::divide($r->multipliedBy($listTotal), $cashTotal)));
+        while ($covered($n)->isLessThan($r)) {
+            $n = $n->plus($cent);
+        }
+        while ($n->isGreaterThan($cent) && $covered($n->minus($cent))->isGreaterThanOrEqualTo($r)) {
+            $n = $n->minus($cent);
+        }
+
+        return Money::round($n);
+    }
+
     private static function factor(string $percent): BigDecimal
     {
         return BigDecimal::one()->plus(Money::divide($percent, '100'));

@@ -137,6 +137,13 @@ function SettingsForm({ tenant }: { tenant: TenantDto }) {
         <Field label="Plazo para cambios (días)" error={e.settings?.exchangeDays?.message} hint="Se imprime en el ticket de cambio y el sistema avisa si ya venció. Con 0 no se imprime plazo.">
           {(p) => <Input {...p} inputMode="numeric" className="max-w-40" {...register('settings.exchangeDays', { setValueAs: (v: string) => (/^\d+$/.test(String(v).trim()) ? Number(v) : NaN) })} />}
         </Field>
+        <Field
+          label="Plazo para pagar a precio de contado lo que queda a cuenta corriente (días)"
+          error={e.settings?.accountTermDays?.message}
+          hint="Si el cliente deja saldo a cuenta, lo debe a precio de contado hasta ese día. Si no lo pagó, la venta pasa a precio de lista. Con 0, lo que va a cuenta se cobra siempre a precio de lista."
+        >
+          {(p) => <Input {...p} inputMode="numeric" className="max-w-40" {...register('settings.accountTermDays', { setValueAs: (v: string) => (/^\d+$/.test(String(v).trim()) ? Number(v) : NaN) })} />}
+        </Field>
       </Card>
       <div className="flex justify-end">
         <Button type="submit" loading={save.isPending}>

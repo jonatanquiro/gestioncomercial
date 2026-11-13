@@ -285,6 +285,78 @@
         "1"
       ],
       "expected": "14.17"
+    },
+    {
+      "fn": "mixedSurcharge",
+      "args": [
+        "24000",
+        "50000",
+        "60000"
+      ],
+      "expected": "4000.00"
+    },
+    {
+      "fn": "mixedSurcharge",
+      "args": [
+        "0",
+        "50000",
+        "60000"
+      ],
+      "expected": "0.00"
+    },
+    {
+      "fn": "mixedSurcharge",
+      "args": [
+        "5000",
+        "50000",
+        "50000"
+      ],
+      "expected": "0.00"
+    },
+    {
+      "fn": "mixedSurcharge",
+      "args": [
+        "11700",
+        "11700",
+        "14700"
+      ],
+      "expected": "2387.76"
+    },
+    {
+      "fn": "listAmountFor",
+      "args": [
+        "20000",
+        "50000",
+        "60000"
+      ],
+      "expected": "24000.00"
+    },
+    {
+      "fn": "listAmountFor",
+      "args": [
+        "8700",
+        "11700",
+        "14700"
+      ],
+      "expected": "10930.77"
+    },
+    {
+      "fn": "listAmountFor",
+      "args": [
+        "100.01",
+        "300",
+        "333"
+      ],
+      "expected": "111.01"
+    },
+    {
+      "fn": "listAmountFor",
+      "args": [
+        "500",
+        "500",
+        "500"
+      ],
+      "expected": "500.00"
     }
   ]
 }

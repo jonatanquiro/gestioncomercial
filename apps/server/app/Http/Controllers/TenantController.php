@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\Tenant;
 use App\Services\AuditService;
+use App\Services\CustomerAccountService;
 use App\Services\EntitlementsService;
 use App\Services\SalesService;
 use App\Services\TenantCuitGuard;
@@ -58,10 +59,14 @@ class TenantController extends Controller
             'settings.discountLimitPercent' => ['nullable', ...Input::decimal(Input::PERCENT, 'Porcentaje inválido')],
             'settings.referenceCatalog' => ['present', Input::strictBoolean()],
             'settings.exchangeDays' => ['present', 'integer', 'min:0', 'max:365'],
+            'settings.accountTermDays' => ['present', 'integer', 'min:0', 'max:365'],
         ], [
             'settings.exchangeDays.integer' => 'Ingresá un número entero de días',
             'settings.exchangeDays.min' => 'No puede ser negativo',
             'settings.exchangeDays.max' => 'Como máximo 365 días',
+            'settings.accountTermDays.integer' => 'Ingresá un número entero de días',
+            'settings.accountTermDays.min' => 'No puede ser negativo',
+            'settings.accountTermDays.max' => 'Como máximo 365 días',
         ]);
         $discountLimit = Money::round($input['settings']['discountLimitPercent'] ?? SalesService::DEFAULT_DISCOUNT_LIMIT);
         if (Money::of($discountLimit)->isGreaterThan(100)) {
@@ -81,6 +86,7 @@ class TenantController extends Controller
                 'discountLimitPercent' => $discountLimit,
                 'referenceCatalog' => (bool) $input['settings']['referenceCatalog'],
                 'exchangeDays' => (int) $input['settings']['exchangeDays'],
+                'accountTermDays' => (int) $input['settings']['accountTermDays'],
             ],
         ];
 
@@ -164,6 +170,7 @@ class TenantController extends Controller
                 'discountLimitPercent' => SalesService::DEFAULT_DISCOUNT_LIMIT.'.00',
                 'referenceCatalog' => (bool) (collect(Catalog::businessTypes())->firstWhere('code', $t->business_type_code)['defaultSettings']['referenceCatalog'] ?? true),
                 'exchangeDays' => self::DEFAULT_EXCHANGE_DAYS,
+                'accountTermDays' => CustomerAccountService::DEFAULT_TERM_DAYS,
             ],
             'appearance' => ($t->appearance ?? []) + Appearance::DEFAULTS,
             'plan' => $this->entitlements->plan(),

@@ -3,7 +3,7 @@ import { dec, formatArs, roundMoney } from '@gc/domain';
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { BarcodeSvg } from '@/components/barcode-svg';
-import { formatCuit, formatDate, formatDateTime, formatQty } from '@/lib/format';
+import { formatCuit, formatDate, formatDateTime, formatDay, formatQty } from '@/lib/format';
 import { exchangeDeadline, saleTicketCode } from './exchange-ticket';
 import { formatGiftCardCode, GiftCardSheet, GiftCardTicket } from '@/features/gift-cards/gift-card-ticket';
 
@@ -52,7 +52,7 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
               {formatQty(l.quantity, l.saleMode)} x {formatArs(l.unitPrice)}
               {l.discountPercent !== '0.00' && ` −${l.discountPercent.replace('.', ',')}%`}
             </span>
-            <span>{formatArs(l.total)}</span>
+            <span>{formatArs(roundMoney(dec(l.total).minus(l.surchargeAmount ?? '0')))}</span>
           </div>
           {l.promotionName && <div>  {l.promotionName} −{formatArs(l.promotionDiscount)}</div>}
         </div>
@@ -64,21 +64,52 @@ export function Ticket({ sale, tenant }: { sale: SaleDto; tenant: TenantDto }) {
           <Row label="Descuentos" value={`−${formatArs(sale.discountTotal)}`} />
         </>
       )}
+      {dec(sale.surchargeTotal ?? '0').gt(0) && (
+        <>
+          <Row label="Total a precio de contado" value={formatArs(roundMoney(dec(sale.total).minus(sale.surchargeTotal)))} />
+          <Row label={`Recargo de lista (${surchargedWith(sale)})`} value={formatArs(sale.surchargeTotal)} />
+        </>
+      )}
       <div className="flex justify-between text-[15px] font-bold">
         <span>TOTAL</span>
         <span>{formatArs(sale.total)}</span>
       </div>
       {sale.priceList === 'cash' && <div>Precios de contado</div>}
-      {sale.payments.map((p, i) => (
+      {sale.payments.map((p, i) => [p, i] as const).sort(([a], [b]) => Number(a.kind === 'account') - Number(b.kind === 'account')).map(([p, i]) => (
         <Row key={i} label={p.name} value={formatArs(p.kind === 'cash' && i === lastCash(sale) ? addChange(p.amount, sale.changeGiven) : p.amount)} />
       ))}
       {sale.changeGiven !== '0.00' && <Row label="Su vuelto" value={formatArs(sale.changeGiven)} />}
+      {sale.accountTerm && (
+        <>
+          <hr className="my-1 border-dashed border-black" />
+          <div className="flex justify-between font-bold">
+            <span>SALDO A CUENTA</span>
+            <span>{formatArs(sale.accountTerm.amount)}</span>
+          </div>
+          <div>A precio de contado pagando hasta el {formatDay(sale.accountTerm.dueOn)}.</div>
+          <div>
+            Desde el {formatDay(nextDay(sale.accountTerm.dueOn))}, a precio de lista: {formatArs(roundMoney(dec(sale.accountTerm.amount).plus(sale.accountTerm.lateSurcharge)))}
+          </div>
+        </>
+      )}
       {sale.status === 'voided' && <div className="mt-1 text-center font-bold">*** VENTA ANULADA ***</div>}
       <hr className="my-1 border-dashed border-black" />
       <div className="text-center font-bold">Comprobante no válido como factura</div>
       <div className="text-center">¡Gracias por su compra!</div>
     </div>
   );
+}
+
+/** Medios que no son de contado con que se pagó (los que llevan el recargo de lista). */
+function surchargedWith(sale: SaleDto) {
+  const names = sale.payments.filter((p) => !['cash', 'gift_card', 'account', 'exchange'].includes(p.kind)).map((p) => p.name.toLowerCase());
+  return [...new Set(names)].join(' y ') || 'otros medios';
+}
+
+/** El día siguiente a una fecha «AAAA-MM-DD», sin pasar por zonas horarias. */
+function nextDay(ymd: string) {
+  const [y, m, d] = ymd.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
 
 const Row = ({ label, value }: { label: string; value: string }) => (

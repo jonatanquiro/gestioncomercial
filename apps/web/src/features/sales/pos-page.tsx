@@ -17,6 +17,7 @@ import { ApiRequestError, errorMessage, http } from '@/lib/api';
 import { formatQty, parseDecimalInput, toInputDecimal } from '@/lib/format';
 import { useCan } from '@/lib/session';
 import { PinDialog } from './pin-dialog';
+import { lateSurcharge, remainingFor, saleTotal } from './payment-mix';
 import { type Authorization, needsAuthorization, paymentMethodsQuery, registersQuery, rememberedRegister, rememberRegister } from './queries';
 import { type PrintKind, PrintTicket } from './ticket';
 import { SendReceipt } from './send-receipt';
@@ -830,29 +831,52 @@ function CheckoutDialog({
   // Lo que se carga a la cuenta corriente del cliente: hasta lo que tiene disponible.
   const can = useCan();
   const [account, setAccount] = useState<string | null>(null);
-  // Lista de precios (ADR 0023): contado solo si todo se paga con medios de contado; si no, toda la venta a precio de lista.
-  const usedRows = rows.filter((r, i) => r.amount.trim() !== '' || (i === 0 && rows.length === 1));
-  const allCash = account === null && usedRows.every((r) => byId.get(r.paymentMethodId)?.cashPrice);
+  // Precio de contado y de lista (ADR 0023 y 0029): efectivo, gift card y cuenta corriente con plazo
+  // van a contado; lo que se paga con otros medios, a lista solo sobre la parte que cubre.
+  const tenant = useQuery(tenantQuery);
+  const termDays = tenant.data?.settings.accountTermDays ?? 7;
   const differs = dec(cashTotal).lt(listTotal);
-  const total = allCash ? cashTotal : listTotal;
+  const isCashLike = (methodId: string) => !!byId.get(methodId)?.cashPrice;
   const available = customer ? dec(customer.creditLimit ?? '0').minus(customer.balance) : dec(0);
   const canAccount = !!customer && can('accounts.grant_credit') && available.gt(0);
   const cardsTotal = sumMoney([...cards.map((c) => c.amount), account ?? '0']);
-  const due = dec(total).minus(cardsTotal).gt(0) ? roundMoney(dec(total).minus(cardsTotal)) : '0.00';
-  const coveredByCards = (cards.length > 0 || account !== null) && !dec(due).gt(0) && rows.length === 1 && rows[0]!.amount.trim() === '';
+  const internal = { cashLike: [...cards.map((c) => c.amount), ...(account !== null && termDays > 0 ? [account] : [])], nonCash: account !== null && termDays <= 0 ? [account] : [] };
+  const isAmount = (a: string) => /^\d+(\.\d{1,2})?$/.test(a);
+  /** Mezcla de pagos sin la fila `skip`: lo cargado a contado y lo cargado con otros medios. */
+  const mixWithout = (values: string[], skip: number) => ({
+    cashTotal,
+    listTotal,
+    cashLike: [...internal.cashLike, ...values.filter((a, i) => i !== skip && isAmount(a) && isCashLike(rows[i]!.paymentMethodId))],
+    nonCash: [...internal.nonCash, ...values.filter((a, i) => i !== skip && isAmount(a) && !isCashLike(rows[i]!.paymentMethodId))],
+  });
+  /** Lo que falta si el resto se paga con este medio (en efectivo, el contado; con tarjeta, con su recargo). */
+  const restFor = (values: string[], skip: number, methodId: string) => remainingFor(isCashLike(methodId) ? 'cash' : 'list', mixWithout(values, skip));
+  const single = rows.length === 1 && rows[0]!.amount.trim() === '';
+  const typed = rows.map((r) => parseDecimalInput(r.amount));
+  const due = single ? restFor(typed, 0, rows[0]!.paymentMethodId) : '0.00';
+  const coveredByCards = (cards.length > 0 || account !== null) && single && !dec(due).gt(0);
 
-  const amounts = rows.map((r, i) => (r.amount.trim() === '' && i === 0 && rows.length === 1 ? due : parseDecimalInput(r.amount)));
-  const amountsValid = amounts.every((a) => /^\d+(\.\d{1,2})?$/.test(a));
+  const amounts = rows.map((r, i) => (single && i === 0 ? due : typed[i]!));
+  const amountsValid = amounts.every(isAmount);
+  const mix = mixWithout(amountsValid ? amounts : [], -1);
+  const { total, surcharge } = saleTotal(mix);
   const paid = amountsValid ? sumMoney([cardsTotal, ...amounts]) : '0.00';
   const missing = dec(total).minus(paid);
+  const missingCash = remainingFor('cash', mix);
+  const missingList = remainingFor('list', mix);
   const nonCash = amountsValid ? sumMoney([cardsTotal, ...amounts.filter((_, i) => byId.get(rows[i]!.paymentMethodId)?.kind !== 'cash')]) : '0.00';
   const change = missing.lt(0) ? roundMoney(missing.negated()) : '0.00';
   const ready = amountsValid && missing.lte(0) && dec(nonCash).lte(total);
   const row = rows[active]!;
   const method = byId.get(row.paymentMethodId);
-  const others = sumMoney([cardsTotal, ...amounts.filter((a, i) => i !== active && /^\d+(\.\d{1,2})?$/.test(a))]);
-  const rest = dec(total).minus(others);
-  const remaining = rest.gt(0) ? roundMoney(rest) : '0.00';
+  const remaining = restFor(amounts, active, row.paymentMethodId);
+  // Lo que falta sin contar la fila vacía de «lo que falta»: hasta ahí se puede cargar a cuenta o a la gift card.
+  const base = mixWithout(amountsValid ? amounts : [], single ? 0 : -1);
+  const cashRoom = remainingFor('cash', base);
+  const accountRest = termDays > 0 ? cashRoom : remainingFor('list', base);
+  const cashNames = methods.filter((m) => m.cashPrice).map((m) => m.name.toLowerCase());
+  const late = account !== null && termDays > 0 && differs ? lateSurcharge(mix) : '0.00';
+  const dueOn = new Date(Date.now() + termDays * 86_400_000).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'America/Buenos_Aires' });
 
   const confirm = useMutation({
     mutationFn: (authorization: Authorization) => {
@@ -898,12 +922,15 @@ function CheckoutDialog({
   }
   const setRow = (i: number, patch: Partial<PaymentRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const choose = (methodId: string) => {
-    setRow(active, { paymentMethodId: methodId });
+    // Si el importe era «lo que falta» con el medio anterior, se recalcula con el precio del nuevo.
+    const auto = row.amount.trim() !== '' && isAmount(typed[active]!) && dec(typed[active]!).eq(restFor(amounts, active, row.paymentMethodId));
+    setRow(active, auto ? { paymentMethodId: methodId, amount: toInputDecimal(restFor(amounts, active, methodId)) } : { paymentMethodId: methodId });
     setTarget(byId.get(methodId)?.requiresReference ? 'reference' : 'amount');
   };
   const splitRest = () => {
     const other = methods.find((m) => m.kind !== 'cash') ?? cash;
-    setRows((rs) => [...rs, { paymentMethodId: other?.id ?? '', amount: toInputDecimal(roundMoney(missing)), reference: '' }]);
+    const rest = remainingFor(other && isCashLike(other.id) ? 'cash' : 'list', mix);
+    setRows((rs) => [...rs, { paymentMethodId: other?.id ?? '', amount: toInputDecimal(rest), reference: '' }]);
     setActive(rows.length);
     setTarget('amount');
   };
@@ -918,16 +945,18 @@ function CheckoutDialog({
         <form onSubmit={submit} className="space-y-4" noValidate>
           {error && <Alert>{error}</Alert>}
           {differs && (
-            <div className={`rounded-xl px-4 py-2 text-sm ${allCash ? 'bg-emerald-50 text-emerald-900' : 'bg-amber-50 text-amber-900'}`} role="status">
-              {allCash ? (
-                <>
-                  <span className="font-semibold">Precio de contado.</span> A precio de lista sería {formatArs(listTotal)}.
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold">Precio de lista.</span> Pagando todo en efectivo sería {formatArs(cashTotal)}.
-                </>
-              )}
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm" role="status">
+              <div className="flex flex-wrap gap-x-6 gap-y-1">
+                <span>
+                  Precio de contado <span className="font-bold text-emerald-800">{formatArs(cashTotal)}</span>
+                </span>
+                <span>
+                  Precio de lista <span className="font-bold">{formatArs(listTotal)}</span>
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                {[...cashNames, 'gift card', ...(termDays > 0 ? [`cuenta corriente (${termDays} ${termDays === 1 ? 'día' : 'días'} para pagar a contado)`] : [])].join(', ').replace(/^./, (c) => c.toUpperCase())} van a precio de contado. Con otros medios se paga a precio de lista solo la parte que cubren.
+              </p>
             </div>
           )}
           {rows.length > 1 && (
@@ -948,7 +977,12 @@ function CheckoutDialog({
             <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
               <span>
                 A cuenta corriente de <span className="font-semibold">{customer!.name}</span>: {formatArs(account)}
-                <span className="block text-xs text-slate-600">Va a deber {formatArs(roundMoney(dec(customer!.balance).plus(account)))}</span>
+                {dec(late).gt(0) && (
+                  <span className="block text-xs text-slate-700">
+                    A precio de contado hasta el {dueOn}. Si para esa fecha no lo pagó, la venta pasa a precio de lista: debería {formatArs(roundMoney(dec(account).plus(late)))}.
+                  </span>
+                )}
+                <span className="block text-xs text-slate-600">Va a deber {formatArs(roundMoney(dec(customer!.balance).plus(account)))} en total</span>
               </span>
               <button type="button" className="rounded-full p-2 text-slate-500 hover:text-red-700" aria-label="Quitar lo cargado a cuenta" onClick={() => setAccount(null)}>
                 <X className="size-4" />
@@ -956,15 +990,15 @@ function CheckoutDialog({
             </div>
           ) : (
             canAccount &&
-            dec(total).minus(cardsTotal).gt(0) && (
-              <Button variant="ghost" size="sm" onClick={() => setAccount(roundMoney(available.lt(dec(total).minus(cardsTotal)) ? available : dec(total).minus(cardsTotal)))}>
+            dec(accountRest).gt(0) && (
+              <Button variant="ghost" size="sm" onClick={() => setAccount(roundMoney(available.lt(accountRest) ? available : accountRest))}>
                 Cargar a cuenta corriente (disponible {formatArs(roundMoney(available))})
               </Button>
             )
           )}
           <GiftCardPayment
             cards={cards}
-            room={roundMoney(dec(total).minus(cardsTotal))}
+            room={cashRoom}
             onAdd={(card, amount) => (setCards((cs) => [...cs, { card, amount }]), setError(null))}
             onRemove={(code) => setCards((cs) => cs.filter((c) => c.card.code !== code))}
           />
@@ -1048,10 +1082,30 @@ function CheckoutDialog({
           )}
           <div className="space-y-1 rounded-xl bg-slate-100 p-4">
             <div className="flex justify-between text-sm">
+              <span>Total de la venta</span>
+              <span className="font-semibold">{formatArs(total)}</span>
+            </div>
+            {dec(surcharge).gt(0) && (
+              <p className="text-xs text-slate-600">
+                Contado {formatArs(cashTotal)} + recargo de lista {formatArs(surcharge)} por lo que se paga con {[...new Set(rows.filter((r, i) => isAmount(amounts[i]!) && dec(amounts[i]!).gt(0) && !isCashLike(r.paymentMethodId)).map((r) => byId.get(r.paymentMethodId)?.name.toLowerCase()))].join(' y ') || 'otros medios'}.
+              </p>
+            )}
+            <div className="flex justify-between text-sm">
               <span>Pagado</span>
               <span className="font-semibold">{formatArs(paid)}</span>
             </div>
-            {missing.gt(0) ? (
+            {missing.gt(0) && differs ? (
+              <div className="text-red-700">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-lg">Falta en efectivo</span>
+                  <span className="text-3xl font-bold">{formatArs(missingCash)}</span>
+                </div>
+                <div className="flex items-baseline justify-between text-sm">
+                  <span>o con tarjeta, transferencia u otro medio</span>
+                  <span className="text-lg font-semibold">{formatArs(missingList)}</span>
+                </div>
+              </div>
+            ) : missing.gt(0) ? (
               <div className="flex items-baseline justify-between text-red-700">
                 <span className="text-lg">Falta</span>
                 <span className="text-3xl font-bold">{formatArs(roundMoney(missing))}</span>
